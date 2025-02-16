@@ -20,6 +20,7 @@ lazy_static! {
     static ref IDT: InterruptDescriptorTable = {
         let mut idt = InterruptDescriptorTable::new();
         idt.breakpoint.set_handler_fn(breakpoint_handler);
+        idt.page_fault.set_handler_fn(page_fault_handler); // ADD THIS LINE
         unsafe {
             idt.double_fault.set_handler_fn(double_fault_handler)
                 .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
@@ -28,7 +29,6 @@ lazy_static! {
             idt[InterruptIndex::Keyboard.as_usize()]
                 .set_handler_fn(keyboard_interrupt_handler);
         }
-
         idt
     };
 }
@@ -46,7 +46,15 @@ extern "x86-interrupt" fn breakpoint_handler(
 extern "x86-interrupt" fn double_fault_handler(
     stack_frame: InterruptStackFrame, _error_code: u64) -> !
 {
-    panic!("EXCEPTION: DOUBLE FAULT\n{:#?}", stack_frame);
+    use x86_64::registers::control::Cr2;
+    
+    println!("\n\nDOUBLE FAULT");
+    //println!("Instruction Pointer: {:?}", stack_frame.instruction_pointer);
+    //println!("Stack Pointer: {:?}", stack_frame.stack_pointer);
+    //println!("Code Segment: {}", stack_frame.code_segment);
+    //println!("CPU Flags: {:b}", stack_frame.cpu_flags);
+    //println!("CR2: {:?}", Cr2::read());
+    panic!("System halted");
 }
 
 extern "x86-interrupt" fn timer_interrupt_handler(

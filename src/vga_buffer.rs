@@ -22,19 +22,38 @@ fn test_println_many() {
 
 #[test_case]
 fn test_println_output() {
-    let s = "Some test string that fits on a single line";
-    println!("{}", s);
-    for (i, c) in s.chars().enumerate() {
-        let screen_char = WRITER.lock().buffer.chars[0][i].read(); // Changed to [0] for top line
-        assert_eq!(char::from(screen_char.ascii_character), c);
-    }
+    use core::fmt::Write;
+    use x86_64::instructions::interrupts;
+
+    interrupts::without_interrupts(|| {
+        let mut writer = WRITER.lock();
+        // Clear the screen and reset positions to ensure a clean slate.
+        writer.clear_screen();
+        writer.column_position = 0;
+        writer.row_position = 0;
+        writer.input_start_column = 0;
+        writer.input_start_row = 0;
+
+        // Print the string without an extra leading newline.
+        writeln!(writer, "{}", "Some test string that fits on a single line")
+            .expect("writeln failed");
+
+        // Now, the string should be exactly at row 0.
+        let s = "Some test string that fits on a single line";
+        for (i, c) in s.chars().enumerate() {
+            let screen_char = writer.buffer.chars[0][i].read();
+            assert_eq!(char::from(screen_char.ascii_character), c);
+        }
+    });
 }
+
 
 lazy_static! {
     pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
         column_position: 0,
-        row_position: 0, // INITIALIZED TO 0
-        input_start_column: 0, // ADDED: Initialize input_start_column to 0
+        row_position: 0,
+        input_start_column: 0,
+        input_start_row: 0, // NEW
         color_code: ColorCode::new(Color::White, Color::Black),
         buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
     });
@@ -72,7 +91,7 @@ pub enum Color {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
-struct ColorCode(u8);
+pub struct ColorCode(u8);
 
 impl ColorCode {
     fn new(foreground: Color, background: Color) -> ColorCode {
@@ -82,25 +101,26 @@ impl ColorCode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
-struct ScreenChar {
-    ascii_character: u8,
-    color_code: ColorCode,
+pub struct ScreenChar {
+    pub ascii_character: u8,
+    pub color_code: ColorCode,
 }
 
-const BUFFER_HEIGHT: usize = 25;
-const BUFFER_WIDTH: usize = 80;
+pub const BUFFER_HEIGHT: usize = 25;
+pub const BUFFER_WIDTH: usize = 80;
 
 #[repr(transparent)]
-struct Buffer {
-    chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT],
+pub struct Buffer {
+    pub chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT],
 }
 
 pub struct Writer {
     pub column_position: usize,
-    row_position: usize, // ADDED
-    pub input_start_column: usize, // ADDED
-    color_code: ColorCode,
-    buffer: &'static mut Buffer,
+    pub row_position: usize,
+    pub input_start_column: usize,
+    pub input_start_row: usize, // NEW FIELD
+    pub color_code: ColorCode,
+    pub buffer: &'static mut Buffer,
 }
 
 impl Writer {
@@ -127,26 +147,32 @@ impl Writer {
         self.set_cursor_pos(); // Update cursor after each byte write
     }
 
-    fn backspace(&mut self) {
-        if self.column_position > self.input_start_column { // Check if column_position is greater than input_start_column
+    pub fn backspace(&mut self) {
+        // Check if we're past the input start position (either in column or row)
+        if self.row_position > self.input_start_row || 
+           (self.row_position == self.input_start_row && 
+            self.column_position > self.input_start_column) {
+            
             if self.column_position > 0 {
                 self.column_position -= 1;
-            } else if self.row_position > 0 {
+            } else {
+                // Move to previous row if at start of line
                 self.row_position -= 1;
-                self.column_position = BUFFER_WIDTH - 1; // Move to the end of the previous line
+                self.column_position = BUFFER_WIDTH - 1;
             }
-            // Overwrite the character with a space
+    
+            // Clear the character at current position
             let blank = ScreenChar {
                 ascii_character: b' ',
                 color_code: self.color_code,
             };
-            let row = self.row_position;
-            let col = self.column_position;
-            self.buffer.chars[row][col].write(blank);
+            self.buffer.chars[self.row_position][self.column_position].write(blank);
+            self.set_cursor_pos();
         }
     }
 
-    fn new_line(&mut self) {
+
+    pub fn new_line(&mut self) {
         self.column_position = 0;
         self.row_position += 1;
         if self.row_position >= BUFFER_HEIGHT {
@@ -164,7 +190,7 @@ impl Writer {
         }
     }
 
-    fn clear_screen(&mut self) {
+    pub fn clear_screen(&mut self) {
         for row in 0..BUFFER_HEIGHT {
             self.clear_row(row);
         }
@@ -173,7 +199,6 @@ impl Writer {
         self.input_start_column = 0; // Reset input_start_column on clear screen, if needed
         self.set_cursor_pos(); // Update cursor after clear screen
     }
-
 
     fn clear_row(&mut self, row: usize) {
         let blank = ScreenChar {
@@ -197,7 +222,7 @@ impl Writer {
     }
 
     // Sets the hardware cursor position
-    fn set_cursor_pos(&mut self) {
+    pub fn set_cursor_pos(&mut self) {
         let pos = self.row_position * BUFFER_WIDTH + self.column_position;
 
         // VGA cursor control ports
@@ -227,8 +252,9 @@ pub fn print_something() {
     use core::fmt::Write;
     let mut writer = Writer {
         column_position: 0,
-        row_position: 0, // INITIALIZED TO 0
-        input_start_column: 0, // ADDED: Initialize input_start_column to 0
+        row_position: 0,
+        input_start_column: 0,
+        input_start_row: 0, // NEW
         color_code: ColorCode::new(Color::White, Color::Black),
         buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
     };
@@ -240,7 +266,7 @@ pub fn print_something() {
 
 // ----- MACROS ----- //
 #[macro_export]
-macro_rules! print {    
+macro_rules! print {
     ($($arg:tt)*) => ($crate::vga_buffer::_print(format_args!($($arg)*)));
 }
 
@@ -264,22 +290,6 @@ pub fn _print(args: fmt::Arguments) {
         // Set input_start_column right after printing the initial prompt, only if it's the very first print
         if writer.row_position == 0 && initial_column == 0 { // Check if we are at the beginning of first row
             writer.input_start_column = writer.column_position;
-        }
-    });
-}
-
-#[test_case]
-fn test_println_output() {
-    use core::fmt::Write;
-    use x86_64::instructions::interrupts;
-
-    let s = "Some test string that fits on a single line";
-    interrupts::without_interrupts(|| {
-        let mut writer = WRITER.lock();
-        writeln!(writer, "\n{}", s).expect("writeln failed");
-        for (i, c) in s.chars().enumerate() {
-            let screen_char = writer.buffer.chars[1][i].read(); // Changed to [1] to check second line after newline. If start from top, newline will push to next line.
-            assert_eq!(char::from(screen_char.ascii_character), c);
         }
     });
 }

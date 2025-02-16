@@ -15,6 +15,7 @@ pub mod gdt;
 pub mod memory;
 pub mod allocator;
 pub mod task;
+pub mod fs;
 
 #[cfg(test)]
 use bootloader::{entry_point, BootInfo};
@@ -93,5 +94,21 @@ pub fn init() {
 pub fn hlt_loop() -> ! {
     loop {
         x86_64::instructions::hlt();
+    }
+}
+
+#[repr(align(512))]
+pub struct Align512<T>(T);
+pub fn align_buffer(buffer: [u8; 512]) -> Align512<[u8; 512]> {
+    Align512(buffer)
+}
+
+impl<T> Align512<T> {
+    pub fn inner(&self) -> &T {
+        &self.0
+    }
+
+    pub fn inner_mut(&mut self) -> &mut T {
+        &mut self.0
     }
 }

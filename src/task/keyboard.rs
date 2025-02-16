@@ -1,10 +1,14 @@
 // keyboard.rs
+
+extern crate alloc;
+
 use conquer_once::spin::OnceCell;
 use crossbeam_queue::ArrayQueue;
 
 use futures_util::stream::StreamExt;
 use pc_keyboard::{layouts, DecodedKey, HandleControl, Keyboard, ScancodeSet1, KeyCode};
 use crate::print;
+use alloc::string::String;
 
 // use crate::task::keyboard::DecodedKey::RawKey; // Remove this line
 
@@ -72,30 +76,73 @@ impl Stream for ScancodeStream {
 
 pub async fn print_keypresses() {
     use crate::vga_buffer::WRITER;
-    // use pc_keyboard::KeyCode; // Import KeyCode for comparison - already imported
+    use core::fmt::Write;
 
     let mut scancodes = ScancodeStream::new();
-    let mut keyboard = Keyboard::new(ScancodeSet1::new(),
-        layouts::Us104Key, HandleControl::Ignore);
+    let mut keyboard = Keyboard::new(ScancodeSet1::new(), layouts::Us104Key, HandleControl::Ignore);
+    let mut input_buffer = String::new();
+
+    // Print initial prompt
+    {
+        let mut writer = WRITER.lock();
+        write!(writer, "test@nullex: $ ").unwrap();
+        writer.input_start_column = writer.column_position;
+        writer.input_start_row = writer.row_position;
+    }
 
     while let Some(scancode) = scancodes.next().await {
         if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
             if let Some(key) = keyboard.process_keyevent(key_event) {
                 match key {
-                    DecodedKey::Unicode(character) => print!("{}", character),
-                    DecodedKey::RawKey(raw_key) => {
-                        match raw_key {
-                            KeyCode::Backspace => {
-                                if WRITER.lock().column_position > WRITER.lock().input_start_column {
-                                    WRITER.lock().write_byte(8); // ASCII code for backspace
+                    DecodedKey::Unicode(character) => {
+                        if character == '\n' {
+                            // ENTER key pressed
+                            {
+                                let mut writer = WRITER.lock();
+                                writer.new_line();
+
+                                if !input_buffer.is_empty() {
+                                    write!(writer, "{}\n", input_buffer).unwrap(); // Echo input
+                                    input_buffer.clear(); // ✅ Clear input_buffer properly
                                 }
+
+
+                                // Print new prompt
+                                write!(writer, "test@nullex: $ ").unwrap();
+                                writer.input_start_column = writer.column_position; // <--- ADDED THIS LINE!
                             }
-                            KeyCode::F1 => { // Example: F1 key to clear screen
-                                clear_screen();
-                            }
-                            _ => print!("{:?}", raw_key), // For other raw keys, print debug info
+                        } else {
+                            // Store & print character
+                            input_buffer.push(character);
+                            let mut writer = WRITER.lock();
+                            writer.write_byte(character as u8);
                         }
                     }
+                    DecodedKey::RawKey(raw_key) => match raw_key {
+                        KeyCode::Backspace => {
+                            if !input_buffer.is_empty() {
+                                input_buffer.pop();
+                                let mut writer = WRITER.lock();
+                                writer.backspace();
+                                // Ensure buffer is cleared if empty (optional)
+                                if input_buffer.is_empty() {
+                                    input_buffer.clear();
+                                }
+                            }
+                        }
+                        KeyCode::F1 => {
+                            // Clear screen (optional feature)
+                            {
+                                let mut writer = WRITER.lock();
+                                writer.clear_screen();
+                            }
+                            input_buffer.clear();
+                            let mut writer = WRITER.lock();
+                            write!(writer, "test@nullex: $ ").unwrap();
+                            writer.input_start_column = writer.column_position;
+                        }
+                        _ => {}
+                    },
                 }
             }
         }
