@@ -1,3 +1,4 @@
+use alloc::{borrow::ToOwned, string::{String, ToString}, vec::Vec};
 // vga_buffer.rs
 use volatile::Volatile;
 use core::fmt;
@@ -6,7 +7,7 @@ use spin::Mutex;
 use uart_16550::SerialPort;
 use x86_64::instructions::{interrupts, port::Port};
 
-use crate::println;
+use crate::{println, print};
 
 #[test_case]
 fn test_println_simple() {
@@ -148,20 +149,16 @@ impl Writer {
     }
 
     pub fn backspace(&mut self) {
-        // Check if we're past the input start position (either in column or row)
         if self.row_position > self.input_start_row || 
            (self.row_position == self.input_start_row && 
             self.column_position > self.input_start_column) {
-            
             if self.column_position > 0 {
                 self.column_position -= 1;
             } else {
-                // Move to previous row if at start of line
                 self.row_position -= 1;
                 self.column_position = BUFFER_WIDTH - 1;
             }
-    
-            // Clear the character at current position
+            // Clear the character
             let blank = ScreenChar {
                 ascii_character: b' ',
                 color_code: self.color_code,
@@ -213,9 +210,7 @@ impl Writer {
     pub fn write_string(&mut self, s: &str) {
         for byte in s.bytes() {
             match byte {
-                // printable ASCII byte or newline
-                0x20..=0x7e | b'\n' | b'\x08' => self.write_byte(byte), // Added backspace to allowed chars
-                // not part of printable ASCII range
+                0x20..=0x7e | b'\n' | b'\x08' => self.write_byte(byte),
                 _ => self.write_byte(0xfe),
             }
         }
@@ -275,6 +270,12 @@ macro_rules! println {
     () => ($crate::print!("\n"));
     ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
 }
+
+#[macro_export]
+macro_rules! printnl {
+    () => ($crate::print!("\n"));
+}
+
 
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {

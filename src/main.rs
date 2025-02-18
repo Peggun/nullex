@@ -10,7 +10,7 @@ extern crate alloc;
 use core::panic::PanicInfo;
 
 use bootloader::{entry_point, BootInfo};
-use nullex::{align_buffer, allocator, fs::{ata::AtaDisk, ext2::superblock::Ext2Superblock}, hlt_loop, memory::{self, translate_addr, BootInfoFrameAllocator}, println, task::{executor::Executor, keyboard, Task}, vga_buffer::clear_screen};
+use nullex::{align_buffer, allocator, fs::{self, ata::AtaDisk, ramfs::{FileSystem, Permission}}, hlt_loop, memory::{self, translate_addr, BootInfoFrameAllocator}, println, task::{executor::Executor, keyboard, Task}, vga_buffer::clear_screen};
 use x86_64::VirtAddr;
 use zerocopy::FromBytes;
 
@@ -40,10 +40,26 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         BootInfoFrameAllocator::init(&boot_info.memory_map)
     };
 
-    allocator::init_heap(&mut mapper, &mut frame_allocator)
-        .expect("heap initialization failed");
+    match allocator::init_heap(&mut mapper, &mut frame_allocator) {
+        Ok(()) => println!("Heap initialized successfully"),
+        Err(e) => panic!("Heap initialization failed: {:?}", e),
+    }
 
-    read_ext2(boot_info);
+    let test_addr = VirtAddr::new(0x4444_4444_0000);
+    let phys_addr = unsafe { translate_addr(test_addr, phys_mem_offset) }
+        .expect("Failed to translate heap address");
+    println!("Heap phys addr: {:?}", phys_addr);
+
+    let mut fs = FileSystem::new();
+
+    fs.create_file("/hello.txt", Permission::all()).unwrap();
+    fs.write_file("/hello.txt", b"Hello Kernel World!").unwrap();
+    
+    fs.create_dir("/mydir", Permission::all()).unwrap();
+    fs.create_file("/mydir/test.txt", Permission::all()).unwrap();
+    fs.write_file("/mydir/test.txt", b"Secret message").unwrap();
+
+    fs::init_fs(fs);
 
     clear_screen();
 
@@ -51,21 +67,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     //executor.spawn(Task::new(example_task()));
     executor.spawn(Task::new(keyboard::print_keypresses()));
     executor.run();
-}
-
-fn read_ext2(boot_info: &'static BootInfo) {
-    // 3. Force stack-allocated buffer alignment
-    let mut sector = align_buffer([0u8; 512]);
-    
-    // 4. Verify LBA calculation (ext2 superblock is at LBA 2 for 512b sectors)
-    let lba = 2;
-    
-    // 5. Print full diagnostic info
-    println!(
-        "Buffer: virt={:?} phys={:?}",
-        VirtAddr::from_ptr(sector.inner().as_ptr()),
-        unsafe { translate_addr(VirtAddr::from_ptr(sector.inner().as_ptr()), VirtAddr::new(boot_info.physical_memory_offset)) }
-    );
 }
 
 /// This function is called on panic.

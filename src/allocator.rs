@@ -17,12 +17,17 @@ use x86_64::{
 };
 
 pub const HEAP_START: usize = 0x_4444_4444_0000;
-pub const HEAP_SIZE: usize = 100 * 1024; // 100 KiB
+pub const HEAP_SIZE: usize = 1024 * 1024; // Increased to 1 MiB
 
 // fixed is better performance wise.
 #[global_allocator]
-static ALLOCATOR: Locked<FixedSizeBlockAllocator> = Locked::new(
-    FixedSizeBlockAllocator::new());
+static ALLOCATOR: Locked<LinkedListAllocator> = Locked::new(
+    LinkedListAllocator::new());
+
+#[alloc_error_handler]
+fn alloc_error_handler(layout: alloc::Layout) -> ! {
+    panic!("Allocation error: {:?}", layout)
+}
 
 pub fn init_heap(
     mapper: &mut impl Mapper<Size4KiB>,

@@ -1,5 +1,7 @@
 extern crate alloc;
 
+use crate::println;
+
 use super::{Task, TaskId};
 use alloc::{collections::BTreeMap, sync::Arc};
 use core::task::{Context, Poll, Waker};
@@ -30,6 +32,7 @@ impl Executor {
     }
 
     fn run_ready_tasks(&mut self) {
+        //println!("Running tasks...");
         // destructure `self` to avoid borrow checker errors
         let Self {
             tasks,
@@ -65,11 +68,12 @@ impl Executor {
     }
 
     fn sleep_if_idle(&self) {
-        use x86_64::instructions::interrupts::{self, enable_and_hlt};
-
+        use x86_64::instructions::interrupts;
+        
+        // Atomically check queue state
         interrupts::disable();
         if self.task_queue.is_empty() {
-            enable_and_hlt();
+            interrupts::enable_and_hlt();
         } else {
             interrupts::enable();
         }

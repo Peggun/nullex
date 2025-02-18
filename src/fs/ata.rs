@@ -2,7 +2,6 @@
 use core::convert::TryInto;
 use x86_64::{instructions::{interrupts, port::Port}, structures::idt::InterruptStackFrame, VirtAddr};
 use zerocopy::FromBytes;
-use crate::{fs::ext2::superblock::Ext2Superblock, hlt_loop, println};
 
 pub struct AtaDisk {
     data_port: Port<u16>,

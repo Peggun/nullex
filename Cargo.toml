@@ -1,12 +1,11 @@
 [package]
 name = "nullex"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 
 [dependencies]
 volatile = "0.2.6"
 bootloader = { version = "0.9", features = ["map_physical_memory"] }
-spin = "0.9.8"
 x86_64 = "0.14.2"
 uart_16550 = "0.3.2"
 pic8259 = "0.10.1"
@@ -16,7 +15,10 @@ vga = "0.2.9" # just in case
 zerocopy = { version = "0.8.18", features = ["derive"] }
 bytemuck = "1.21.0"
 libc = "0.2.169"
+genfs = "0.1.4"
+spin = "0.9.8"
 bitflags = "2.8.0"
+hashbrown = { version = "0.15.2", features = ["inline-more"] }
 
 [dependencies.lazy_static]
 version = "1.0"
