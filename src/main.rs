@@ -10,9 +10,12 @@ extern crate alloc;
 use core::panic::PanicInfo;
 
 use bootloader::{entry_point, BootInfo};
-use nullex::{align_buffer, allocator, fs::{self, ata::AtaDisk, ramfs::{FileSystem, Permission}}, hlt_loop, memory::{self, translate_addr, BootInfoFrameAllocator}, println, task::{executor::Executor, keyboard, Task}, vga_buffer::clear_screen};
+use nullex::{align_buffer, allocator, fs::{self, ata::AtaDisk, ramfs::{FileSystem, Permission}}, hlt_loop, memory::{self, translate_addr, BootInfoFrameAllocator}, println, task::{executor::Executor, keyboard, Task}, vga_buffer::WRITER};
 use x86_64::VirtAddr;
 use zerocopy::FromBytes;
+
+use vga::colors::{Color16, TextModeColor};
+use vga::writers::{ScreenCharacter, TextWriter, Text80x25};
 
 entry_point!(kernel_main);
 
@@ -48,7 +51,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     let test_addr = VirtAddr::new(0x4444_4444_0000);
     let phys_addr = unsafe { translate_addr(test_addr, phys_mem_offset) }
         .expect("Failed to translate heap address");
-    println!("Heap phys addr: {:?}", phys_addr);
+    //println!("Heap phys addr: {:?}", phys_addr);
 
     let mut fs = FileSystem::new();
 
@@ -61,7 +64,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     fs::init_fs(fs);
 
-    clear_screen();
+    WRITER.lock().clear_everything();
+    WRITER.lock().set_colors(Color16::White, Color16::Black);
 
     let mut executor = Executor::new(); // new
     //executor.spawn(Task::new(example_task()));

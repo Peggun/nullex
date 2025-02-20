@@ -19,6 +19,7 @@ genfs = "0.1.4"
 spin = "0.9.8"
 bitflags = "2.8.0"
 hashbrown = { version = "0.15.2", features = ["inline-more"] }
+crossbeam = { version = "0.8.4", default-features = false, features = ["alloc"] }
 
 [dependencies.lazy_static]
 version = "1.0"

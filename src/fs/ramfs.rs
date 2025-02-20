@@ -3,7 +3,7 @@ use core::{fmt, str};
 use alloc::{boxed::Box, string::{String, ToString}, vec::Vec};
 use hashbrown::HashMap;
 
-use crate::println;
+use crate::{println, task::keyboard::MemoryFile};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Permission {
@@ -66,6 +66,7 @@ pub enum FsError {
     PermissionDenied,
     AlreadyExists,
     InvalidPath,
+    DirectoryNotEmpty,
 }
 
 impl fmt::Display for FsError {
@@ -77,6 +78,7 @@ impl fmt::Display for FsError {
             Self::PermissionDenied => write!(f, "Permission denied"),
             Self::AlreadyExists => write!(f, "Entry already exists"),
             Self::InvalidPath => write!(f, "Invalid path"),
+            Self::DirectoryNotEmpty => write!(f, "Directory not empty"),
         }
     }
 }
@@ -126,43 +128,21 @@ impl FileSystem {
 
     pub fn write_file(&mut self, path: &str, content: &[u8]) -> Result<(), FsError> {
         let file = self.get_file_mut(path)?;
-        file.content = content.to_vec();
+        // Check if the file has write permission before appending
+        if !file.permission.write {
+            return Err(FsError::PermissionDenied);
+        }
+        // Append the new content instead of overwriting
+        file.content.extend_from_slice(content);
         Ok(())
     }
+    
 
     pub fn read_file(&self, path: &str) -> Result<&[u8], FsError> {
         let file = self.get_file(path)?;
         Ok(&file.content)
     }
-
-    // Command implementations
-    pub fn ls(&self, path: &str) -> Result<(), FsError> {
-        let dir = self.get_dir(path)?;
-        for (name, entry) in &dir.entries {
-            let typ = match entry {
-                Entry::File(_) => "File",
-                Entry::Directory(_) => "Dir",
-            };
-            println!("{} [{}]", name, typ);
-        }
-        Ok(())
-    }
-
-    pub fn cd(&mut self, path: &str) -> Result<(), FsError> {
-        let new_path = self.resolve_path(path)?;
-        self.current_path = new_path;
-        Ok(())
-    }
-
-    pub fn cat(&self, path: &str) -> Result<(), FsError> {
-        let content = self.read_file(path)?;
-        if let Ok(text) = str::from_utf8(content) {
-            println!("{}", text);
-        } else {
-            println!("<binary data: {} bytes>", content.len());
-        }
-        Ok(())
-    }
+    
 
     // Helper functions
     fn path_components(path: &str) -> Result<Vec<String>, FsError> {
@@ -283,6 +263,35 @@ impl FileSystem {
                 }
             }
             Err(_) => false
+        }
+    }
+
+    pub fn remove(&mut self, path: &str) -> Result<(), FsError> { 
+        let (parent_components, name) = Self::split_path(path)?; let parent_dir = self.get_dir_mut_from_components(&parent_components)?;
+
+        // Check parent directory's write permission
+        if !parent_dir.permission.write {
+            return Err(FsError::PermissionDenied);
+        }
+        
+        // Check if the entry exists
+        let entry = parent_dir.entries.get(&name).ok_or(FsError::EntryNotFound)?;
+        
+        match entry {
+            Entry::Directory(dir) => {
+                // Check if the directory is empty
+                if dir.entries.is_empty() {
+                    parent_dir.entries.remove(&name);
+                    Ok(())
+                } else {
+                    // Return a new error variant for non-empty directory
+                    Err(FsError::DirectoryNotEmpty)
+                }
+            }
+            Entry::File(_) => {
+                parent_dir.entries.remove(&name);
+                Ok(())
+            }
         }
     }
 }
