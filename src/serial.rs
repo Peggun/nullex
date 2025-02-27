@@ -1,3 +1,9 @@
+// serial.rs
+
+/*
+This file contains the serial interface driver for the Nullex kernel. It provides a simple interface for writing text to the host machine.
+*/
+
 use lazy_static::lazy_static;
 use spin::Mutex;
 use uart_16550::SerialPort;

@@ -1,3 +1,7 @@
+/*
+This file contains the memory management functions for the Nullex kernel. It provides functions for mapping memory, allocating frames, and translating virtual addresses to physical addresses.
+*/
+
 use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PhysFrame, Size4KiB};
 use x86_64::{
     structures::paging::PageTable,
@@ -7,6 +11,25 @@ use x86_64::{
 use x86_64::PhysAddr;
 
 use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
+
+use x86_64::structures::paging::PageTableFlags;
+
+use crate::println;
+
+pub fn map_apic(mapper: &mut impl Mapper<Size4KiB>, frame_allocator: &mut impl FrameAllocator<Size4KiB>) {
+    let apic_phys_start = 0xFEE00000;
+    let apic_page = Page::containing_address(VirtAddr::new(apic_phys_start));
+    let apic_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+    
+    unsafe {
+        mapper.map_to(
+            apic_page,
+            PhysFrame::containing_address(PhysAddr::new(apic_phys_start)),
+            apic_flags,
+            frame_allocator,
+        ).unwrap().flush();
+    }
+}
 
 /// A FrameAllocator that returns usable frames from the bootloader's memory map.
 pub struct BootInfoFrameAllocator {

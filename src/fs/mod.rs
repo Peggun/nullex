@@ -2,7 +2,6 @@ pub mod ata;
 pub mod ramfs;
 
 use spin::Mutex;
-use core::ops::DerefMut;
 use crate::fs::ramfs::FileSystem;
 
 pub static FS: Mutex<Option<FileSystem>> = Mutex::new(None);

@@ -1,9 +1,5 @@
-use alloc::{GlobalAlloc, Layout};
-use bump::BumpAllocator;
-use fixed_size_block::FixedSizeBlockAllocator;
 use linked_list::LinkedListAllocator;
-use linked_list_allocator::LockedHeap;
-use core::{alloc, ptr::null_mut};
+use core::alloc;
 
 pub mod bump;
 pub mod linked_list;

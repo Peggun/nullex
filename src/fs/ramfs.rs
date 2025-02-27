@@ -3,8 +3,6 @@ use core::{fmt, str};
 use alloc::{boxed::Box, string::{String, ToString}, vec::Vec};
 use hashbrown::HashMap;
 
-use crate::{println, task::keyboard::MemoryFile};
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Permission {
     pub read: bool,
@@ -266,32 +264,50 @@ impl FileSystem {
         }
     }
 
-    pub fn remove(&mut self, path: &str) -> Result<(), FsError> { 
-        let (parent_components, name) = Self::split_path(path)?; let parent_dir = self.get_dir_mut_from_components(&parent_components)?;
-
-        // Check parent directory's write permission
-        if !parent_dir.permission.write {
-            return Err(FsError::PermissionDenied);
-        }
-        
-        // Check if the entry exists
-        let entry = parent_dir.entries.get(&name).ok_or(FsError::EntryNotFound)?;
+    pub fn remove(&mut self, path: &str, del_dir: bool, recursive: bool) -> Result<(), FsError> {
+        // Split the path into parent components and the name of the entry.
+        let (parent_components, name) = Self::split_path(path)?;
+        let parent_dir = self.get_dir_mut_from_components(&parent_components)?;
+        // Remove entry from parent's entries to gain ownership.
+        let entry = parent_dir.entries.remove(&name).ok_or(FsError::EntryNotFound)?;
         
         match entry {
-            Entry::Directory(dir) => {
-                // Check if the directory is empty
-                if dir.entries.is_empty() {
-                    parent_dir.entries.remove(&name);
-                    Ok(())
-                } else {
-                    // Return a new error variant for non-empty directory
-                    Err(FsError::DirectoryNotEmpty)
+            Entry::Directory(mut dir_box) => {
+                if !del_dir {
+                    // Caller did not intend to delete a directory.
+                    // Optionally, you could reinsert the entry before returning.
+                    parent_dir.entries.insert(name, Entry::Directory(dir_box));
+                    return Err(FsError::NotADirectory);
                 }
-            }
-            Entry::File(_) => {
-                parent_dir.entries.remove(&name);
+                
+                if !recursive && !dir_box.entries.is_empty() {
+                    // Recursive deletion not enabled and directory is not empty.
+                    parent_dir.entries.insert(name, Entry::Directory(dir_box));
+                    return Err(FsError::DirectoryNotEmpty);
+                }
+                
+                if recursive {
+                    Self::recursive_remove(&mut *dir_box);
+                }
+                // With recursive deletion (or if empty), dropping dir_box completes removal.
                 Ok(())
             }
+            Entry::File(_) => Ok(()),
         }
+    }
+
+    fn recursive_remove(dir: &mut Directory) {
+        // Recursively remove all entries inside the directory.
+        // First, collect keys to avoid mutable borrow issues.
+        let keys: Vec<String> = dir.entries.keys().cloned().collect();
+        for key in keys {
+            if let Some(entry) = dir.entries.get_mut(&key) {
+                if let Entry::Directory(ref mut subdir) = entry {
+                    Self::recursive_remove(subdir);
+                }
+            }
+        }
+        // Clear all entries from the directory.
+        dir.entries.clear();
     }
 }

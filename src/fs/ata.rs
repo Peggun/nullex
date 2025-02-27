@@ -1,7 +1,5 @@
 // fs/ata.rs
-use core::convert::TryInto;
-use x86_64::{instructions::{interrupts, port::Port}, structures::idt::InterruptStackFrame, VirtAddr};
-use zerocopy::FromBytes;
+use x86_64::instructions::{interrupts, port::Port};
 
 pub struct AtaDisk {
     data_port: Port<u16>,

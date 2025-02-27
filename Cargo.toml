@@ -20,6 +20,14 @@ spin = "0.9.8"
 bitflags = "2.8.0"
 hashbrown = { version = "0.15.2", features = ["inline-more"] }
 crossbeam = { version = "0.8.4", default-features = false, features = ["alloc"] }
+smoltcp = { version = "0.12.0", default-features = false, features = ["log", "alloc", "proto-ipv4", "proto-ipv6", "proto-sixlowpan",
+                                                                      "socket-raw", "socket-udp", "socket-tcp", "socket-icmp",
+                                                                      "socket-dhcpv4", "socket-dns", "medium-ethernet", "medium-ip", "medium-ieee802154"] }
+futures = { version = "0.3", default-features = false }
+embassy-futures = "0.1.1"
+embedded-hal = "1.0.0"
+embedded-time = "0.12.1"
+embedded-timers = "0.4.0"
 
 [dependencies.lazy_static]
 version = "1.0"

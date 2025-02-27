@@ -1,3 +1,12 @@
+// vga_buffer.rs
+
+/*
+This file contains the VGA text buffer driver for the Nullex kernel. It provides a simple interface for writing text to the screen.
+
+Most of this code comes via https://github.com/ash-hashtag/samanthi-os
+So thanks.
+*/
+
 use core::fmt::{self, Write};
 use vga::{
     colors::{Color16, TextModeColor, DEFAULT_PALETTE},
@@ -11,15 +20,10 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 use x86_64::instructions::{interrupts, port::Port};
 
-use crate::{serial_print, serial_println};
+use crate::serial_println;
 
 lazy_static! {
     pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer::new());
-    // pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
-    //     column_position: 0,
-    //     color_code: ColorCode::new(Color::White, Color::Black),
-    //     buffer: unsafe { &mut *(0xb8000 as *mut Buffer) }
-    // });
 }
 
 #[derive(Clone, Copy)]

@@ -16,6 +16,7 @@
 #![feature(associated_type_defaults)]
 #![cfg_attr(all(not(test), feature = "no_std"), no_std)]
 #![feature(alloc_error_handler)]
+#![feature(str_from_raw_parts)]
 
 #[macro_use]
 extern crate alloc;
@@ -38,6 +39,8 @@ pub mod allocator;
 pub mod task;
 pub mod fs;
 pub mod common;
+pub mod syscall;
+pub mod apic;
 
 #[cfg(test)]
 use bootloader::{entry_point, BootInfo};

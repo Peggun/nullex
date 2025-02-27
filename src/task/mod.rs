@@ -1,6 +1,6 @@
+// task/mod.rs
 extern crate alloc;
 
-pub mod simple_executor;
 pub mod executor;
 pub mod keyboard;
 
@@ -8,32 +8,32 @@ use core::{future::Future, pin::Pin};
 use alloc::boxed::Box;
 
 use core::task::{Context, Poll};
-use core::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-struct TaskId(u64);
+pub struct ProcessId(u64); // Renamed TaskId to ProcessId
 
-impl TaskId {
-    fn new() -> Self {
-        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
-        TaskId(NEXT_ID.fetch_add(1, Ordering::Relaxed))
+impl ProcessId { // Renamed TaskId to ProcessId
+    pub fn new(id: u64) -> Self { // Now takes an initial ID, useful for Executor's PID counter
+        ProcessId(id)
     }
 }
 
-pub struct Task {
-    id: TaskId,
-    future: Pin<Box<dyn Future<Output = ()>>>,
+pub struct Process { // Renamed Task to Process
+    pub id: ProcessId, // Renamed id to pid and TaskId to ProcessId, made public for syscalls to access
+    future: Pin<Box<dyn Future<Output = i32>>>, // Future now returns an exit code (i32)
 }
 
-impl Task {
-    pub fn new(future: impl Future<Output = ()> + 'static) -> Task {
-        Task {
-            id: TaskId::new(),
+impl Process { // Renamed Task to Process
+    pub fn new(id: ProcessId, future: impl Future<Output = i32> + 'static) -> Process { // Renamed Task to Process and takes ProcessId
+        Process {
+            id, // Use provided ProcessId
             future: Box::pin(future),
         }
     }
 
-    fn poll(&mut self, context: &mut Context) -> Poll<()> {
+    fn poll(&mut self, context: &mut Context) -> Poll<i32> { // Poll now returns Poll<i32>
         self.future.as_mut().poll(context)
     }
 }
+
+unsafe impl Send for Process {}
