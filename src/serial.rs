@@ -1,7 +1,7 @@
 // serial.rs
 
 /*
-This file contains the serial interface driver for the Nullex kernel. It provides a simple interface for writing text to the host machine.
+Serial Interface module for the kernel.
 */
 
 use lazy_static::lazy_static;

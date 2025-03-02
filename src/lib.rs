@@ -1,10 +1,15 @@
+// lib.rs
+
+/*
+Kernel module for the kernel.
+*/
+
 #![no_std]
 #![cfg_attr(test, no_main)]
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 #![feature(abi_x86_interrupt)]
-
 #![feature(alloc)]
 #![feature(specialization)]
 #![feature(swap_with_slice)]
@@ -20,7 +25,6 @@
 
 #[macro_use]
 extern crate alloc;
-#[macro_use]
 extern crate bitflags;
 extern crate genfs;
 extern crate spin;
@@ -30,17 +34,17 @@ extern crate core;
 
 use core::panic::PanicInfo;
 
-pub mod serial;
-pub mod vga_buffer;
-pub mod interrupts;
-pub mod gdt;
-pub mod memory;
 pub mod allocator;
-pub mod task;
-pub mod fs;
-pub mod common;
-pub mod syscall;
 pub mod apic;
+pub mod common;
+pub mod fs;
+pub mod gdt;
+pub mod interrupts;
+pub mod memory;
+pub mod serial;
+pub mod syscall;
+pub mod task;
+pub mod vga_buffer;
 
 #[cfg(test)]
 use bootloader::{entry_point, BootInfo};

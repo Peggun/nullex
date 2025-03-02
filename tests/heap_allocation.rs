@@ -7,8 +7,10 @@
 extern crate alloc;
 
 use bootloader::{entry_point, BootInfo};
-use nullex::allocator::HEAP_SIZE;
+use nullex::apic::apic;
+use nullex::println;
 use core::panic::PanicInfo;
+use nullex::allocator::HEAP_SIZE;
 
 entry_point!(main);
 
@@ -56,14 +58,20 @@ fn main(boot_info: &'static BootInfo) -> ! {
     use nullex::memory::{self, BootInfoFrameAllocator};
     use x86_64::VirtAddr;
 
-    nullex::init();
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { memory::init(phys_mem_offset) };
-    let mut frame_allocator = unsafe {
-        BootInfoFrameAllocator::init(&boot_info.memory_map)
-    };
-    allocator::init_heap(&mut mapper, &mut frame_allocator)
-        .expect("heap initialization failed");
+    let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
+
+    // Setup APIC Timer
+    unsafe { apic::enable_apic() };
+    memory::map_apic(&mut mapper, &mut frame_allocator);
+
+    nullex::init();
+
+    match allocator::init_heap(&mut mapper, &mut frame_allocator) {
+        Ok(()) => println!("Heap initialized successfully"),
+        Err(e) => panic!("Heap initialization failed: {:?}", e),
+    }
 
     test_main();
     loop {}

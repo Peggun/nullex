@@ -1,12 +1,13 @@
+// memory.rs
+
 /*
-This file contains the memory management functions for the Nullex kernel. It provides functions for mapping memory, allocating frames, and translating virtual addresses to physical addresses.
+Memory module for the kernel.
 */
 
-use x86_64::structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PhysFrame, Size4KiB};
-use x86_64::{
-    structures::paging::PageTable,
-    VirtAddr,
+use x86_64::structures::paging::{
+    FrameAllocator, Mapper, OffsetPageTable, Page, PhysFrame, Size4KiB,
 };
+use x86_64::{structures::paging::PageTable, VirtAddr};
 
 use x86_64::PhysAddr;
 
@@ -16,18 +17,24 @@ use x86_64::structures::paging::PageTableFlags;
 
 use crate::println;
 
-pub fn map_apic(mapper: &mut impl Mapper<Size4KiB>, frame_allocator: &mut impl FrameAllocator<Size4KiB>) {
+pub fn map_apic(
+    mapper: &mut impl Mapper<Size4KiB>,
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+) {
     let apic_phys_start = 0xFEE00000;
     let apic_page = Page::containing_address(VirtAddr::new(apic_phys_start));
     let apic_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
-    
+
     unsafe {
-        mapper.map_to(
-            apic_page,
-            PhysFrame::containing_address(PhysAddr::new(apic_phys_start)),
-            apic_flags,
-            frame_allocator,
-        ).unwrap().flush();
+        mapper
+            .map_to(
+                apic_page,
+                PhysFrame::containing_address(PhysAddr::new(apic_phys_start)),
+                apic_flags,
+                frame_allocator,
+            )
+            .unwrap()
+            .flush();
     }
 }
 
@@ -54,11 +61,9 @@ impl BootInfoFrameAllocator {
     fn usable_frames(&self) -> impl Iterator<Item = PhysFrame> {
         // get usable regions from memory map
         let regions = self.memory_map.iter();
-        let usable_regions = regions
-            .filter(|r| r.region_type == MemoryRegionType::Usable);
+        let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
         // map each region to its address range
-        let addr_ranges = usable_regions
-            .map(|r| r.range.start_addr()..r.range.end_addr());
+        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
         // transform to an iterator of frame start addresses
         let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096));
         // create `PhysFrame` types from the start addresses
@@ -82,9 +87,7 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
 /// This function is unsafe because the caller must guarantee that the
 /// complete physical memory is mapped to virtual memory at the passed
 /// `physical_memory_offset`.
-pub unsafe fn translate_addr(addr: VirtAddr, physical_memory_offset: VirtAddr)
-    -> Option<PhysAddr>
-{
+pub unsafe fn translate_addr(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
     translate_addr_inner(addr, physical_memory_offset)
 }
 
@@ -93,17 +96,18 @@ pub unsafe fn translate_addr(addr: VirtAddr, physical_memory_offset: VirtAddr)
 /// This function is safe to limit the scope of `unsafe` because Rust treats
 /// the whole body of unsafe functions as an unsafe block. This function must
 /// only be reachable through `unsafe fn` from outside of this module.
-fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr)
-    -> Option<PhysAddr>
-{
-    use x86_64::structures::paging::page_table::FrameError;
+fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
     use x86_64::registers::control::Cr3;
+    use x86_64::structures::paging::page_table::FrameError;
 
     // read the active level 4 frame from the CR3 register
     let (level_4_table_frame, _) = Cr3::read();
 
     let table_indexes = [
-        addr.p4_index(), addr.p3_index(), addr.p2_index(), addr.p1_index()
+        addr.p4_index(),
+        addr.p3_index(),
+        addr.p2_index(),
+        addr.p1_index(),
     ];
     let mut frame = level_4_table_frame;
 
@@ -112,7 +116,7 @@ fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr)
         // convert the frame into a page table reference
         let virt = physical_memory_offset + frame.start_address().as_u64();
         let table_ptr: *const PageTable = virt.as_ptr();
-        let table = unsafe {&*table_ptr};
+        let table = unsafe { &*table_ptr };
 
         // read the page table entry and update `frame`
         let entry = &table[index];
@@ -133,9 +137,7 @@ fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr)
 /// complete physical memory is mapped to virtual memory at the passed
 /// `physical_memory_offset`. Also, this function must be only called once
 /// to avoid aliasing `&mut` references (which is undefined behavior).
-unsafe fn active_level_4_table(physical_memory_offset: VirtAddr)
-    -> &'static mut PageTable
-{
+unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
     use x86_64::registers::control::Cr3;
 
     let (level_4_table_frame, _) = Cr3::read();

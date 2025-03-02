@@ -1,3 +1,9 @@
+// bump.rs
+
+/*
+Bump allocator module for the kernel.
+*/
+
 use super::{align_up, Locked};
 use core::alloc::{GlobalAlloc, Layout};
 use core::ptr;

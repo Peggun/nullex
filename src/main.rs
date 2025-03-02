@@ -1,7 +1,7 @@
 // main.rs
 
 /*
-This file is the main entry point of the Nullex kernel. It defines the core logic and initialization procedures for the operating system.
+Main entry code for the kernel.
 */
 
 #![no_std]
@@ -12,12 +12,26 @@ This file is the main entry point of the Nullex kernel. It defines the core logi
 
 extern crate alloc;
 
-use core::panic::PanicInfo;
+use core::{panic::PanicInfo, task::Poll, future::Future};
 
+use alloc::boxed::Box;
 use bootloader::{entry_point, BootInfo};
-use nullex::{allocator, apic::apic, fs::{self, ramfs::{FileSystem, Permission}}, interrupts::PICS, memory::{self, translate_addr, BootInfoFrameAllocator}, println, task::{executor::EXECUTOR, keyboard, Process}, vga_buffer::WRITER};
+use nullex::{
+    allocator,
+    apic::apic,
+    fs::{
+        self,
+        ramfs::{FileSystem, Permission},
+    },
+    interrupts::PICS,
+    memory::{self, translate_addr, BootInfoFrameAllocator},
+    println,
+    task::{executor::{ProcessWaker, EXECUTOR}, keyboard, ForeverPending, Process},
+    vga_buffer::WRITER,
+};
 
 use vga::colors::Color16;
+use core::task::Context;
 
 entry_point!(kernel_main);
 
@@ -25,16 +39,10 @@ entry_point!(kernel_main);
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
     use x86_64::VirtAddr;
 
-    //print!("test@nullex: $ ");
-    //WRITER.lock().input_start_column = WRITER.lock().column_position;
-
     let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
     let mut mapper = unsafe { memory::init(phys_mem_offset) };
-    let mut frame_allocator = unsafe {
-        BootInfoFrameAllocator::init(&boot_info.memory_map)
-    };
+    let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
-    // Setup APIC Timer
     unsafe { apic::enable_apic() };
     memory::map_apic(&mut mapper, &mut frame_allocator);
 
@@ -49,39 +57,68 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
         Err(e) => panic!("Heap initialization failed: {:?}", e),
     }
 
-    let test_addr = VirtAddr::new(0x4444_4444_0000);
-    let phys_addr = unsafe { translate_addr(test_addr, phys_mem_offset) }
-        .expect("Failed to translate heap address");
-    //println!("Heap phys addr: {:?}", phys_addr);
-
     let mut fs = FileSystem::new();
-
     fs.create_file("/hello.txt", Permission::all()).unwrap();
     fs.write_file("/hello.txt", b"Hello Kernel World!").unwrap();
-
     fs.create_dir("/mydir", Permission::all()).unwrap();
     fs.create_file("/mydir/test.txt", Permission::all()).unwrap();
     fs.write_file("/mydir/test.txt", b"Secret message").unwrap();
-
     fs::init_fs(fs);
 
     WRITER.lock().clear_everything();
     WRITER.lock().set_colors(Color16::White, Color16::Black);
 
-
-
     // Spawn the keyboard process
     crate::keyboard::commands::init_commands();
-
     let keyboard_process = Process::new(
-        EXECUTOR.lock().create_pid(), // Get a new PID from the executor
-        keyboard::print_keypresses()
+        EXECUTOR.lock().create_pid(),
+        keyboard::print_keypresses(),
     );
     EXECUTOR.lock().spawn_process(keyboard_process);
 
+    // Get a clone of the process_queue for concurrent access
+    let process_queue = EXECUTOR.lock().process_queue.clone();
 
-    // Run the executor
-    EXECUTOR.lock().run();
+    //for i in 0..3 {
+        //let pid = EXECUTOR.lock().create_pid(); // Generate a unique ProcessId
+        //let future = ForeverPending;           // Create the forever-pending future
+        //let process = Process::new(pid, Box::pin(future)); // Wrap it in a pinned box
+        //EXECUTOR.lock().spawn_process(process); // Spawn the process
+        //println!("Spawned dummy process {}", pid.get()); // Optional: confirm spawning
+    //}
+    
+    // Main executor loop
+    loop {
+        if let Some(pid) = process_queue.pop() {
+            // Briefly lock EXECUTOR to get the process
+            let process_arc = {
+                let executor = EXECUTOR.lock();
+                executor.processes.get(&pid).cloned()
+            };
+            if let Some(process_arc) = process_arc {
+                // Lock the individual process and poll it
+                let mut process = process_arc.lock();
+                let waker = {
+                    let mut executor = EXECUTOR.lock();
+                    executor.waker_cache
+                        .entry(pid)
+                        .or_insert_with(|| ProcessWaker::new(pid, process_queue.clone()))
+                        .clone()
+                };
+                let mut context = Context::from_waker(&waker);
+                let result = process.poll(&mut context);
+                if let Poll::Ready(exit_code) = result {
+                    // Lock EXECUTOR again to remove the finished process
+                    let mut executor = EXECUTOR.lock();
+                    executor.processes.remove(&pid);
+                    executor.waker_cache.remove(&pid);
+                    println!("Process {} exited with code: {}", pid.get(), exit_code);
+                }
+            }
+        } else {
+            EXECUTOR.lock().sleep_if_idle();
+        }
+    }
 }
 
 /// This function is called on panic.

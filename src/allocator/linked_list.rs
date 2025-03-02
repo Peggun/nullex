@@ -1,5 +1,14 @@
-use core::{alloc::{GlobalAlloc, Layout}, mem, ptr};
+// linked_list.rs
+
+/*
+Linked List allocator module for the kernel.
+*/
+
 use super::{align_up, Locked};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    mem, ptr,
+};
 
 struct ListNode {
     size: usize,
@@ -59,9 +68,7 @@ impl LinkedListAllocator {
     /// alignment.
     ///
     /// Returns the allocation start address on success.
-    fn alloc_from_region(region: &ListNode, size: usize, align: usize)
-        -> Result<usize, ()>
-    {
+    fn alloc_from_region(region: &ListNode, size: usize, align: usize) -> Result<usize, ()> {
         let alloc_start = align_up(region.start_addr(), align);
         let alloc_end = alloc_start.checked_add(size).ok_or(())?;
 
@@ -85,9 +92,7 @@ impl LinkedListAllocator {
     /// it from the list.
     ///
     /// Returns a tuple of the list node and the start address of the allocation.
-    fn find_region(&mut self, size: usize, align: usize)
-        -> Option<(&'static mut ListNode, usize)>
-    {
+    fn find_region(&mut self, size: usize, align: usize) -> Option<(&'static mut ListNode, usize)> {
         // reference to current list node, updated for each iteration
         let mut current = &mut self.head;
         // look for a large enough memory region in linked list
@@ -120,7 +125,6 @@ impl LinkedListAllocator {
         let size = layout.size().max(mem::size_of::<ListNode>());
         (size, layout.align())
     }
-
 }
 
 unsafe impl GlobalAlloc for Locked<LinkedListAllocator> {

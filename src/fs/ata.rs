@@ -1,4 +1,9 @@
-// fs/ata.rs
+// ata.rs
+
+/*
+ATA disk module for the kernel.
+*/
+
 use x86_64::instructions::{interrupts, port::Port};
 
 pub struct AtaDisk {
@@ -31,8 +36,10 @@ impl AtaDisk {
         unsafe {
             while timeout > 0 {
                 let status = self.status_port.read();
-                if status & 0x80 == 0 {  // BSY clear
-                    if status & 0x21 != 0 {  // Check ERR/DF
+                if status & 0x80 == 0 {
+                    // BSY clear
+                    if status & 0x21 != 0 {
+                        // Check ERR/DF
                         return Err("Drive error");
                     }
                     return Ok(());
@@ -48,12 +55,12 @@ impl AtaDisk {
             unsafe {
                 // 1. Select SLAVE drive (second disk in QEMU)
                 self.device_port.write(0xF0 | ((lba >> 24) as u8 & 0x0F));
-                
+
                 // 2. Full sector read
                 for i in 0..256 {
                     let word = self.data_port.read();
-                    buf[i*2] = word as u8;
-                    buf[i*2 + 1] = (word >> 8) as u8;
+                    buf[i * 2] = word as u8;
+                    buf[i * 2 + 1] = (word >> 8) as u8;
                 }
                 Ok(())
             }

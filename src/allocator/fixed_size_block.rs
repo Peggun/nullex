@@ -1,3 +1,9 @@
+// fixed_size_block.rs
+
+/*
+Fixed Size Block allocator module for the kernel.
+*/
+
 use super::Locked;
 use core::alloc::{GlobalAlloc, Layout};
 use core::{

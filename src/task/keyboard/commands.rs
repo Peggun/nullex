@@ -1,4 +1,9 @@
-// src/keyboard/commands.rs
+// command.rs
+
+/*
+Command handling and definitions module for the kernel.
+*/
+
 extern crate alloc;
 
 use alloc::{
@@ -10,9 +15,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 
 use crate::{
-    fs::{self, ramfs::Permission},
-    print, println, syscall,
-    vga_buffer::WRITER,
+    fs::{self, ramfs::Permission}, print, println, syscall, task::executor::EXECUTOR, vga_buffer::WRITER
 };
 
 /// A type alias for a command function.
@@ -26,11 +29,8 @@ pub struct Command {
     pub help: &'static str,
 }
 
-
-
 lazy_static! {
-    static ref COMMAND_REGISTRY: Mutex<BTreeMap<String, Command>> =
-        Mutex::new(BTreeMap::new());
+    static ref COMMAND_REGISTRY: Mutex<BTreeMap<String, Command>> = Mutex::new(BTreeMap::new());
 }
 
 /// Register a command in the global command registry.
@@ -50,7 +50,7 @@ pub fn run_command(input: &str) {
     // Copy the command out while holding the lock
     let cmd_opt = {
         let registry = COMMAND_REGISTRY.lock();
-        registry.get(command).copied()  // `copied()` turns &Command into Command
+        registry.get(command).copied() // `copied()` turns &Command into Command
     };
 
     if let Some(cmd) = cmd_opt {
@@ -60,7 +60,6 @@ pub fn run_command(input: &str) {
         println!("Command not found: {}", command);
     }
 }
-
 
 /// Initialize the default commands for the shell.
 pub fn init_commands() {
@@ -124,6 +123,11 @@ pub fn init_commands() {
         func: sys_exit_shell,
         help: "Exit the shell",
     });
+    register_command(Command {
+        name: "progs",
+        func: progs,
+        help: "List running processes",
+    });
 }
 
 /// Helper function to resolve a file path relative to the current working directory.
@@ -142,7 +146,10 @@ fn resolve_path(path: &str) -> String {
 }
 
 fn normalize_path(path: &str) -> String {
-    let parts: Vec<&str> = path.split('/').filter(|&p| !p.is_empty() && p != ".").collect();
+    let parts: Vec<&str> = path
+        .split('/')
+        .filter(|&p| !p.is_empty() && p != ".")
+        .collect();
     let mut stack = Vec::new();
     for part in parts {
         if part == ".." {
@@ -157,6 +164,14 @@ fn normalize_path(path: &str) -> String {
         "/".to_string()
     } else {
         format!("/{}/", stack.join("/"))
+    }
+}
+
+pub fn progs(_args: &[&str]) {
+    if let Some(executor) = EXECUTOR.try_lock() {
+        executor.list_processes();
+    } else {
+        println!("System busy; try again.");
     }
 }
 
@@ -177,16 +192,14 @@ pub fn help(_args: &[&str]) {
 
 pub fn ls(args: &[&str]) {
     let path = resolve_path(if args.is_empty() { "." } else { args[0] });
-    fs::with_fs(|fs| {
-        match fs.list_dir(&path) {
-            Ok(entries) => {
-                for entry in entries {
-                    print!("{} ", entry);
-                }
-                println!();
+    fs::with_fs(|fs| match fs.list_dir(&path) {
+        Ok(entries) => {
+            for entry in entries {
+                print!("{} ", entry);
             }
-            Err(_) => println!("ls: cannot access '{}'", path),
+            println!();
         }
+        Err(_) => println!("ls: cannot access '{}'", path),
     });
 }
 
@@ -196,14 +209,12 @@ pub fn cat(args: &[&str]) {
         return;
     }
     let path = resolve_path(args[0]);
-    fs::with_fs(|fs| {
-        match fs.read_file(&path) {
-            Ok(content) => {
-                let s = String::from_utf8_lossy(content);
-                println!("{}", s)
-            }
-            Err(_) => println!("cat: {}: No such file", path),
+    fs::with_fs(|fs| match fs.read_file(&path) {
+        Ok(content) => {
+            let s = String::from_utf8_lossy(content);
+            println!("{}", s)
         }
+        Err(_) => println!("cat: {}: No such file", path),
     });
 }
 

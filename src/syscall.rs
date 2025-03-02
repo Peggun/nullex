@@ -1,11 +1,11 @@
 // syscall.rs
 
 /*
-This file contains the system call handler and implementations for the Nullex kernel. It provides a basic interface for user-space processes to interact with the kernel.
+Syscall module for the kernel.
 */
 
 use crate::{fs, println, serial_println};
- // Assuming EXECUTOR is globally accessible
+// Assuming EXECUTOR is globally accessible
 use crate::fs::ramfs::Permission;
 
 // System call IDs (for future expansion, though direct function calls are used here for simplicity)
@@ -14,14 +14,7 @@ pub const SYS_EXIT: u32 = 2;
 pub const SYS_GETPID: u32 = 3;
 
 // System call handler function (simplified for this example - directly calls kernel functions)
-pub fn syscall(
-    syscall_id: u32,
-    arg1: u64,
-    arg2: u64,
-    arg3: u64,
-    arg4: u64,
-    arg5: u64,
-) -> i32 {
+pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> i32 {
     match syscall_id {
         SYS_PRINT => {
             let ptr = arg1 as *const u8;

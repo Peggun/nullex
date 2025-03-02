@@ -1,7 +1,7 @@
 // vga_buffer.rs
 
 /*
-This file contains the VGA text buffer driver for the Nullex kernel. It provides a simple interface for writing text to the screen.
+VGA Buffer module for the kernel.
 
 Most of this code comes via https://github.com/ash-hashtag/samanthi-os
 So thanks.
@@ -118,7 +118,7 @@ pub struct Writer {
     //buffer: &'static mut Buffer,
     text: Text80x25,
     color: TextModeColor,
-    pub current_row: usize
+    pub current_row: usize,
 }
 
 impl Writer {
@@ -217,7 +217,7 @@ impl Writer {
 
     pub fn backspace(&mut self) {
         let blank = ScreenCharacter::new(b' ', self.color);
-    
+
         if self.column_position == 0 {
             if self.current_row == 0 {
                 return; // Already at top-left, can't backspace
@@ -227,9 +227,10 @@ impl Writer {
         } else {
             self.column_position -= 1;
         }
-    
+
         // Clear the character at the new position
-        self.text.write_character(self.column_position, self.current_row, blank);
+        self.text
+            .write_character(self.column_position, self.current_row, blank);
         self.update_cursor();
     }
 

@@ -1,9 +1,15 @@
-use linked_list::LinkedListAllocator;
+// allocator.rs
+
+/*
+Heap allocator module for the kernel.
+*/
+
 use core::alloc;
+use linked_list::LinkedListAllocator;
 
 pub mod bump;
-pub mod linked_list;
 pub mod fixed_size_block;
+pub mod linked_list;
 
 use x86_64::{
     structures::paging::{
@@ -17,8 +23,7 @@ pub const HEAP_SIZE: usize = 1024 * 1024;
 
 // fixed is better performance wise.
 #[global_allocator]
-static ALLOCATOR: Locked<LinkedListAllocator> = Locked::new(
-    LinkedListAllocator::new());
+static ALLOCATOR: Locked<LinkedListAllocator> = Locked::new(LinkedListAllocator::new());
 
 #[alloc_error_handler]
 fn alloc_error_handler(layout: alloc::Layout) -> ! {
@@ -42,9 +47,7 @@ pub fn init_heap(
             .allocate_frame()
             .ok_or(MapToError::FrameAllocationFailed)?;
         let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-        unsafe {
-            mapper.map_to(page, frame, flags, frame_allocator)?.flush()
-        };
+        unsafe { mapper.map_to(page, frame, flags, frame_allocator)?.flush() };
     }
 
     unsafe {

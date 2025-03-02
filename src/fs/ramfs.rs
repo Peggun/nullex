@@ -1,6 +1,15 @@
 // ramfs.rs
+
+/*
+RamFS implementation for the kernel.
+*/
+
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::{fmt, str};
-use alloc::{boxed::Box, string::{String, ToString}, vec::Vec};
 use hashbrown::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -97,30 +106,25 @@ impl FileSystem {
     pub fn create_file(&mut self, path: &str, perm: Permission) -> Result<(), FsError> {
         let (dir_components, file_name) = Self::split_path(path)?;
         let dir = self.get_dir_mut_from_components(&dir_components)?;
-        
+
         if dir.entries.contains_key(&file_name) {
             return Err(FsError::AlreadyExists);
         }
-        
-        dir.entries.insert(
-            file_name,
-            Entry::File(File::new(perm))
-        );
+
+        dir.entries.insert(file_name, Entry::File(File::new(perm)));
         Ok(())
     }
 
     pub fn create_dir(&mut self, path: &str, perm: Permission) -> Result<(), FsError> {
         let (dir_components, dir_name) = Self::split_path(path)?;
         let dir = self.get_dir_mut_from_components(&dir_components)?;
-        
+
         if dir.entries.contains_key(&dir_name) {
             return Err(FsError::AlreadyExists);
         }
-        
-        dir.entries.insert(
-            dir_name,
-            Entry::Directory(Box::new(Directory::new(perm)))
-        );
+
+        dir.entries
+            .insert(dir_name, Entry::Directory(Box::new(Directory::new(perm))));
         Ok(())
     }
 
@@ -134,13 +138,11 @@ impl FileSystem {
         file.content.extend_from_slice(content);
         Ok(())
     }
-    
 
     pub fn read_file(&self, path: &str) -> Result<&[u8], FsError> {
         let file = self.get_file(path)?;
         Ok(&file.content)
     }
-    
 
     // Helper functions
     fn path_components(path: &str) -> Result<Vec<String>, FsError> {
@@ -174,7 +176,7 @@ impl FileSystem {
         } else {
             self.current_path.clone()
         };
-        
+
         let mut components = base;
         components.extend(Self::path_components(path)?);
         Ok(components)
@@ -202,7 +204,10 @@ impl FileSystem {
         Ok(current)
     }
 
-    fn get_dir_mut_from_components(&mut self, components: &[String]) -> Result<&mut Directory, FsError> {
+    fn get_dir_mut_from_components(
+        &mut self,
+        components: &[String],
+    ) -> Result<&mut Directory, FsError> {
         let mut current = &mut self.root;
         for component in components {
             current = match current.entries.get_mut(component) {
@@ -217,7 +222,7 @@ impl FileSystem {
     fn get_file(&self, path: &str) -> Result<&File, FsError> {
         let (dir_components, file_name) = Self::split_path(path)?;
         let dir = self.get_dir_from_components(&dir_components)?;
-        
+
         match dir.entries.get(&file_name) {
             Some(Entry::File(file)) => Ok(&file),
             Some(_) => Err(FsError::NotAFile),
@@ -228,7 +233,7 @@ impl FileSystem {
     fn get_file_mut(&mut self, path: &str) -> Result<&mut File, FsError> {
         let (dir_components, file_name) = Self::split_path(path)?;
         let dir = self.get_dir_mut_from_components(&dir_components)?;
-        
+
         match dir.entries.get_mut(&file_name) {
             Some(Entry::File(file)) => Ok(&mut *file),
             Some(_) => Err(FsError::NotAFile),
@@ -246,7 +251,7 @@ impl FileSystem {
             Ok(c) => c,
             Err(_) => return false,
         };
-        
+
         // Special case for root directory
         if components.is_empty() {
             return true;
@@ -260,7 +265,7 @@ impl FileSystem {
                     false
                 }
             }
-            Err(_) => false
+            Err(_) => false,
         }
     }
 
@@ -269,8 +274,11 @@ impl FileSystem {
         let (parent_components, name) = Self::split_path(path)?;
         let parent_dir = self.get_dir_mut_from_components(&parent_components)?;
         // Remove entry from parent's entries to gain ownership.
-        let entry = parent_dir.entries.remove(&name).ok_or(FsError::EntryNotFound)?;
-        
+        let entry = parent_dir
+            .entries
+            .remove(&name)
+            .ok_or(FsError::EntryNotFound)?;
+
         match entry {
             Entry::Directory(mut dir_box) => {
                 if !del_dir {
@@ -279,13 +287,13 @@ impl FileSystem {
                     parent_dir.entries.insert(name, Entry::Directory(dir_box));
                     return Err(FsError::NotADirectory);
                 }
-                
+
                 if !recursive && !dir_box.entries.is_empty() {
                     // Recursive deletion not enabled and directory is not empty.
                     parent_dir.entries.insert(name, Entry::Directory(dir_box));
                     return Err(FsError::DirectoryNotEmpty);
                 }
-                
+
                 if recursive {
                     Self::recursive_remove(&mut *dir_box);
                 }

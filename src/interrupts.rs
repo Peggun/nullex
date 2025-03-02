@@ -1,10 +1,16 @@
+// interrupts.rs
+
+/*
+Interrupt handling module for the kernel.
+*/
+
 use core::sync::atomic::AtomicU64;
 
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
-use crate::{apic::apic::send_eoi, println, gdt, hlt_loop};
+use crate::{apic::apic::send_eoi, gdt, hlt_loop, println};
 use lazy_static::lazy_static;
-use spin;
 use pic8259::ChainedPics;
+use spin;
+use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
@@ -26,10 +32,10 @@ lazy_static! {
             idt.double_fault
                 .set_handler_fn(double_fault_handler)
                 .set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
-            
+
             // For the timer, switch from the PIC timer handler to the APIC timer handler.
             idt[InterruptIndex::Timer.as_usize()].set_handler_fn(apic_timer_handler);
-            
+
             // Leave the keyboard handler using PIC (for example).
             idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
         }
@@ -50,23 +56,22 @@ extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame) {
 /// Double fault handler.
 extern "x86-interrupt" fn double_fault_handler(
     stack_frame: InterruptStackFrame,
-    _error_code: u64
+    _error_code: u64,
 ) -> ! {
     println!("\n\nDOUBLE FAULT");
     panic!("System halted");
 }
 
 /// Keyboard interrupt handler (still using the PIC).
-extern "x86-interrupt" fn keyboard_interrupt_handler(
-    _stack_frame: InterruptStackFrame
-) {
+extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
     use x86_64::instructions::port::Port;
     let mut port = Port::new(0x60);
     let scancode: u8 = unsafe { port.read() };
     crate::task::keyboard::scancode::add_scancode(scancode);
 
     unsafe {
-        PICS.lock().notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8());
+        PICS.lock()
+            .notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8());
     }
 }
 
@@ -107,8 +112,8 @@ extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum InterruptIndex {
-    Timer = PIC_1_OFFSET,    // Vector 32 (0x20)
-    Keyboard,                // Vector 33 (0x21)
+    Timer = PIC_1_OFFSET, // Vector 32 (0x20)
+    Keyboard,             // Vector 33 (0x21)
 }
 
 impl InterruptIndex {

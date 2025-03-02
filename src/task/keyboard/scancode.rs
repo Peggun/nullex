@@ -1,16 +1,17 @@
-// src/keyboard/scancode.rs
+// scancode.rs
+
+/*
+Keyboard scancode handling module for the kernel.
+*/
+
 extern crate alloc;
 
-use core::task::Poll;
 use alloc::string::{String, ToString};
 use conquer_once::spin::OnceCell;
+use core::task::Poll;
 use crossbeam::queue::ArrayQueue;
-use futures_util::{
-    task::AtomicWaker,
-    Stream,
-    StreamExt,
-};
 use embassy_futures::yield_now;
+use futures_util::{task::AtomicWaker, Stream, StreamExt};
 use lazy_static::lazy_static;
 use pc_keyboard::{layouts, HandleControl, KeyCode, Keyboard, ScancodeSet1};
 use spin::Mutex;

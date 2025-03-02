@@ -1,5 +1,5 @@
-pub mod scancode;
 pub mod commands;
+pub mod scancode;
 
-pub use scancode::{ScancodeStream, print_keypresses};
-pub use commands::{register_command, run_command, init_commands, Command};
+pub use commands::{init_commands, register_command, run_command, Command};
+pub use scancode::{print_keypresses, ScancodeStream};

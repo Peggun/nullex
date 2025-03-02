@@ -1,3 +1,9 @@
+// apic.rs
+
+/*
+APIC timer and register definitions.
+*/
+
 /// APIC timer and register definitions.
 pub mod apic {
     use core::ptr::{read_volatile, write_volatile};
@@ -6,13 +12,13 @@ pub mod apic {
     pub const APIC_BASE: usize = 0xFEE00000;
 
     // Register offsets (relative to the APIC base)
-    pub const ID: usize              = 0x020;
-    pub const EOI: usize             = 0x0B0;
-    pub const SVR: usize             = 0x0F0;
-    pub const LVT_TIMER: usize       = 0x320;
+    pub const ID: usize = 0x020;
+    pub const EOI: usize = 0x0B0;
+    pub const SVR: usize = 0x0F0;
+    pub const LVT_TIMER: usize = 0x320;
     pub const TIMER_INIT_COUNT: usize = 0x380;
     pub const TIMER_CURRENT_COUNT: usize = 0x390;
-    pub const TIMER_DIVIDE: usize    = 0x3E0;
+    pub const TIMER_DIVIDE: usize = 0x3E0;
 
     // Timer mode and configuration bits.
     /// Bit flag for periodic mode in the LVT Timer Register.
