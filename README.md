@@ -6,7 +6,10 @@ This kernel currently only runs in QEMU, because I have not tested creating a IS
 My goal is to create a fully fledged kernel in Rust, similar to Linux and RedosOS, aiming to support multiple different architectures, and other things
 and to also get the community involved in having fun in coding something very tedious, like a Kernel / Operating System.
 
-Just a quick note: When using `cargo test` no tests are found. If you want to test something, please use `cargo test --test test_name`
+Thanks so much to [Philipp Oppermann's Blog OS Tutorial](https://os.phil-opp.com/) I highly recommend it if you want to get started into OS and Kernel Programming.
+This project was started because of him so thanks so much.
+
+Just a quick note: When using `cargo test` no tests are found. If you want to test something, please use `cargo test --test test_name`. I will need to fix this in the future.
 
 ## Features
 
