@@ -23,6 +23,9 @@ jobs:
         toolchain: nightly
         override: true
 
+    - name: Add rust-src component
+      run: rustup component add rust-src --toolchain nightly
+
     - name: Add llvm-tools-preview
       run: rustup component add llvm-tools-preview --toolchain nightly
 
