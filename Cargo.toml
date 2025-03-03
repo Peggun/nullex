@@ -28,6 +28,7 @@ embassy-futures = "0.1.1"
 embedded-hal = "1.0.0"
 embedded-time = "0.12.1"
 embedded-timers = "0.4.0"
+dyn-clone = "1.0.18"
 
 [dependencies.lazy_static]
 version = "1.0"

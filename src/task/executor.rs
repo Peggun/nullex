@@ -8,7 +8,7 @@ extern crate alloc;
 
 use crate::{println, serial_println};
 
-use super::{Process, ProcessId}; // Renamed Task to Process and TaskId to ProcessId
+use super::{Process, ProcessId, ProcessState}; // Renamed Task to Process and TaskId to ProcessId
 use alloc::task::Wake;
 use alloc::{collections::BTreeMap, sync::Arc};
 use spin::mutex::SpinMutex;
@@ -16,8 +16,14 @@ use core::task::{Context, Poll, Waker};
 use crossbeam_queue::ArrayQueue;
 use lazy_static::lazy_static;
 
+lazy_static! {
+    // Now CURRENT_PROCESS holds a reference to the immutable ProcessState.
+    pub static ref CURRENT_PROCESS: SpinMutex<Option<Arc<ProcessState>>> = SpinMutex::new(None);
+}
+
+
 pub struct Executor {
-    pub processes: BTreeMap<ProcessId, Arc<SpinMutex<Process>>>, // Changed to Arc<SpinMutex<Process>>
+    pub processes: BTreeMap<ProcessId, Arc<SpinMutex<Process>>>,
     pub process_queue: Arc<ArrayQueue<ProcessId>>,
     pub waker_cache: BTreeMap<ProcessId, Waker>,
     pub next_pid: ProcessId,
@@ -34,7 +40,7 @@ impl Executor {
     }
 
     pub fn spawn_process(&mut self, process: Process) {
-        let pid = process.id;
+        let pid = process.state.id;
         let process_arc = Arc::new(SpinMutex::new(process)); // Wrap in Arc<SpinMutex>
         if self.processes.insert(pid, process_arc).is_some() {
             panic!("process with same ID already in processes");

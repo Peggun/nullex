@@ -154,6 +154,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "dyn-clone"
+version = "1.0.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "feeef44e73baff3a26d371801df019877a9866a8c493d315ab00177843314f35"
+
+[[package]]
 name = "embassy-futures"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -362,6 +368,7 @@ dependencies = [
  "conquer-once 0.2.1",
  "crossbeam",
  "crossbeam-queue",
+ "dyn-clone",
  "embassy-futures",
  "embedded-hal",
  "embedded-time",
