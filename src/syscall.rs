@@ -90,10 +90,6 @@ pub fn sys_fork() -> i32 {
     child_pid.get() as i32
 }
 
-
-
-
-
 pub fn sys_wait() -> i32 {
     // TODO: Implement waiting for any child process to terminate.
     0

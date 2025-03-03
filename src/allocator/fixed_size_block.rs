@@ -50,7 +50,7 @@ impl FixedSizeBlockAllocator {
     /// heap bounds are valid and that the heap is unused. This method must be
     /// called only once.
     pub unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
-        unsafe { self.fallback_allocator.init(heap_start, heap_size) };
+        unsafe { self.fallback_allocator.init(heap_start as *mut u8, heap_size) };
     }
 
     /// Allocates using the fallback allocator.

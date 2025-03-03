@@ -14,12 +14,12 @@ extern crate alloc;
 
 use core::{future::Future, panic::PanicInfo, pin::Pin, task::Poll};
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::{boxed::Box, string::{String, ToString}, sync::Arc};
 use bootloader::{entry_point, BootInfo};
 use nullex::{
-    allocator, apic::apic, fs::{
+    allocator, apic::apic, config, fs::{
         self,
-        ramfs::{FileSystem, Permission},
+        ramfs::{FileSystem, Permission}, FS,
     }, interrupts::PICS, memory::{self, translate_addr, BootInfoFrameAllocator}, println, serial_println, syscall::{self, syscall}, task::{executor::{self, ProcessWaker, CURRENT_PROCESS, EXECUTOR}, keyboard, ForeverPending, Process, ProcessState}, utils::process::spawn_process, vga_buffer::WRITER
 };
 
@@ -32,7 +32,7 @@ entry_point!(kernel_main);
 async fn test_process(state: Arc<ProcessState>) -> i32 {
     if state.is_child {
         serial_println!("Child process {} started", state.id.get());
-        ForeverPending.await
+        0 // Child exit code
     } else {
         serial_println!("Parent process {} before fork", state.id.get());
         let child_pid = syscall::sys_fork();
@@ -69,6 +69,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
     fs.create_dir("/mydir", Permission::all()).unwrap();
     fs.create_file("/mydir/test.txt", Permission::all()).unwrap();
     fs.write_file("/mydir/test.txt", b"Secret message").unwrap();
+
     fs::init_fs(fs);
 
     WRITER.lock().clear_everything();

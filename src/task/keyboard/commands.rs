@@ -15,7 +15,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 
 use crate::{
-    fs::{self, ramfs::Permission}, print, println, syscall, task::executor::EXECUTOR, vga_buffer::WRITER
+    fs::{self, ramfs::Permission}, print, println, syscall, task::{executor::EXECUTOR, ProcessId}, vga_buffer::WRITER
 };
 
 /// A type alias for a command function.
@@ -127,6 +127,11 @@ pub fn init_commands() {
         name: "progs",
         func: progs,
         help: "List running processes",
+    });
+    register_command(Command {
+        name: "kill",
+        func: kill,
+        help: "Kill a process",
     });
 }
 
@@ -345,4 +350,21 @@ pub fn join_paths(path: &str, next: &str, out: &mut String) {
     if out.ends_with(FS_SEP) {
         out.pop();
     }
+}
+
+pub fn kill(args: &[&str]) {
+    if args.is_empty() {
+        println!("kill: missing PID");
+        return;
+    }
+    
+    let pid = match args[0].parse::<u64>() {
+        Ok(pid) => pid,
+        Err(_) => {
+            println!("kill: invalid PID '{}'", args[0]);
+            return;
+        }
+    };
+
+    // Kill process
 }
