@@ -22,6 +22,7 @@ Kernel module for the kernel.
 #![cfg_attr(all(not(test), feature = "no_std"), no_std)]
 #![feature(alloc_error_handler)]
 #![feature(str_from_raw_parts)]
+#![feature(asm)]
 
 #[macro_use]
 extern crate alloc;

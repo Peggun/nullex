@@ -1,26 +1,22 @@
 // executor.rs
 
-/*
-Task executor module for the kernel.
-*/
-
 extern crate alloc;
 
 use crate::{println, serial_println};
-
-use super::{Process, ProcessId, ProcessState}; // Renamed Task to Process and TaskId to ProcessId
+use super::{Process, ProcessId, ProcessState};
 use alloc::task::Wake;
 use alloc::{collections::BTreeMap, sync::Arc};
 use spin::mutex::SpinMutex;
+use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
 use crossbeam_queue::ArrayQueue;
 use lazy_static::lazy_static;
 
 lazy_static! {
-    // Now CURRENT_PROCESS holds a reference to the immutable ProcessState.
     pub static ref CURRENT_PROCESS: SpinMutex<Option<Arc<ProcessState>>> = SpinMutex::new(None);
 }
 
+pub static mut CURRENT_PROCESS_GUARD: *mut Process = core::ptr::null_mut();
 
 pub struct Executor {
     pub processes: BTreeMap<ProcessId, Arc<SpinMutex<Process>>>,
@@ -41,14 +37,13 @@ impl Executor {
 
     pub fn spawn_process(&mut self, process: Process) {
         let pid = process.state.id;
-        let process_arc = Arc::new(SpinMutex::new(process)); // Wrap in Arc<SpinMutex>
+        let process_arc = Arc::new(SpinMutex::new(process));
         if self.processes.insert(pid, process_arc).is_some() {
             panic!("process with same ID already in processes");
         }
         self.process_queue.push(pid).expect("queue full");
     }
 
-    // Remove run_cycle since we'll handle it in main.rs
     pub fn sleep_if_idle(&self) {
         use x86_64::instructions::interrupts;
         interrupts::disable();
@@ -74,38 +69,38 @@ impl Executor {
 }
 
 pub struct ProcessWaker {
-    // Renamed TaskWaker to ProcessWaker
-    pub pid: ProcessId,                            // Renamed task_id to pid
-    pub process_queue: Arc<ArrayQueue<ProcessId>>, // Renamed task_queue to process_queue and TaskId to ProcessId
+    pub pid: ProcessId,
+    pub process_queue: Arc<ArrayQueue<ProcessId>>,
+    pub state: Arc<ProcessState>, // Added to store process state
 }
 
 impl ProcessWaker {
-    // Renamed TaskWaker to ProcessWaker
     pub fn wake_process(&self) {
-        // Renamed wake_task to wake_process
-        self.process_queue
-            .push(self.pid)
-            .expect("process_queue full"); // Renamed task_queue to process_queue and task_id to pid
+        // Use self.state directly, no need to lock the process
+        if !self.state.queued.swap(true, Ordering::AcqRel) {
+            if self.process_queue.push(self.pid).is_err() {
+                serial_println!("Warning: process_queue full, skipping wake for process {}", self.pid.0);
+                self.state.queued.store(false, Ordering::Release);
+            }
+        }
     }
 
-    pub fn new(pid: ProcessId, process_queue: Arc<ArrayQueue<ProcessId>>) -> Waker {
-        // Renamed TaskWaker to ProcessWaker, task_id to pid, and task_queue to process_queue and TaskId to ProcessId
+    pub fn new(pid: ProcessId, process_queue: Arc<ArrayQueue<ProcessId>>, state: Arc<ProcessState>) -> Waker {
         Waker::from(Arc::new(ProcessWaker {
-            // Renamed TaskWaker to ProcessWaker
-            pid,           // Renamed task_id to pid
-            process_queue, // Renamed task_queue to process_queue
+            pid,
+            process_queue,
+            state,
         }))
     }
 }
 
 impl Wake for ProcessWaker {
-    // Renamed TaskWaker to ProcessWaker
     fn wake(self: Arc<Self>) {
-        self.wake_process(); // Renamed wake_task to wake_process
+        self.wake_process();
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        self.wake_process(); // Renamed wake_task to wake_process
+        self.wake_process();
     }
 }
 

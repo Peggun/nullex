@@ -2,6 +2,7 @@ use alloc::boxed::Box;
 use alloc::sync::Arc;
 use core::future::Future;
 use core::pin::Pin;
+use core::sync::atomic::AtomicBool;
 use crate::task::{Process, ProcessState};
 use crate::task::executor::EXECUTOR;
 use crate::task::ProcessId;
@@ -29,6 +30,7 @@ where
         id: pid,
         is_child,
         future_fn: Arc::new(future_fn),
+        queued: AtomicBool::new(false),
     });
 
     // Construct the process.

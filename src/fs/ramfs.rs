@@ -31,8 +31,8 @@ impl Permission {
 
 #[derive(Debug)]
 pub struct File {
-    content: Vec<u8>,
-    permission: Permission,
+    pub content: Vec<u8>,
+    pub permission: Permission,
 }
 
 impl File {
@@ -219,7 +219,7 @@ impl FileSystem {
         Ok(current)
     }
 
-    fn get_file(&self, path: &str) -> Result<&File, FsError> {
+    pub fn get_file(&self, path: &str) -> Result<&File, FsError> {
         let (dir_components, file_name) = Self::split_path(path)?;
         let dir = self.get_dir_from_components(&dir_components)?;
 

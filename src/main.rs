@@ -12,32 +12,77 @@ Main entry code for the kernel.
 
 extern crate alloc;
 
-use core::{future::Future, panic::PanicInfo, pin::Pin, task::Poll};
-
-use alloc::{boxed::Box, string::{String, ToString}, sync::Arc};
+use core::{
+    future::Future, pin::Pin, sync::atomic::Ordering, task::{Context, Poll}
+};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    sync::Arc,
+};
 use bootloader::{entry_point, BootInfo};
 use nullex::{
     allocator, apic::apic, config, fs::{
         self,
         ramfs::{FileSystem, Permission}, FS,
-    }, interrupts::PICS, memory::{self, translate_addr, BootInfoFrameAllocator}, println, serial_println, syscall::{self, syscall}, task::{executor::{self, ProcessWaker, CURRENT_PROCESS, EXECUTOR}, keyboard, ForeverPending, Process, ProcessState}, utils::process::spawn_process, vga_buffer::WRITER
+    }, interrupts::PICS, memory::{self, translate_addr, BootInfoFrameAllocator}, println, serial_println, syscall::{self, sys_fork, syscall}, task::{
+        executor::{self, ProcessWaker, CURRENT_PROCESS, EXECUTOR},
+        keyboard,
+        ForeverPending,
+        Process, ProcessState,
+    }, utils::process::spawn_process, vga_buffer::WRITER
 };
-
 use vga::colors::Color16;
-use core::task::Context;
 
 entry_point!(kernel_main);
 
-// Define a test process that uses sys_fork
-async fn test_process(state: Arc<ProcessState>) -> i32 {
-    if state.is_child {
-        serial_println!("Child process {} started", state.id.get());
-        0 // Child exit code
-    } else {
-        serial_println!("Parent process {} before fork", state.id.get());
-        let child_pid = syscall::sys_fork();
-        serial_println!("Parent process after fork, child PID: {}", child_pid);
-        1 // Parent exit code
+/// A yield future that yields control back to the executor once before completing.
+struct YieldNow {
+    yielded: bool,
+}
+
+impl Future for YieldNow {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        if self.yielded {
+            Poll::Ready(())
+        } else {
+            self.yielded = true;
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        }
+    }
+}
+
+/// Yields control to the scheduler.
+async fn yield_now() {
+    YieldNow { yielded: false }.await
+}
+
+/// A dummy async delay approximating half a second.
+///
+/// Note: This implementation simply awaits many yields so that other processes
+/// get a chance to run. In a more accurate implementation you’d use a timer.
+async fn sleep_half_second() {
+    // The loop count is arbitrary – adjust as needed for your test.
+    for _ in 0..1_000 {
+        yield_now().await;
+    }
+}
+
+/// Process 1: prints a message every half second.
+async fn process_one(_state: Arc<ProcessState>) -> i32 {
+    loop {
+        serial_println!("Process 1: Hello every half second");
+        sleep_half_second().await;
+    }
+}
+
+/// Process 2: prints a message every half second.
+async fn process_two(_state: Arc<ProcessState>) -> i32 {
+    loop {
+        serial_println!("Process 2: Hello every half second");
+        sleep_half_second().await;
     }
 }
 
@@ -77,46 +122,62 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
     crate::keyboard::commands::init_commands();
 
-    // Spawn the keyboard process
+    // Spawn the keyboard process.
     let _keyboard_pid = spawn_process(|_state| {
         Box::pin(keyboard::print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>
     }, false);
 
-    // Spawn the test process
-    let _test_pid = spawn_process(|_state| {
-        Box::pin(test_process(_state)) as Pin<Box<dyn Future<Output = i32>>>
+    // Spawn process one.
+    let _process1_pid = spawn_process(|state| {
+        Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>
     }, false);
 
-    // Main executor loop with CURRENT_PROCESS management
+    // Spawn process two.
+    let _process2_pid = spawn_process(|state| {
+        Box::pin(process_two(state)) as Pin<Box<dyn Future<Output = i32>>>
+    }, false);
+
+    // Main executor loop with CURRENT_PROCESS management.
     let process_queue = EXECUTOR.lock().process_queue.clone();
     loop {
         if let Some(pid) = process_queue.pop() {
+            // Before scheduling, clear the queued flag.
+            if let Some(process_arc) = EXECUTOR.lock().processes.get(&pid) {
+                process_arc.lock().state.queued.store(false, Ordering::Release);
+            }
+
             let process_arc = {
                 let executor = EXECUTOR.lock();
                 executor.processes.get(&pid).cloned()
             };
             if let Some(process_arc) = process_arc {
-                // Set the current process
+                // Set the current process state.
                 *CURRENT_PROCESS.lock() = Some(process_arc.lock().state.clone());
                 
                 let mut process = process_arc.lock();
+                let process_state = process.state.clone(); // Clone the Arc<ProcessState> for the waker
+                unsafe {
+                    executor::CURRENT_PROCESS_GUARD = &mut *process as *mut Process;
+                }
                 let waker = {
                     let mut executor = EXECUTOR.lock();
                     executor.waker_cache
                         .entry(pid)
-                        .or_insert_with(|| executor::ProcessWaker::new(pid, process_queue.clone()))
+                        .or_insert_with(|| executor::ProcessWaker::new(pid, process_queue.clone(), process_state))
                         .clone()
                 };
                 let mut context = Context::from_waker(&waker);
-                let result = process.poll(&mut context);
+                let result = process.future.as_mut().poll(&mut context);
+                unsafe {
+                    executor::CURRENT_PROCESS_GUARD = core::ptr::null_mut();
+                }
                 if let Poll::Ready(exit_code) = result {
                     let mut executor = EXECUTOR.lock();
                     executor.processes.remove(&pid);
                     executor.waker_cache.remove(&pid);
                     serial_println!("Process {} exited with code: {}", pid.get(), exit_code);
                 }
-                
-                // Clear the current process
+                // Clear the current process state.
                 *CURRENT_PROCESS.lock() = None;
             }
         } else {
@@ -128,14 +189,14 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 /// This function is called on panic.
 #[cfg(not(test))]
 #[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
     println!("{}", info);
     nullex::hlt_loop();
 }
 
 #[cfg(test)]
 #[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
     println!("{}", info);
     nullex::hlt_loop();
 }

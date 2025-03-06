@@ -4,10 +4,13 @@ pub mod executor;
 pub mod keyboard;
 
 use alloc::boxed::Box;
+use alloc::string::String;
 use alloc::sync::Arc;
 use core::future::Future;
 use core::pin::Pin;
+use core::sync::atomic::AtomicBool;
 use core::task::Context;
+use hashbrown::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProcessId(u64);
@@ -22,26 +25,34 @@ impl ProcessId {
     }
 }
 
-// Move the future function into ProcessState.
+// Struct to represent an open file in a process
+pub struct OpenFile {
+    pub path: String,
+    pub offset: usize, // Current read offset
+}
+
 pub struct ProcessState {
     pub id: ProcessId,
     pub is_child: bool,
     pub future_fn: Arc<dyn Fn(Arc<ProcessState>) -> Pin<Box<dyn Future<Output = i32>>> + Send + Sync>,
+    pub queued: AtomicBool,
 }
 
-// Process structure now only stores the state and the future.
 pub struct Process {
     pub state: Arc<ProcessState>,
     pub future: Pin<Box<dyn Future<Output = i32>>>,
+    pub open_files: HashMap<u32, OpenFile>, // File descriptor to OpenFile mapping
+    pub next_fd: u32,                       // Next available file descriptor
 }
 
 impl Process {
-    // Update the constructor to use the future_fn stored in state.
     pub fn new(state: Arc<ProcessState>) -> Process {
         let future = (state.future_fn)(state.clone());
         Process {
             state,
             future,
+            open_files: HashMap::new(),
+            next_fd: 0, // Start file descriptors at 0
         }
     }
 
