@@ -10,19 +10,10 @@ Kernel module for the kernel.
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 #![feature(abi_x86_interrupt)]
-#![feature(alloc)]
-#![feature(specialization)]
-#![feature(swap_with_slice)]
-#![feature(macro_lifetime_matcher)]
-#![feature(const_mut_refs)]
-#![feature(const_fn_fn_ptr_basics)]
 #![feature(step_trait)]
-#![feature(nonzero)]
 #![feature(associated_type_defaults)]
-#![cfg_attr(all(not(test), feature = "no_std"), no_std)]
 #![feature(alloc_error_handler)]
 #![feature(str_from_raw_parts)]
-#![feature(asm)]
 
 #[macro_use]
 extern crate alloc;
@@ -30,7 +21,7 @@ extern crate bitflags;
 extern crate genfs;
 extern crate spin;
 
-#[cfg(any(test, not(feature = "no_std")))]
+#[cfg(any(test))]
 extern crate core;
 
 use core::panic::PanicInfo;
@@ -38,6 +29,7 @@ use core::panic::PanicInfo;
 pub mod allocator;
 pub mod apic;
 pub mod common;
+pub mod config;
 pub mod fs;
 pub mod gdt;
 pub mod interrupts;
@@ -45,102 +37,101 @@ pub mod memory;
 pub mod serial;
 pub mod syscall;
 pub mod task;
-pub mod vga_buffer;
 pub mod utils;
-pub mod config;
+pub mod vga_buffer;
 
 #[cfg(test)]
-use bootloader::{entry_point, BootInfo};
+use bootloader::{BootInfo, entry_point};
 
 #[cfg(test)]
 entry_point!(test_kernel_main);
 
 pub trait Testable {
-    fn run(&self) -> ();
+	fn run(&self) -> ();
 }
 
 impl<T> Testable for T
 where
-    T: Fn(),
+	T: Fn()
 {
-    fn run(&self) {
-        serial_print!("{}...\t", core::any::type_name::<T>());
-        self();
-        serial_println!("[ok]");
-    }
+	fn run(&self) {
+		serial_print!("{}...\t", core::any::type_name::<T>());
+		self();
+		serial_println!("[ok]");
+	}
 }
 
 pub fn test_runner(tests: &[&dyn Testable]) {
-    serial_println!("Running {} tests", tests.len());
-    for test in tests {
-        test.run();
-    }
-    exit_qemu(QemuExitCode::Success);
+	serial_println!("Running {} tests", tests.len());
+	for test in tests {
+		test.run();
+	}
+	exit_qemu(QemuExitCode::Success);
 }
 
 pub fn test_panic_handler(info: &PanicInfo) -> ! {
-    serial_println!("[failed]\n");
-    serial_println!("Error: {}\n", info);
-    exit_qemu(QemuExitCode::Failed);
-    hlt_loop();
+	serial_println!("[failed]\n");
+	serial_println!("Error: {}\n", info);
+	exit_qemu(QemuExitCode::Failed);
+	hlt_loop();
 }
 
 /// Entry point for `cargo test`
 #[cfg(test)]
 fn test_kernel_main(_boot_info: &'static BootInfo) -> ! {
-    // like before
-    init();
-    test_main();
-    hlt_loop();
+	// like before
+	init();
+	test_main();
+	hlt_loop();
 }
 
 #[cfg(test)]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    test_panic_handler(info)
+	test_panic_handler(info)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u32)]
 pub enum QemuExitCode {
-    Success = 0x10,
-    Failed = 0x11,
+	Success = 0x10,
+	Failed = 0x11
 }
 
 pub fn exit_qemu(exit_code: QemuExitCode) {
-    use x86_64::instructions::port::Port;
+	use x86_64::instructions::port::Port;
 
-    unsafe {
-        let mut port = Port::new(0xf4);
-        port.write(exit_code as u32);
-    }
+	unsafe {
+		let mut port = Port::new(0xf4);
+		port.write(exit_code as u32);
+	}
 }
 
 pub fn init() {
-    gdt::init();
-    interrupts::init_idt();
-    unsafe { interrupts::PICS.lock().initialize() };
-    x86_64::instructions::interrupts::enable();
+	gdt::init();
+	interrupts::init_idt();
+	unsafe { interrupts::PICS.lock().initialize() };
+	x86_64::instructions::interrupts::enable();
 }
 
 pub fn hlt_loop() -> ! {
-    loop {
-        x86_64::instructions::hlt();
-    }
+	loop {
+		x86_64::instructions::hlt();
+	}
 }
 
 #[repr(align(512))]
 pub struct Align512<T>(T);
 pub fn align_buffer(buffer: [u8; 512]) -> Align512<[u8; 512]> {
-    Align512(buffer)
+	Align512(buffer)
 }
 
 impl<T> Align512<T> {
-    pub fn inner(&self) -> &T {
-        &self.0
-    }
+	pub fn inner(&self) -> &T {
+		&self.0
+	}
 
-    pub fn inner_mut(&mut self) -> &mut T {
-        &mut self.0
-    }
+	pub fn inner_mut(&mut self) -> &mut T {
+		&mut self.0
+	}
 }
