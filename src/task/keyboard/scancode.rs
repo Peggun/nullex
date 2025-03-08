@@ -28,7 +28,10 @@ use crate::{
 	print,
 	println,
 	serial_println,
-	task::yield_now,
+	task::{
+		keyboard::commands::{CMD_HISTORY, CMD_HISTORY_INDEX},
+		yield_now
+	},
 	vga_buffer::{WRITER, console_backspace}
 };
 
@@ -133,9 +136,7 @@ pub async fn print_keypresses() -> i32 {
 							print!("^C\ntest@nullex: {} $ ", *CWD.lock());
 							line.clear();
 						} else if key == KeyCode::ArrowUp {
-							// Up arrow key pressed.
-							// TODO: Add command history retrieval logic here.
-							print!("Up arrow key pressed\n");
+							uparrow_completion(&mut line);
 						} else if key == KeyCode::Tab {
 							continue;
 						} else {
@@ -317,4 +318,31 @@ pub fn tab_completion(line: &mut String) {
 			}
 		}
 	});
+}
+
+pub fn uparrow_completion(line: &mut String) {
+	// Lock the history and history index.
+	let history = CMD_HISTORY.lock();
+	let mut index = CMD_HISTORY_INDEX.lock();
+
+	// If history is empty, nothing to do.
+	if history.is_empty() {
+		return;
+	}
+
+	// If we're not at the oldest command, move one step backward.
+	if *index > 0 {
+		*index -= 1;
+	}
+
+	// Clear the current input from the screen.
+	for _ in 0..line.len() {
+		line.pop();
+		console_backspace();
+	}
+
+	// Get the command from history and print it.
+	let cmd = &history[*index];
+	print!("{}", cmd);
+	line.push_str(cmd);
 }

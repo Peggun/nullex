@@ -24,6 +24,11 @@ use crate::{
 	vga_buffer::WRITER
 };
 
+lazy_static! {
+	pub static ref CMD_HISTORY: Mutex<Vec<String>> = Mutex::new(Vec::new());
+	pub static ref CMD_HISTORY_INDEX: Mutex<usize> = Mutex::new(0);
+}
+
 /// A type alias for a command function.
 pub type CommandFunction = fn(args: &[&str]);
 
@@ -59,6 +64,13 @@ pub fn run_command(input: &str) {
 		let registry = COMMAND_REGISTRY.lock();
 		registry.get(command).copied() // `copied()` turns &Command into Command
 	};
+
+	{
+		let mut history = CMD_HISTORY.lock();
+		history.push(input.to_string());
+		// Reset the history index to the end of the history.
+		*CMD_HISTORY_INDEX.lock() = history.len();
+	}
 
 	if let Some(cmd) = cmd_opt {
 		// At this point, the lock is dropped, so it's safe to call the command.
