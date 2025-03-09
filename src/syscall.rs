@@ -8,12 +8,14 @@ use alloc::{string::ToString, sync::Arc};
 use core::sync::atomic::AtomicBool;
 
 use crate::{
+	apic::apic::sleep,
 	fs,
 	println,
 	serial_println,
 	task::{
 		OpenFile,
 		Process,
+		ProcessId,
 		ProcessState,
 		executor::{self, CURRENT_PROCESS, EXECUTOR}
 	}
@@ -30,9 +32,17 @@ pub const SYS_READ: u32 = 7;
 pub const SYS_WRITE: u32 = 8;
 pub const SYS_EXEC: u32 = 9;
 pub const SYS_KILL: u32 = 10;
+pub const SYS_SLEEP: u32 = 11;
 
 // System call handler function
-pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _arg5: u64) -> i32 {
+pub async fn syscall(
+	syscall_id: u32,
+	arg1: u64,
+	arg2: u64,
+	arg3: u64,
+	_arg4: u64,
+	_arg5: u64
+) -> i32 {
 	match syscall_id {
 		SYS_PRINT => {
 			let ptr = arg1 as *const u8;
@@ -79,6 +89,7 @@ pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _ar
 			let pid = arg1 as u64;
 			sys_kill(pid)
 		}
+		SYS_SLEEP => sys_sleep(arg1 as u32).await,
 		_ => {
 			serial_println!("Invalid syscall ID: {}", syscall_id);
 			-1 // Error code for unhandled syscall
@@ -257,7 +268,11 @@ pub fn sys_exec(path: &str) -> i32 {
 }
 
 pub fn sys_kill(pid: u64) -> i32 {
-	// Does not need current process state, only executor access
-	serial_println!("sys_kill: Killing PID {} (not implemented)", pid);
+	EXECUTOR.lock().end_process(ProcessId::new(pid), -2);
 	0 // Placeholder: should terminate the specified process
+}
+
+pub async fn sys_sleep(duration: u32) -> i32 {
+	unsafe { sleep(duration).await };
+	0 // Placeholder: should sleep the current process
 }

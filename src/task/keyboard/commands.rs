@@ -19,8 +19,9 @@ use crate::{
 	fs::{self, ramfs::Permission},
 	print,
 	println,
+	serial_println,
 	syscall,
-	task::executor::EXECUTOR,
+	task::{ProcessId, executor::EXECUTOR},
 	vga_buffer::WRITER
 };
 
@@ -378,7 +379,7 @@ pub fn kill(args: &[&str]) {
 		return;
 	}
 
-	let _pid = match args[0].parse::<u64>() {
+	let pid = match args[0].parse::<u64>() {
 		Ok(pid) => pid,
 		Err(_) => {
 			println!("kill: invalid PID '{}'", args[0]);
@@ -386,5 +387,8 @@ pub fn kill(args: &[&str]) {
 		}
 	};
 
+	EXECUTOR.lock().end_process(ProcessId::new(pid), -2);
+
 	// Kill process
+	serial_println!("Killed process {}", pid);
 }

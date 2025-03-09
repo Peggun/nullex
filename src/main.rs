@@ -21,6 +21,7 @@ use core::{
 };
 
 use bootloader::{BootInfo, entry_point};
+use lazy_static::lazy_static;
 use nullex::{
 	allocator,
 	apic::apic::{self, sleep},
@@ -38,10 +39,21 @@ use nullex::{
 		executor::{self, CURRENT_PROCESS, EXECUTOR},
 		keyboard
 	},
-	utils::process::spawn_process,
+	utils::{
+		logger::{
+			format::DefaultFormatter,
+			sinks::{stdout::StdOutSink, syslog::SyslogSink}
+		},
+		process::spawn_process
+	},
 	vga_buffer::WRITER
 };
 use vga::colors::Color16;
+
+lazy_static! {
+	pub static ref STDOUT_SINK: StdOutSink = StdOutSink::new(Box::new(DefaultFormatter::new(true)));
+	pub static ref SYSLOG_SINK: SyslogSink = SyslogSink::new(Box::new(DefaultFormatter::new(true)));
+}
 
 entry_point!(kernel_main);
 
@@ -99,7 +111,11 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 		.unwrap();
 	fs.write_file("/mydir/test.txt", b"Secret message").unwrap();
 
+	fs.create_dir("/logs", Permission::all()).unwrap();
+
 	fs::init_fs(fs);
+
+	//SYSLOG_SINK.log("Hello", LogLevel::Info);
 
 	WRITER.lock().clear_everything();
 	WRITER.lock().set_colors(Color16::White, Color16::Black);

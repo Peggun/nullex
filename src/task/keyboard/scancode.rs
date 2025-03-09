@@ -137,8 +137,8 @@ pub async fn print_keypresses() -> i32 {
 							line.clear();
 						} else if key == KeyCode::ArrowUp {
 							uparrow_completion(&mut line);
-						} else if key == KeyCode::Tab {
-							continue;
+						} else if key == KeyCode::ArrowDown {
+							downarrow_completion(&mut line);
 						} else {
 							serial_println!("unhandled key {:?}", key);
 						}
@@ -342,6 +342,39 @@ pub fn uparrow_completion(line: &mut String) {
 	}
 
 	// Get the command from history and print it.
+	let cmd = &history[*index];
+	print!("{}", cmd);
+	line.push_str(cmd);
+}
+
+pub fn downarrow_completion(line: &mut String) {
+	let history = CMD_HISTORY.lock();
+	let mut index = CMD_HISTORY_INDEX.lock();
+
+	if history.is_empty() {
+		return;
+	}
+
+	// If already at the newest command, clear the line and do nothing.
+	if *index >= history.len() - 1 {
+		// Clear the current input from the screen.
+		for _ in 0..line.len() {
+			line.pop();
+			console_backspace();
+		}
+		return;
+	}
+
+	// Otherwise, move one step forward.
+	*index += 1;
+
+	// Clear the current input from the screen.
+	for _ in 0..line.len() {
+		line.pop();
+		console_backspace();
+	}
+
+	// Get the command from history and display it.
 	let cmd = &history[*index];
 	print!("{}", cmd);
 	line.push_str(cmd);

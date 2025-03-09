@@ -66,6 +66,15 @@ impl Executor {
 			println!("  Process {}", pid.0);
 		}
 	}
+
+	pub fn end_process(&mut self, pid: ProcessId, _exit_code: i32) {
+		let process_arc = self.processes.get(&pid).unwrap();
+		let process = process_arc.lock();
+		let pid_to_remove = pid;
+		drop(process); // Release the immutable borrow
+		self.processes.remove(&pid_to_remove);
+		self.waker_cache.remove(&pid_to_remove);
+	}
 }
 
 pub struct ProcessWaker {

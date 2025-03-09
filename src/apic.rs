@@ -14,13 +14,18 @@ Timer Frequency = Bus Frequency / Divide Value
 
 Where we can change the Bus Frequency to CPU Speed, like 200MHz
 
-Timer Frequency = 100,000,00 Hz (100MHz) / 16
-= 6,250,000 Hz (6.25MHz)
+Timer Frequency = 200,000,00 Hz (100MHz) / 16
+= 12,500,000 Hz (12.5MHz)
 
-Ticks per millisecond = Timer Frequency / 1000 ms / s
-= 6250 ticks / ms
+Ticks per millisecond = 12,500,000 Hz / 1000 = 12500 ticks/ms
 
-Total Ticks = duration_ms * ticks_per_ms
+Duration:
+	5ms:
+		Total Ticks = 5 ms * 12500 ticks/ms = 62500 ticks
+
+Time from ticks:
+	5ms:
+		Duration (ms) = 62500 ticks / 12500 ticks/ms = 5 ms
 */
 
 /// Read the math in apic.rs to understand the math behind this constant.
@@ -88,7 +93,7 @@ pub mod apic {
 
 	use x86_64::registers::model_specific::Msr;
 
-	use super::TICK_COUNT;
+	use super::{TICK_COUNT, TICKS_PER_MS};
 	use crate::task::yield_now;
 
 	pub unsafe fn enable_apic() {
@@ -114,5 +119,45 @@ pub mod apic {
 		while TICK_COUNT.load(Ordering::Acquire) < target_tick {
 			yield_now().await;
 		}
+	}
+
+	/// Get the current tick count from the APIC timer.
+	/// This is a monotonically increasing value that can be used for timing.
+	/// The value is in timer ticks, which can be converted to milliseconds
+	/// using the `TICKS_PER_MS` constant.
+	pub fn now() -> u32 {
+		TICK_COUNT.load(Ordering::Acquire)
+	}
+
+	pub fn to_ms(ticks: u32) -> f32 {
+		if ticks == 0 {
+			return 0.0
+		}
+
+		(ticks as f32) / (TICKS_PER_MS as f32)
+	}
+
+	pub fn to_secs(ticks: u32) -> f32 {
+		if ticks == 0 {
+			return 0.0
+		}
+
+		(ticks as f32) / (TICKS_PER_MS as f32 * 1000.0)
+	}
+
+	pub fn to_mins(ticks: u32) -> f32 {
+		if ticks == 0 {
+			return 0.0
+		}
+
+		(ticks as f32) / (TICKS_PER_MS as f32 * 1000.0 * 60.0)
+	}
+
+	pub fn to_ticks(ms: u32) -> f32 {
+		if ms == 0 {
+			return 0.0
+		}
+
+		(ms as f32) * (TICKS_PER_MS as f32)
 	}
 }

@@ -331,4 +331,23 @@ impl FileSystem {
 		// Clear all entries from the directory.
 		dir.entries.clear();
 	}
+
+	pub fn exists(&self, path: &str) -> bool {
+		let components = match self.resolve_path(path) {
+			Ok(c) => c,
+			Err(_) => return false
+		};
+
+		if components.is_empty() {
+			return true;
+		}
+
+		if let Ok(parent_dir) = self.get_dir_from_components(&components[..components.len() - 1]) {
+			parent_dir
+				.entries
+				.contains_key(&components[components.len() - 1])
+		} else {
+			false
+		}
+	}
 }
