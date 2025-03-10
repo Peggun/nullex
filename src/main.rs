@@ -21,10 +21,10 @@ use core::{
 };
 
 use bootloader::{BootInfo, entry_point};
-use lazy_static::lazy_static;
 use nullex::{
 	allocator,
-	apic::apic::{self, sleep},
+	apic::{self, apic::sleep},
+	constants::{SYSLOG_SINK, initialize_constants},
 	fs::{
 		self,
 		ramfs::{FileSystem, Permission}
@@ -41,19 +41,14 @@ use nullex::{
 	},
 	utils::{
 		logger::{
-			format::DefaultFormatter,
-			sinks::{stdout::StdOutSink, syslog::SyslogSink}
+			levels::LogLevel,
+			traits::logger_sink::LoggerSink
 		},
 		process::spawn_process
 	},
 	vga_buffer::WRITER
 };
 use vga::colors::Color16;
-
-lazy_static! {
-	pub static ref STDOUT_SINK: StdOutSink = StdOutSink::new(Box::new(DefaultFormatter::new(true)));
-	pub static ref SYSLOG_SINK: SyslogSink = SyslogSink::new(Box::new(DefaultFormatter::new(true)));
-}
 
 entry_point!(kernel_main);
 
@@ -84,13 +79,16 @@ async fn process_two(_state: Arc<ProcessState>) -> i32 {
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	use x86_64::VirtAddr;
 
+	println!("[Info] Starting Kernel Init...");
+
 	let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 	let mut mapper = unsafe { memory::init(phys_mem_offset) };
 	let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
-	unsafe { apic::enable_apic() };
+	unsafe { apic::apic::enable_apic() };
 	memory::map_apic(&mut mapper, &mut frame_allocator);
-	unsafe { apic::init_timer(6125) };
+	unsafe { apic::apic::init_timer(6125) };
+	initialize_constants();
 
 	unsafe {
 		PICS.lock().write_masks(0b11111101, 0b11111111);
@@ -104,6 +102,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	}
 
 	let mut fs = FileSystem::new();
+
+	println!("[Info] Initializing RAMFS...");
+
 	fs.create_file("/hello.txt", Permission::all()).unwrap();
 	fs.write_file("/hello.txt", b"Hello Kernel World!").unwrap();
 	fs.create_dir("/mydir", Permission::all()).unwrap();
@@ -115,7 +116,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
 	fs::init_fs(fs);
 
-	//SYSLOG_SINK.log("Hello", LogLevel::Info);
+	println!("[Info] Done.");
+
+	SYSLOG_SINK.log("Initialized Main Kernel Successfully\n", LogLevel::Info);
 
 	WRITER.lock().clear_everything();
 	WRITER.lock().set_colors(Color16::White, Color16::Black);

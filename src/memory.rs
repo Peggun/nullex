@@ -20,10 +20,14 @@ use x86_64::{
 	}
 };
 
+use crate::println;
+
 pub fn map_apic(
 	mapper: &mut impl Mapper<Size4KiB>,
 	frame_allocator: &mut impl FrameAllocator<Size4KiB>
 ) {
+	println!("[Info] Mapping APIC Timer...");
+
 	let apic_phys_start = 0xFEE00000;
 	let apic_page = Page::containing_address(VirtAddr::new(apic_phys_start));
 	let apic_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
@@ -39,6 +43,8 @@ pub fn map_apic(
 			.unwrap()
 			.flush();
 	}
+
+	println!("[Info] Done.");
 }
 
 /// A FrameAllocator that returns usable frames from the bootloader's memory

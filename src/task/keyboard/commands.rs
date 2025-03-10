@@ -16,12 +16,14 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 
 use crate::{
+	constants::SYSLOG_SINK,
 	fs::{self, ramfs::Permission},
 	print,
 	println,
 	serial_println,
 	syscall,
 	task::{ProcessId, executor::EXECUTOR},
+	utils::logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
 	vga_buffer::WRITER
 };
 
@@ -83,6 +85,7 @@ pub fn run_command(input: &str) {
 
 /// Initialize the default commands for the shell.
 pub fn init_commands() {
+	SYSLOG_SINK.log("Initializing Keyboard Commands...\n", LogLevel::Info);
 	register_command(Command {
 		name: "echo",
 		func: echo,
@@ -153,6 +156,7 @@ pub fn init_commands() {
 		func: kill,
 		help: "Kill a process"
 	});
+	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
 }
 
 /// Helper function to resolve a file path relative to the current working

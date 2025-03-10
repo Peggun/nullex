@@ -79,11 +79,13 @@ pub mod apic {
 	/// `initial_count` is the value from which the timer will count down.
 	/// You may need to calibrate this value based on your desired tick rate.
 	pub unsafe fn init_timer(initial_count: u32) {
+		println!("[Info] Initializing APIC Timer...");
 		unsafe {
 			write_register(TIMER_DIVIDE, DIVIDE_BY_16); // Set the timer divide configuration to divide by 16.
 			write_register(LVT_TIMER, TIMER_PERIODIC | TIMER_INTERRUPT_VECTOR);
 			write_register(TIMER_INIT_COUNT, initial_count);
 		}
+		println!("[Info] Done.")
 	}
 
 	/// Signal End-of-Interrupt (EOI) to the Local APIC.
@@ -94,12 +96,14 @@ pub mod apic {
 	use x86_64::registers::model_specific::Msr;
 
 	use super::{TICK_COUNT, TICKS_PER_MS};
-	use crate::task::yield_now;
+	use crate::{println, task::yield_now};
 
 	pub unsafe fn enable_apic() {
+		println!("[Info] Enabling APIC Timer...");
 		let mut msr = Msr::new(0x1B);
 		let value = unsafe { msr.read() };
 		unsafe { msr.write(value | 0x800) }; // Set the "Enable APIC" bit (bit 11)
+		println!("[Info] Done.");
 	}
 
 	/// Sleep for a given duration (in milliseconds) using the APIC timer.

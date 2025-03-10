@@ -24,6 +24,8 @@ use x86_64::{
 	}
 };
 
+use crate::println;
+
 pub const HEAP_START: usize = 0x_4444_4444_0000;
 pub const HEAP_SIZE: usize = 1024 * 1024;
 
@@ -40,6 +42,7 @@ pub fn init_heap(
 	mapper: &mut impl Mapper<Size4KiB>,
 	frame_allocator: &mut impl FrameAllocator<Size4KiB>
 ) -> Result<(), MapToError<Size4KiB>> {
+	println!("[Info] Initializing Heap...");
 	let page_range = {
 		let heap_start = VirtAddr::new(HEAP_START as u64);
 		let heap_end = heap_start + HEAP_SIZE - 1u64;
@@ -60,6 +63,7 @@ pub fn init_heap(
 		ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
 	}
 
+	println!("[Info] Done.");
 	Ok(())
 }
 

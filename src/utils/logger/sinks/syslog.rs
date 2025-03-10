@@ -9,7 +9,7 @@ use crate::{
 };
 
 pub struct SyslogSink {
-	pub formatter: Box<dyn LogFormatter>
+	pub formatter: Box<dyn LogFormatter> //pub config: LoggerConfig
 }
 
 impl SyslogSink {
