@@ -41,13 +41,14 @@ cargo install bootimage
 ```
 
 #### Building
-Build the project in Release mode
+You can build the project, but for debugging purposes, you don't need to. 
+Building in release mode is mostly recommended for public release.
 ```bash
-cargo build
+cargo build --release
 ```
 
 #### Testing
-Run the test suite:
+Run the test suite (READ THE NOTE ABOVE) :
 ```bash
 cargo test
 ```
@@ -55,7 +56,7 @@ cargo test
 #### Running
 Run the QEMU Emulator:
 ```bash
-cargo run
+cargo run -- -drive format=raw,file=ext2test.img,index=1,media=disk,if=ide -serial mon:stdio
 ```
 or
 ```bash
