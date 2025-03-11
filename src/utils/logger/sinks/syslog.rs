@@ -13,6 +13,13 @@ pub struct SyslogSink {
 }
 
 impl SyslogSink {
+	/// Create a new `StdOutSink` with formatter.
+	/// # Arguments
+	/// * `formatter: Box<dyn LogFormatter>` - The formatter using for the
+	///   logger
+	///
+	/// # Returns
+	/// * New `StdOutSink` Instance
 	pub fn new(formatter: Box<dyn LogFormatter>) -> Self {
 		Self {
 			formatter
@@ -21,6 +28,10 @@ impl SyslogSink {
 }
 
 impl LoggerSink for SyslogSink {
+	/// The non-asynchronous log function.
+	/// # Arguments
+	/// * `message: &str` - The message to be logged.
+	/// * `level: LogLevel` - The `LogLevel` to the log to be written.
 	fn log(&self, message: &str, level: LogLevel) {
 		let formatted_message = self.formatter.format(level, message);
 		fs::with_fs(|fs| {
@@ -34,6 +45,13 @@ impl LoggerSink for SyslogSink {
 		})
 	}
 
+	/// The asynchronous log function.
+	/// # Arguments
+	/// * `message` - The message to be logged.
+	/// * `level` - The `LogLevel` to the log to be written.
+	///
+	/// # Returns
+	/// - `core::future::Future<Output = ()> + Send` (use .await;)
 	fn log_async(
 		&self,
 		message: &str,

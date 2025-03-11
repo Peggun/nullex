@@ -31,6 +31,7 @@ pub mod apic;
 pub mod common;
 pub mod config;
 pub mod constants;
+pub mod errors;
 pub mod fs;
 pub mod gdt;
 pub mod interrupts;
@@ -38,6 +39,7 @@ pub mod memory;
 pub mod serial;
 pub mod syscall;
 pub mod task;
+pub mod user_space;
 pub mod utils;
 pub mod vga_buffer;
 

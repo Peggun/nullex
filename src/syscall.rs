@@ -35,21 +35,13 @@ pub const SYS_KILL: u32 = 10;
 pub const SYS_SLEEP: u32 = 11;
 
 // System call handler function
-pub async fn syscall(
-	syscall_id: u32,
-	arg1: u64,
-	arg2: u64,
-	arg3: u64,
-	_arg4: u64,
-	_arg5: u64
-) -> i32 {
+pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _arg5: u64) -> i32 {
 	match syscall_id {
 		SYS_PRINT => {
 			let ptr = arg1 as *const u8;
 			let len = arg2 as usize;
 			let s = unsafe { core::str::from_raw_parts(ptr, len) };
-			sys_print(s);
-			0
+			sys_print(s)
 		}
 		SYS_EXIT => {
 			let exit_code = arg1 as i32;
@@ -89,7 +81,7 @@ pub async fn syscall(
 			let pid = arg1 as u64;
 			sys_kill(pid)
 		}
-		SYS_SLEEP => sys_sleep(arg1 as u32).await,
+		// SYS_SLEEP => sys_sleep(arg1 as u32).await,
 		_ => {
 			serial_println!("Invalid syscall ID: {}", syscall_id);
 			-1 // Error code for unhandled syscall
@@ -137,8 +129,9 @@ pub fn sys_wait() -> i32 {
 	}
 }
 
-pub fn sys_print(s: &str) {
+pub fn sys_print(s: &str) -> i32 {
 	println!("{}", s);
+	0
 }
 
 pub fn sys_exit(exit_code: i32) -> ! {
@@ -269,6 +262,7 @@ pub fn sys_exec(path: &str) -> i32 {
 
 pub fn sys_kill(pid: u64) -> i32 {
 	EXECUTOR.lock().end_process(ProcessId::new(pid), -2);
+	serial_println!("Killed: {}", pid);
 	0 // Placeholder: should terminate the specified process
 }
 

@@ -40,10 +40,7 @@ use nullex::{
 		keyboard
 	},
 	utils::{
-		logger::{
-			levels::LogLevel,
-			traits::logger_sink::LoggerSink
-		},
+		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
 		process::spawn_process
 	},
 	vga_buffer::WRITER
@@ -104,13 +101,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	let mut fs = FileSystem::new();
 
 	println!("[Info] Initializing RAMFS...");
-
-	fs.create_file("/hello.txt", Permission::all()).unwrap();
-	fs.write_file("/hello.txt", b"Hello Kernel World!").unwrap();
-	fs.create_dir("/mydir", Permission::all()).unwrap();
-	fs.create_file("/mydir/test.txt", Permission::all())
-		.unwrap();
-	fs.write_file("/mydir/test.txt", b"Secret message").unwrap();
 
 	fs.create_dir("/logs", Permission::all()).unwrap();
 

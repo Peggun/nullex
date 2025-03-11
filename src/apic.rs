@@ -133,6 +133,7 @@ pub mod apic {
 		TICK_COUNT.load(Ordering::Acquire)
 	}
 
+	/// Converts tick to milliseconds
 	pub fn to_ms(ticks: u32) -> f32 {
 		if ticks == 0 {
 			return 0.0
@@ -141,6 +142,7 @@ pub mod apic {
 		(ticks as f32) / (TICKS_PER_MS as f32)
 	}
 
+	/// Converts ticks to seconds
 	pub fn to_secs(ticks: u32) -> f32 {
 		if ticks == 0 {
 			return 0.0
@@ -149,6 +151,7 @@ pub mod apic {
 		(ticks as f32) / (TICKS_PER_MS as f32 * 1000.0)
 	}
 
+	/// Converts ticks to minutes
 	pub fn to_mins(ticks: u32) -> f32 {
 		if ticks == 0 {
 			return 0.0
@@ -157,6 +160,7 @@ pub mod apic {
 		(ticks as f32) / (TICKS_PER_MS as f32 * 1000.0 * 60.0)
 	}
 
+	/// Converts milliseconds to ticks
 	pub fn to_ticks(ms: u32) -> f32 {
 		if ms == 0 {
 			return 0.0
