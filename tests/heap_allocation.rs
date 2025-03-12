@@ -63,7 +63,9 @@ fn main(boot_info: &'static BootInfo) -> ! {
 	let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
 	// Setup APIC Timer
-	unsafe { apic::enable_apic() };
+	unsafe {
+		let _ = apic::enable_apic();
+	};
 	memory::map_apic(&mut mapper, &mut frame_allocator);
 
 	nullex::init();

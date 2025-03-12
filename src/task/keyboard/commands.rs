@@ -17,6 +17,14 @@ use spin::Mutex;
 
 use crate::{
 	constants::SYSLOG_SINK,
+	errors::{
+		COMMAND_INVALID_ARGUMENTS,
+		COMMAND_MISSING_ARGUMENT,
+		COMMAND_NO_ARGUMENTS,
+		//COMMAND_NOT_FOUND,
+		KernelError,
+		SYSTEM_BUSY
+	},
 	fs::{self, ramfs::Permission},
 	print,
 	println,
@@ -33,7 +41,7 @@ lazy_static! {
 }
 
 /// A type alias for a command function.
-pub type CommandFunction = fn(args: &[&str]);
+pub type CommandFunction = fn(args: &[&str]) -> Result<(), KernelError>;
 
 /// A command structure containing the command name, the function to call, and
 /// help text.
@@ -49,15 +57,16 @@ lazy_static! {
 }
 
 /// Register a command in the global command registry.
-pub fn register_command(cmd: Command) {
+pub fn register_command(cmd: Command) -> Result<(), KernelError> {
 	COMMAND_REGISTRY.lock().insert(cmd.name.to_string(), cmd);
+	Ok(())
 }
 
 /// Look up and run a command based on input.
-pub fn run_command(input: &str) {
+pub fn run_command(input: &str) -> Result<(), KernelError> {
 	let parts: Vec<&str> = input.split_whitespace().collect();
 	if parts.is_empty() {
-		return;
+		return Ok(());
 	}
 	let command = parts[0];
 	let args = &parts[1..];
@@ -76,87 +85,90 @@ pub fn run_command(input: &str) {
 	}
 
 	if let Some(cmd) = cmd_opt {
-		// At this point, the lock is dropped, so it's safe to call the command.
-		(cmd.func)(args);
+		// Call the command function and propagate its result
+		(cmd.func)(args)
 	} else {
 		println!("Command not found: {}", command);
+		Ok(()) // Returning Ok since "command not found" is not a fatal error here
+		// Otherwise return a KernelError::CommandError(COMMAND_NOT_FOUND)
 	}
 }
 
 /// Initialize the default commands for the shell.
-pub fn init_commands() {
+pub fn init_commands() -> Result<(), KernelError> {
 	SYSLOG_SINK.log("Initializing Keyboard Commands...\n", LogLevel::Info);
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "echo",
 		func: echo,
 		help: "Print arguments"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "clear",
 		func: clear,
 		help: "Clear the screen"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "help",
 		func: help,
 		help: "Show available commands"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "ls",
 		func: ls,
 		help: "List directory contents"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "cat",
 		func: cat,
 		help: "Display file content"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "cd",
 		func: cd,
 		help: "Change directory"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "touch",
 		func: touch,
 		help: "Create an empty file"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "mkdir",
 		func: mkdir,
 		help: "Create a directory"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "rm",
 		func: rm,
 		help: "Remove a file"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "rmdir",
 		func: rmdir,
 		help: "Remove a directory"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "write",
 		func: write_file,
 		help: "Write content to a file"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "exit",
 		func: sys_exit_shell,
 		help: "Exit the shell"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "progs",
 		func: progs,
 		help: "List running processes"
 	});
-	register_command(Command {
+	let _ = register_command(Command {
 		name: "kill",
 		func: kill,
 		help: "Kill a process"
 	});
 	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
+	Ok(())
 }
 
 /// Helper function to resolve a file path relative to the current working
@@ -197,30 +209,36 @@ fn normalize_path(path: &str) -> String {
 	}
 }
 
-pub fn progs(_args: &[&str]) {
+pub fn progs(_args: &[&str]) -> Result<(), KernelError> {
 	if let Some(executor) = EXECUTOR.try_lock() {
 		executor.list_processes();
+		Ok(())
 	} else {
 		println!("System busy; try again.");
+		Err(KernelError::SystemError(SYSTEM_BUSY))
 	}
 }
 
-pub fn echo(args: &[&str]) {
+pub fn echo(args: &[&str]) -> Result<(), KernelError> {
 	println!("{}", args.join(" "));
+	Ok(())
 }
 
-pub fn clear(_args: &[&str]) {
+pub fn clear(_args: &[&str]) -> Result<(), KernelError> {
 	WRITER.lock().clear_everything();
+	Ok(())
 }
 
-pub fn help(_args: &[&str]) {
+pub fn help(_args: &[&str]) -> Result<(), KernelError> {
 	println!("Available commands:");
 	for cmd in COMMAND_REGISTRY.lock().values() {
 		println!("{} - {}", cmd.name, cmd.help);
 	}
+
+	Ok(())
 }
 
-pub fn ls(args: &[&str]) {
+pub fn ls(args: &[&str]) -> Result<(), KernelError> {
 	let path = resolve_path(if args.is_empty() { "." } else { args[0] });
 	fs::with_fs(|fs| match fs.list_dir(&path) {
 		Ok(entries) => {
@@ -231,12 +249,13 @@ pub fn ls(args: &[&str]) {
 		}
 		Err(_) => println!("ls: cannot access '{}'", path)
 	});
+	Ok(())
 }
 
-pub fn cat(args: &[&str]) {
+pub fn cat(args: &[&str]) -> Result<(), KernelError> {
 	if args.is_empty() {
 		println!("cat: missing file operand");
-		return;
+		return Err(KernelError::CommandError(COMMAND_NO_ARGUMENTS));
 	}
 	let path = resolve_path(args[0]);
 	fs::with_fs(|fs| match fs.read_file(&path) {
@@ -246,9 +265,10 @@ pub fn cat(args: &[&str]) {
 		}
 		Err(_) => println!("cat: {}: No such file", path)
 	});
+	Ok(())
 }
 
-pub fn cd(args: &[&str]) {
+pub fn cd(args: &[&str]) -> Result<(), KernelError> {
 	let path = if args.is_empty() {
 		"/".to_string()
 	} else {
@@ -263,12 +283,13 @@ pub fn cd(args: &[&str]) {
 			println!("cd: no such directory: {}", args[0]);
 		}
 	});
+	Ok(())
 }
 
-pub fn touch(args: &[&str]) {
+pub fn touch(args: &[&str]) -> Result<(), KernelError> {
 	if args.is_empty() {
 		println!("touch: missing file operand");
-		return;
+		return Err(KernelError::CommandError(COMMAND_MISSING_ARGUMENT));
 	}
 	for file in args {
 		let path = resolve_path(file);
@@ -280,12 +301,13 @@ pub fn touch(args: &[&str]) {
 			}
 		});
 	}
+	Ok(())
 }
 
-pub fn mkdir(args: &[&str]) {
+pub fn mkdir(args: &[&str]) -> Result<(), KernelError> {
 	if args.is_empty() {
 		println!("mkdir: missing operand");
-		return;
+		return Err(KernelError::CommandError(COMMAND_MISSING_ARGUMENT))
 	}
 	for dir in args {
 		let path = resolve_path(dir);
@@ -295,12 +317,13 @@ pub fn mkdir(args: &[&str]) {
 			}
 		});
 	}
+	Ok(())
 }
 
-pub fn rm(args: &[&str]) {
+pub fn rm(args: &[&str]) -> Result<(), KernelError> {
 	if args.is_empty() {
 		println!("rm: missing operand");
-		return;
+		return Err(KernelError::CommandError(COMMAND_MISSING_ARGUMENT))
 	}
 	for arg in args {
 		let path = resolve_path(arg);
@@ -315,18 +338,19 @@ pub fn rm(args: &[&str]) {
 			}
 		});
 	}
+	Ok(())
 }
 
-pub fn rmdir(args: &[&str]) {
+pub fn rmdir(args: &[&str]) -> Result<(), KernelError> {
 	if args.is_empty() {
 		println!("rmdir: missing operand");
-		return;
+		return Err(KernelError::CommandError(COMMAND_MISSING_ARGUMENT))
 	}
 	let recursive = args.iter().any(|&arg| arg == "-r");
 	let dirs: Vec<&str> = args.iter().filter(|&&arg| arg != "-r").cloned().collect();
 	if dirs.is_empty() {
 		println!("rmdir: missing operand");
-		return;
+		return Err(KernelError::CommandError(COMMAND_MISSING_ARGUMENT)) // Not sure why because of dirs being empty.
 	}
 	for dir in dirs {
 		let path = resolve_path(dir);
@@ -341,12 +365,13 @@ pub fn rmdir(args: &[&str]) {
 			}
 		});
 	}
+	Ok(())
 }
 
-pub fn write_file(args: &[&str]) {
+pub fn write_file(args: &[&str]) -> Result<(), KernelError> {
 	if args.len() < 2 {
 		println!("Usage: write <file> <content>");
-		return;
+		return Err(KernelError::CommandError(COMMAND_MISSING_ARGUMENT))
 	}
 	let path = resolve_path(args[0]);
 	let content = args[1..].join(" ");
@@ -355,10 +380,12 @@ pub fn write_file(args: &[&str]) {
 			println!("write: failed to write to '{}'", args[0]);
 		}
 	});
+	Ok(())
 }
 
-pub fn sys_exit_shell(_args: &[&str]) {
+pub fn sys_exit_shell(_args: &[&str]) -> Result<(), KernelError> {
 	syscall::sys_exit(0);
+	//Ok(())
 }
 
 /// Optional helper: join two paths together.
@@ -377,17 +404,17 @@ pub fn join_paths(path: &str, next: &str, out: &mut String) {
 	}
 }
 
-pub fn kill(args: &[&str]) {
+pub fn kill(args: &[&str]) -> Result<(), KernelError> {
 	if args.is_empty() {
 		println!("kill: missing PID");
-		return;
+		return Err(KernelError::CommandError(COMMAND_MISSING_ARGUMENT))
 	}
 
 	let pid = match args[0].parse::<u64>() {
 		Ok(pid) => pid,
 		Err(_) => {
 			println!("kill: invalid PID '{}'", args[0]);
-			return;
+			return Err(KernelError::CommandError(COMMAND_INVALID_ARGUMENTS))
 		}
 	};
 
@@ -395,4 +422,5 @@ pub fn kill(args: &[&str]) {
 
 	// Kill process
 	serial_println!("Killed process {}", pid);
+	Ok(())
 }

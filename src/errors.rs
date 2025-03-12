@@ -1,3 +1,35 @@
+// errors.rs
+use core::fmt;
+
+#[derive(Debug)]
+pub enum KernelError {
+	VgaError(i32),        // VGA-related errors (-3 to -20)
+	MemoryError(i32),     // Memory allocation errors (-21 to -40)
+	FileSystemError(i32), // File system errors (-41 to -60)
+	SerialError(i32),     // Serial interface errors (-61 to -80)
+	KeyboardError(i32),   // Keyboard errors (-81 to -100)
+	VgaDriverError(i32),  // VGA driver errors (-101 to -120)
+	CommandError(i32),    // Command errors (-121 to -140)
+	ApicError(i32),       // APIC errors (-141 to -160)
+	SystemError(i32)      // System errors (-161 to -180)
+}
+
+impl fmt::Display for KernelError {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			KernelError::VgaError(code) => write!(f, "VGA Error: {}", code),
+			KernelError::MemoryError(code) => write!(f, "Memory Error: {}", code),
+			KernelError::FileSystemError(code) => write!(f, "File System Error: {}", code),
+			KernelError::SerialError(code) => write!(f, "Serial Error: {}", code),
+			KernelError::KeyboardError(code) => write!(f, "Keyboard Error: {}", code),
+			KernelError::VgaDriverError(code) => write!(f, "VGA Driver Error: {}", code),
+			KernelError::CommandError(code) => write!(f, "Command Error: {}", code),
+			KernelError::ApicError(code) => write!(f, "APIC Error: {}", code),
+			KernelError::SystemError(code) => write!(f, "System Error: {}", code)
+		}
+	}
+}
+
 pub const SUCCESS: i32 = 0;
 pub const FAILURE: i32 = -1;
 
@@ -26,6 +58,8 @@ pub const FS_CLOSE_ERROR: i32 = -48; // Close error when trying to close a file.
 pub const FS_OPEN_ERROR: i32 = -49; // Open error when trying to open a file.
 pub const FS_INVALID_FILE_DESCRIPTOR: i32 = -50; // Invalid file descriptor error when trying to access a file.
 pub const FS_MEMORY_ERROR: i32 = -51; // Memory error when trying to access a file.
+pub const FS_DIR_LIST_FAILED_ERROR: i32 = -52; // Directory list failed error when trying to list the contents of a directory.
+pub const FS_DIR_LIST_TYPES_FAILED_ERROR: i32 = -53; // Directory list types failed error when trying to list the contents of a directory.
 
 // ----- SERIAL Errors ----- -61 to -80 //
 pub const SERIAL_PORT_UNAVAILABLE: i32 = -60; // Serial port unavailable error when trying to access the serial port.
@@ -49,9 +83,11 @@ pub const VGA_DRIVER_BUFFER_ERROR: i32 = -103; // VGA driver buffer error when t
 
 // ----- Command Errors ----- -121 to -140 //
 pub const COMMAND_NOT_FOUND: i32 = -120; // Command not found error when trying to execute a command.
-pub const COMMAND_INVALID_ARGUMENTS: i32 = -121; // Invalid arguments error when trying to execute a command.
-pub const COMMAND_EXECUTION_FAILURE: i32 = -122; // Command execution failure error when trying to execute a command.
-pub const COMMAND_PERMISSION_DENIED: i32 = -123; // Permission denied error when trying to execute a command.
+pub const COMMAND_NO_ARGUMENTS: i32 = -121; // No arguments error when trying to execute a command.
+pub const COMMAND_INVALID_ARGUMENTS: i32 = -122; // Invalid arguments error when trying to execute a command.
+pub const COMMAND_EXECUTION_FAILURE: i32 = -123; // Command execution failure error when trying to execute a command.
+pub const COMMAND_PERMISSION_DENIED: i32 = -124; // Permission denied error when trying to execute a command
+pub const COMMAND_MISSING_ARGUMENT: i32 = -125; // Missing argument error when trying to execute a command.
 
 // ----- APIC Errors ----- -141 to -160 //
 pub const APIC_TIMER_INIT_FAILED: i32 = -141; // APIC timer initialization failed error when trying to initialize the APIC timer.
@@ -60,3 +96,9 @@ pub const APIC_TIMER_INVALID_FREQUENCY: i32 = -143; // APIC timer invalid freque
 pub const APIC_TIMER_INVALID_MODE: i32 = -144; // APIC timer invalid mode error when trying to set the APIC timer mode.
 pub const APIC_TIMER_INTERRUPT_FAILURE: i32 = -145; // APIC timer interrupt failure error when trying to access the APIC timer interrupt.
 pub const APIC_TIMER_TIMEOUT: i32 = -146; // APIC timer timeout error when trying to access the APIC timer.
+pub const TSC_NOT_INVARIANT: i32 = -147;
+pub const CPUID_LEAF_UNSUPPORTED: i32 = -148;
+pub const APIC_CALIBRATION_FAILED: i32 = -149;
+
+// ----- System Errors ----- -161 to -180 //
+pub const SYSTEM_BUSY: i32 = -161; // System busy error when the system is busy.

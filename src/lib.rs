@@ -31,6 +31,7 @@ pub mod apic;
 pub mod common;
 pub mod config;
 pub mod constants;
+pub mod cpu;
 pub mod errors;
 pub mod fs;
 pub mod gdt;

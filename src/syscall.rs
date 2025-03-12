@@ -267,6 +267,8 @@ pub fn sys_kill(pid: u64) -> i32 {
 }
 
 pub async fn sys_sleep(duration: u32) -> i32 {
-	unsafe { sleep(duration).await };
-	0 // Placeholder: should sleep the current process
+	unsafe {
+		let _ = sleep(duration).await;
+	};
+	0
 }

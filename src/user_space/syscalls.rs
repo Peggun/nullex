@@ -50,6 +50,8 @@ pub unsafe fn syscall(id: u32, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5:
 	}
 }
 
+// All SYSCALLS return either Ok(()) or a Err(KernelError)
+
 /// Prints a string by invoking the kernel's SYS_PRINT system call.
 /// # Returns
 /// 0 - Success

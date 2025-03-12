@@ -2,6 +2,13 @@
 
 /*
 Main entry code for the kernel.
+
+Note to self: you can use this to use the error handling
+If needed:
+
+let (Ok(my_var)|Err(my_var)) = foo(5);
+
+https://stackoverflow.com/questions/76196072/get-value-t-from-resultt-t
 */
 
 #![no_std]
@@ -14,8 +21,6 @@ extern crate alloc;
 
 use alloc::{boxed::Box, sync::Arc};
 use core::{
-	future::Future,
-	pin::Pin,
 	sync::atomic::Ordering,
 	task::{Context, Poll}
 };
@@ -25,6 +30,7 @@ use nullex::{
 	allocator,
 	apic::{self, apic::sleep},
 	constants::{SYSLOG_SINK, initialize_constants},
+	errors::KernelError,
 	fs::{
 		self,
 		ramfs::{FileSystem, Permission}
@@ -45,6 +51,7 @@ use nullex::{
 	},
 	vga_buffer::WRITER
 };
+use raw_cpuid::CpuId;
 use vga::colors::Color16;
 
 entry_point!(kernel_main);
@@ -52,24 +59,26 @@ entry_point!(kernel_main);
 /// A dummy async delay approximating half a second.
 async fn sleep_half_second() {
 	unsafe {
-		sleep(500).await;
+		let _ = sleep(500).await;
 	}
 }
 
 /// Process 1: prints a message every half second.
-async fn process_one(_state: Arc<ProcessState>) -> i32 {
+async fn process_one(_state: Arc<ProcessState>) -> Result<i32, KernelError> {
 	loop {
 		serial_println!("Process 1: Hello every half second");
 		sleep_half_second().await;
 	}
+	//Ok(0) // Unreachable, but required for type consistency
 }
 
 /// Process 2: prints a message every half second.
-async fn process_two(_state: Arc<ProcessState>) -> i32 {
+async fn process_two(_state: Arc<ProcessState>) -> Result<i32, KernelError> {
 	loop {
 		serial_println!("Process 2: Hello every half second");
 		sleep_half_second().await;
 	}
+	//Ok(0) // Unreachable, but required for type consistency
 }
 
 #[unsafe(no_mangle)]
@@ -82,11 +91,6 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	let mut mapper = unsafe { memory::init(phys_mem_offset) };
 	let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
-	unsafe { apic::apic::enable_apic() };
-	memory::map_apic(&mut mapper, &mut frame_allocator);
-	unsafe { apic::apic::init_timer(6125) };
-	initialize_constants();
-
 	unsafe {
 		PICS.lock().write_masks(0b11111101, 0b11111111);
 	}
@@ -98,11 +102,47 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 		Err(e) => panic!("Heap initialization failed: {:?}", e)
 	}
 
+	unsafe {
+		let _ = apic::apic::enable_apic();
+	};
+	memory::map_apic(&mut mapper, &mut frame_allocator);
+	unsafe {
+		let _ = apic::apic::init_timer(6125);
+	};
+	initialize_constants();
+
+	let cpuid = CpuId::new();
+
+	if let Some(vf) = cpuid.get_vendor_info() {
+		serial_println!("Vendor Info: {}", vf.as_str())
+	}
+
+	let has_sse = cpuid
+		.get_feature_info()
+		.map_or(false, |finfo| finfo.has_sse());
+	if has_sse {
+		serial_println!("CPU supports SSE!");
+	}
+
+	if let Some(cparams) = cpuid.get_cache_parameters() {
+		for cache in cparams {
+			let size = cache.associativity()
+				* cache.physical_line_partitions()
+				* cache.coherency_line_size()
+				* cache.sets();
+			serial_println!("L{}-Cache size is {}", cache.level(), size);
+		}
+	} else {
+		serial_println!("No cache parameter information available")
+	}
+
 	let mut fs = FileSystem::new();
 
 	println!("[Info] Initializing RAMFS...");
 
-	fs.create_dir("/logs", Permission::all()).unwrap();
+	if let Err(e) = fs.create_dir("/logs", Permission::all()) {
+		panic!("Failed to create /logs directory: {:?}", e);
+	}
 
 	fs::init_fs(fs);
 
@@ -113,25 +153,16 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	WRITER.lock().clear_everything();
 	WRITER.lock().set_colors(Color16::White, Color16::Black);
 
-	crate::keyboard::commands::init_commands();
+	let _ = crate::keyboard::commands::init_commands();
 
 	// Spawn the keyboard process.
-	let _keyboard_pid = spawn_process(
-		|_state| Box::pin(keyboard::print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>,
-		false
-	);
+	let _keyboard_pid = spawn_process(|_state| Box::pin(keyboard::print_keypresses()), false);
 
 	// Spawn process one.
-	let _process1_pid = spawn_process(
-		|state| Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>,
-		false
-	);
+	let _process1_pid = spawn_process(|state| Box::pin(process_one(state)), false);
 
 	// Spawn process two.
-	let _process2_pid = spawn_process(
-		|state| Box::pin(process_two(state)) as Pin<Box<dyn Future<Output = i32>>>,
-		false
-	);
+	let _process2_pid = spawn_process(|state| Box::pin(process_two(state)), false);
 
 	// Main executor loop with CURRENT_PROCESS management.
 	let process_queue = EXECUTOR.lock().process_queue.clone();
@@ -178,7 +209,15 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 					let mut executor = EXECUTOR.lock();
 					executor.processes.remove(&pid);
 					executor.waker_cache.remove(&pid);
-					serial_println!("Process {} exited with code: {}", pid.get(), exit_code);
+					// Handle Result<i32, KernelError> from all processes
+					match exit_code {
+						Ok(code) => {
+							serial_println!("Process {} exited with code: {}", pid.get(), code)
+						}
+						Err(e) => {
+							serial_println!("Process {} failed with error: {:?}", pid.get(), e)
+						}
+					}
 				}
 				// Clear the current process state.
 				*CURRENT_PROCESS.lock() = None;

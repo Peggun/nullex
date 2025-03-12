@@ -5,19 +5,16 @@ APIC timer and register definitions.
 */
 
 /*
-APIC timer has two modes
+APIC timer has two modes:
 Divide-by-16, and Periodic Mode
 
 Math Time!
 
 Timer Frequency = Bus Frequency / Divide Value
 
-Where we can change the Bus Frequency to CPU Speed, like 200MHz
-
-Timer Frequency = 200,000,00 Hz (100MHz) / 16
-= 12,500,000 Hz (12.5MHz)
-
-Ticks per millisecond = 12,500,000 Hz / 1000 = 12500 ticks/ms
+For example, if we assume a bus frequency of 200MHz:
+	Timer Frequency = 200,000,000 Hz / 16 = 12,500,000 Hz (12.5MHz)
+	Ticks per millisecond = 12,500,000 Hz / 1000 = 12500 ticks/ms
 
 Duration:
 	5ms:
@@ -29,6 +26,8 @@ Time from ticks:
 */
 
 /// Read the math in apic.rs to understand the math behind this constant.
+/// Note: When using CPUID to calibrate the timer, you might compute this value
+/// at runtime.
 pub const TICKS_PER_MS: u32 = 6125;
 
 use core::sync::atomic::AtomicU32;
@@ -40,6 +39,15 @@ pub mod apic {
 	use core::{
 		ptr::{read_volatile, write_volatile},
 		sync::atomic::Ordering
+	};
+
+	use x86_64::registers::model_specific::Msr;
+
+	use super::{TICK_COUNT, TICKS_PER_MS};
+	use crate::{
+		errors::{APIC_TIMER_CONFIGURATION_ERROR, APIC_TIMER_INIT_FAILED, KernelError},
+		println,
+		task::yield_now
 	};
 
 	/// The base address of the Local APIC (xAPIC mode).
@@ -64,46 +72,82 @@ pub mod apic {
 
 	/// Write a 32-bit value to a Local APIC register.
 	pub unsafe fn write_register(offset: usize, value: u32) {
-		let reg = (APIC_BASE + offset) as *mut u32;
-		unsafe { write_volatile(reg, value) };
+		unsafe {
+			let reg = (APIC_BASE + offset) as *mut u32;
+			write_volatile(reg, value);
+		}
 	}
 
 	/// Read a 32-bit value from a Local APIC register.
 	pub unsafe fn read_register(offset: usize) -> u32 {
-		let reg = (APIC_BASE + offset) as *const u32;
-		unsafe { read_volatile(reg) }
+		unsafe {
+			let reg = (APIC_BASE + offset) as *const u32;
+			read_volatile(reg)
+		}
 	}
 
 	/// Initialize the APIC timer in periodic mode.
 	///
 	/// `initial_count` is the value from which the timer will count down.
 	/// You may need to calibrate this value based on your desired tick rate.
-	pub unsafe fn init_timer(initial_count: u32) {
-		println!("[Info] Initializing APIC Timer...");
+	///
+	/// Returns Ok(()) on success or an appropriate KernelError.
+	pub unsafe fn init_timer(initial_count: u32) -> Result<(), KernelError> {
 		unsafe {
-			write_register(TIMER_DIVIDE, DIVIDE_BY_16); // Set the timer divide configuration to divide by 16.
+			println!("[Info] Initializing APIC Timer...");
+
+			// For example, a zero initial_count may be invalid.
+			if initial_count == 0 {
+				println!("[Error] APIC Timer initialization failed: initial_count is zero.");
+				return Err(KernelError::ApicError(APIC_TIMER_INIT_FAILED));
+			}
+
+			write_register(TIMER_DIVIDE, DIVIDE_BY_16); // Set timer divide to divide-by-16.
 			write_register(LVT_TIMER, TIMER_PERIODIC | TIMER_INTERRUPT_VECTOR);
 			write_register(TIMER_INIT_COUNT, initial_count);
+
+			// Verify that the LVT_TIMER register is set as expected.
+			let lvt_value = read_register(LVT_TIMER);
+			if lvt_value != (TIMER_PERIODIC | TIMER_INTERRUPT_VECTOR) {
+				println!(
+					"[Error] APIC Timer configuration error: unexpected LVT_TIMER value: {}",
+					lvt_value
+				);
+				return Err(KernelError::ApicError(APIC_TIMER_CONFIGURATION_ERROR));
+			}
+
+			println!("[Info] APIC Timer initialized successfully.");
+			Ok(())
 		}
-		println!("[Info] Done.")
 	}
 
 	/// Signal End-of-Interrupt (EOI) to the Local APIC.
 	pub unsafe fn send_eoi() {
-		unsafe { write_register(EOI, 0) };
+		unsafe {
+			write_register(EOI, 0);
+		}
 	}
 
-	use x86_64::registers::model_specific::Msr;
+	/// Enable the APIC by setting the appropriate bit in the MSR.
+	///
+	/// Returns Ok(()) on success or an appropriate KernelError.
+	pub unsafe fn enable_apic() -> Result<(), KernelError> {
+		unsafe {
+			println!("[Info] Enabling APIC Timer...");
+			let mut msr = Msr::new(0x1B);
+			let value = msr.read();
+			msr.write(value | 0x800); // Set the "Enable APIC" bit (bit 11)
 
-	use super::{TICK_COUNT, TICKS_PER_MS};
-	use crate::{println, task::yield_now};
+			// Verify that the APIC is enabled.
+			let new_value = msr.read();
+			if new_value & 0x800 == 0 {
+				println!("[Error] Failed to enable APIC Timer: APIC enable bit not set.");
+				return Err(KernelError::ApicError(APIC_TIMER_CONFIGURATION_ERROR));
+			}
 
-	pub unsafe fn enable_apic() {
-		println!("[Info] Enabling APIC Timer...");
-		let mut msr = Msr::new(0x1B);
-		let value = unsafe { msr.read() };
-		unsafe { msr.write(value | 0x800) }; // Set the "Enable APIC" bit (bit 11)
-		println!("[Info] Done.");
+			println!("[Info] APIC Timer enabled successfully.");
+			Ok(())
+		}
 	}
 
 	/// Sleep for a given duration (in milliseconds) using the APIC timer.
@@ -115,14 +159,20 @@ pub mod apic {
 	/// (e.g., if the APIC timer is also used for system ticks, interfering
 	/// with it might cause timing issues).
 	///
-	/// `ticks_per_ms` is a calibrated value that indicates how many timer ticks
-	/// correspond to one millisecond.
-	pub async unsafe fn sleep(duration_ms: u32) {
+	/// Returns Ok(()) after sleeping for the specified duration.
+	pub async unsafe fn sleep(duration_ms: u32) -> Result<(), KernelError> {
+		if duration_ms == 0 {
+			return Ok(());
+		}
+
 		let start_tick = TICK_COUNT.load(Ordering::Acquire);
-		let target_tick = start_tick + duration_ms; // 500 ticks = 500ms
+		let target_tick = start_tick + duration_ms; // target_tick in ms units
+
 		while TICK_COUNT.load(Ordering::Acquire) < target_tick {
 			yield_now().await;
 		}
+
+		Ok(())
 	}
 
 	/// Get the current tick count from the APIC timer.
@@ -133,39 +183,35 @@ pub mod apic {
 		TICK_COUNT.load(Ordering::Acquire)
 	}
 
-	/// Converts tick to milliseconds
+	/// Converts ticks to milliseconds.
 	pub fn to_ms(ticks: u32) -> f32 {
 		if ticks == 0 {
-			return 0.0
+			return 0.0;
 		}
-
 		(ticks as f32) / (TICKS_PER_MS as f32)
 	}
 
-	/// Converts ticks to seconds
+	/// Converts ticks to seconds.
 	pub fn to_secs(ticks: u32) -> f32 {
 		if ticks == 0 {
-			return 0.0
+			return 0.0;
 		}
-
 		(ticks as f32) / (TICKS_PER_MS as f32 * 1000.0)
 	}
 
-	/// Converts ticks to minutes
+	/// Converts ticks to minutes.
 	pub fn to_mins(ticks: u32) -> f32 {
 		if ticks == 0 {
-			return 0.0
+			return 0.0;
 		}
-
 		(ticks as f32) / (TICKS_PER_MS as f32 * 1000.0 * 60.0)
 	}
 
-	/// Converts milliseconds to ticks
+	/// Converts milliseconds to ticks.
 	pub fn to_ticks(ms: u32) -> f32 {
 		if ms == 0 {
-			return 0.0
+			return 0.0;
 		}
-
 		(ms as f32) * (TICKS_PER_MS as f32)
 	}
 }

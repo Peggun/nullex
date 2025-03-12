@@ -13,6 +13,8 @@ use core::{
 
 use hashbrown::HashMap;
 
+use crate::errors::KernelError;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProcessId(u64);
 
@@ -35,14 +37,17 @@ pub struct OpenFile {
 pub struct ProcessState {
 	pub id: ProcessId,
 	pub is_child: bool,
-	pub future_fn:
-		Arc<dyn Fn(Arc<ProcessState>) -> Pin<Box<dyn Future<Output = i32>>> + Send + Sync>,
+	pub future_fn: Arc<
+		dyn Fn(Arc<ProcessState>) -> Pin<Box<dyn Future<Output = Result<i32, KernelError>>>>
+			+ Send
+			+ Sync
+	>,
 	pub queued: AtomicBool
 }
 
 pub struct Process {
 	pub state: Arc<ProcessState>,
-	pub future: Pin<Box<dyn Future<Output = i32>>>,
+	pub future: Pin<Box<dyn Future<Output = Result<i32, KernelError>>>>,
 	pub open_files: HashMap<u32, OpenFile>, // File descriptor to OpenFile mapping
 	pub next_fd: u32                        // Next available file descriptor
 }
@@ -58,7 +63,7 @@ impl Process {
 		}
 	}
 
-	pub fn poll(&mut self, context: &mut Context) -> core::task::Poll<i32> {
+	pub fn poll(&mut self, context: &mut Context) -> core::task::Poll<Result<i32, KernelError>> {
 		self.future.as_mut().poll(context)
 	}
 }
@@ -69,7 +74,7 @@ unsafe impl Send for Process {}
 pub struct ForeverPending;
 
 impl Future for ForeverPending {
-	type Output = i32;
+	type Output = Result<i32, KernelError>;
 
 	fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> core::task::Poll<Self::Output> {
 		core::task::Poll::Pending

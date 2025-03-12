@@ -1,7 +1,10 @@
 use alloc::{boxed::Box, sync::Arc};
 use core::{future::Future, pin::Pin, sync::atomic::AtomicBool};
 
-use crate::task::{Process, ProcessId, ProcessState, executor::EXECUTOR};
+use crate::{
+	errors::KernelError,
+	task::{Process, ProcessId, ProcessState, executor::EXECUTOR}
+};
 
 /// Spawns a process using the provided future function.
 ///
@@ -13,20 +16,24 @@ use crate::task::{Process, ProcessId, ProcessState, executor::EXECUTOR};
 ///
 /// # Returns
 ///
+/// The ProcessId of the newly spawned process.
+///
 /// # Example
-/// ```rs
-/// 
+/// ```rust
 /// // Create a process using spawn_process.
 /// let _process1_pid = spawn_process(
-/// 	  |state| Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>,
-/// 	  false
-/// 	);
+/// 	|state| {
+/// 		Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = Result<i32, KernelError>>>>
+/// 	},
+/// 	false
+/// );
 /// ```
-///
-/// The ProcessId of the newly spawned process.
 pub fn spawn_process<F>(future_fn: F, is_child: bool) -> ProcessId
 where
-	F: Fn(Arc<ProcessState>) -> Pin<Box<dyn Future<Output = i32>>> + Send + Sync + 'static
+	F: Fn(Arc<ProcessState>) -> Pin<Box<dyn Future<Output = Result<i32, KernelError>>>>
+		+ Send
+		+ Sync
+		+ 'static
 {
 	// Lock the executor and create a new PID.
 	let mut executor = EXECUTOR.lock();
