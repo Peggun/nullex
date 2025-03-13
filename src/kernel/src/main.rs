@@ -14,7 +14,7 @@ https://stackoverflow.com/questions/76196072/get-value-t-from-resultt-t
 #![no_std]
 #![no_main]
 #![feature(custom_test_frameworks)]
-#![test_runner(nullex::test_runner)]
+#![test_runner(kernel::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 
 extern crate alloc;
@@ -26,7 +26,7 @@ use core::{
 };
 
 use bootloader::{BootInfo, entry_point};
-use nullex::{
+use kernel::{
 	allocator,
 	apic::{self, apic::sleep},
 	constants::{SYSLOG_SINK, initialize_constants},
@@ -95,7 +95,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 		PICS.lock().write_masks(0b11111101, 0b11111111);
 	}
 
-	nullex::init();
+	kernel::init();
 
 	match allocator::init_heap(&mut mapper, &mut frame_allocator) {
 		Ok(()) => println!("Heap initialized successfully"),
@@ -233,12 +233,12 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
 	println!("{}", info);
-	nullex::hlt_loop();
+	kernel::hlt_loop();
 }
 
 #[cfg(test)]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {
 	println!("{}", info);
-	nullex::hlt_loop();
+	kernel::hlt_loop();
 }

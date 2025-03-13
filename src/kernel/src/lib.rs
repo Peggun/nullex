@@ -40,7 +40,7 @@ pub mod memory;
 pub mod serial;
 pub mod syscall;
 pub mod task;
-pub mod user_space;
+//pub mod user_space;
 pub mod utils;
 pub mod vga_buffer;
 
