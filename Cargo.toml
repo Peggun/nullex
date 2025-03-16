@@ -8,17 +8,17 @@ edition = "2024"
 [[test]]
 name = "should_panic"
 harness = false
-path = "tests/kernel_tests"
+path = "tests/src/kernel_tests"
 
 [[test]]
 name = "stack_overflow"
 harness = false
-path = "tests/kernel_tests"
+path = "tests/src/kernel_tests"
 
 [workspace]
 members = [
-    "src/kernel",
+    "src/kernel", "src/orchestrator",
     "src/userspace",
-    "tests"
+    "tests",
 ]
 default-members = ["src/kernel"]

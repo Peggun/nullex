@@ -7,4 +7,11 @@ edition = "2024"
 kernel = { path = "../src/kernel" }
 
 [lib]
-path = "lib.rs"
+path = "src/lib.rs"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+

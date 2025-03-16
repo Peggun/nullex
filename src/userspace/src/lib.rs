@@ -1,4 +1,3 @@
 #![no_std]
-#![no_main]
 
-// empty lib.rs
+pub mod syscalls;

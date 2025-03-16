@@ -5,7 +5,9 @@ Syscall module for the kernel.
 */
 
 use alloc::{string::ToString, sync::Arc};
-use core::sync::atomic::AtomicBool;
+use core::{arch::asm, sync::atomic::AtomicBool};
+
+use orchestrator::syscall_interface::*;
 
 use crate::{
 	apic::apic::sleep,
@@ -21,18 +23,35 @@ use crate::{
 	}
 };
 
-// System call IDs
-pub const SYS_PRINT: u32 = 1;
-pub const SYS_EXIT: u32 = 2;
-pub const SYS_FORK: u32 = 3;
-pub const SYS_WAIT: u32 = 4;
-pub const SYS_OPEN: u32 = 5;
-pub const SYS_CLOSE: u32 = 6;
-pub const SYS_READ: u32 = 7;
-pub const SYS_WRITE: u32 = 8;
-pub const SYS_EXEC: u32 = 9;
-pub const SYS_KILL: u32 = 10;
-pub const SYS_SLEEP: u32 = 11;
+pub struct KernelSyscalls;
+
+impl Syscalls for KernelSyscalls {
+	unsafe fn syscall(
+		&self,
+		id: u32,
+		arg1: u64,
+		arg2: u64,
+		arg3: u64,
+		arg4: u64,
+		arg5: u64
+	) -> i32 {
+		let result: i32;
+		unsafe {
+			asm!(
+				"syscall",
+				in("rax") id,
+				in("rdi") arg1,
+				in("rsi") arg2,
+				in("rdx") arg3,
+				in("r10") arg4,
+				in("r8")  arg5,
+				lateout("rax") result,
+				clobber_abi("sysv64"),
+			);
+		}
+		result
+	}
+}
 
 // System call handler function
 pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _arg5: u64) -> i32 {
@@ -86,6 +105,17 @@ pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _ar
 			serial_println!("Invalid syscall ID: {}", syscall_id);
 			-1 // Error code for unhandled syscall
 		}
+	}
+}
+
+pub unsafe fn invoke_syscall(id: u32, arg1: u64, arg2: u64) {
+	unsafe {
+		asm!(
+			"int 0x80",
+			in("rax") id,
+			in("rdi") arg1,
+			in("rsi") arg2,
+		);
 	}
 }
 

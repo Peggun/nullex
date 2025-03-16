@@ -21,6 +21,7 @@ extern crate alloc;
 
 use alloc::{boxed::Box, sync::Arc};
 use core::{
+	arch::asm,
 	sync::atomic::Ordering,
 	task::{Context, Poll}
 };
@@ -33,12 +34,14 @@ use kernel::{
 	errors::KernelError,
 	fs::{
 		self,
+		ata::AtaDisk,
 		ramfs::{FileSystem, Permission}
 	},
 	interrupts::PICS,
 	memory::{self, BootInfoFrameAllocator},
 	println,
 	serial_println,
+	syscall::invoke_syscall,
 	task::{
 		Process,
 		ProcessState,
@@ -51,11 +54,11 @@ use kernel::{
 	},
 	vga_buffer::WRITER
 };
+use orchestrator::syscall_interface::{SYS_EXIT, SYS_PRINT};
 use raw_cpuid::CpuId;
 use vga::colors::Color16;
 
 entry_point!(kernel_main);
-
 /// A dummy async delay approximating half a second.
 async fn sleep_half_second() {
 	unsafe {
@@ -124,6 +127,12 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 		serial_println!("CPU supports SSE!");
 	}
 
+	// let s = "Hello, kernel!\n";
+	// unsafe {
+	// 	invoke_syscall(SYS_PRINT, s.as_ptr() as u64, s.len() as u64);
+	// 	invoke_syscall(SYS_EXIT, 0, 0);
+	// }
+
 	if let Some(cparams) = cpuid.get_cache_parameters() {
 		for cache in cparams {
 			let size = cache.associativity()
@@ -145,6 +154,28 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	}
 
 	fs::init_fs(fs);
+
+	let mut sector_buffer = [0u8; 512];
+	let mut ata = unsafe { AtaDisk::new() };
+	unsafe {
+		match ata.read_disk_sector(0, &mut sector_buffer) {
+			Ok(()) => {
+				serial_println!("Sector 0 read successfully!\n");
+				// Print first 64 bytes as hex
+				for i in 0..64 {
+					serial_println!("{:02x} ", sector_buffer[i]);
+					if (i + 1) % 16 == 0 {
+						serial_println!("\n");
+					}
+				}
+			}
+			Err(e) => serial_println!("Failed to read sector: {}\n", e)
+		}
+	}
+
+	let hello_str =
+		core::str::from_utf8(&sector_buffer[0x40..0x40 + 35]).unwrap_or("[Invalid UTF-8]");
+	serial_println!("\nMessage: {}\n", hello_str);
 
 	println!("[Info] Done.");
 

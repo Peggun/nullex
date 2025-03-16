@@ -7,19 +7,13 @@ https://wiki.osdev.org/System_V_ABI
 https://refspecs.linuxbase.org/elf/x86_64-abi-0.99.pdf
 
 */
+use orchestrator::syscall_interface::*;
+
+pub struct UserspaceSyscalls<'a> {
+	pub iface: &'a dyn Syscalls
+}
 
 // System call IDs (must match kernel's syscall.rs)
-pub const SYS_PRINT: u32 = 1;
-pub const SYS_EXIT: u32 = 2;
-pub const SYS_FORK: u32 = 3;
-pub const SYS_WAIT: u32 = 4;
-pub const SYS_OPEN: u32 = 5;
-pub const SYS_CLOSE: u32 = 6;
-pub const SYS_READ: u32 = 7;
-pub const SYS_WRITE: u32 = 8;
-pub const SYS_EXEC: u32 = 9;
-pub const SYS_KILL: u32 = 10;
-pub const SYS_SLEEP: u32 = 11;
 
 /// Generic syscall function with up to 5 arguments.
 /// # Arguments
@@ -56,48 +50,86 @@ pub unsafe fn syscall(id: u32, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5:
 /// # Returns
 /// 0 - Success
 /// -1 - Error
-pub fn sys_print(s: &str) -> i32 {
-	let ptr = s.as_ptr() as u64; // Pointer to the string
-	let len = s.len() as u64; // Length of the string
-	crate::syscall::syscall(SYS_PRINT, ptr, len, 0, 0, 0) // Call syscall with ID=1, ptr, len, and dummy 0
-}
+// pub fn sys_print(s: &str) -> i32 {
+// 	let ptr = s.as_ptr() as u64; // Pointer to the string
+// 	let len = s.len() as u64; // Length of the string
+// 	kernel::syscall::syscall(SYS_PRINT, ptr, len, 0, 0, 0) // Call syscall with
+// ID=1, ptr, len, and dummy 0 }
 
-pub fn sys_exit(exit_code: i32) -> i32 {
-	crate::syscall::syscall(SYS_EXIT, exit_code.try_into().unwrap(), 0, 0, 0, 0)
-}
+// pub fn sys_exit(exit_code: i32) -> i32 {
+// 	kernel::syscall::syscall(SYS_EXIT, exit_code.try_into().unwrap(), 0, 0, 0,
+// 0) }
 
-pub fn sys_fork() -> i32 {
-	crate::syscall::syscall(SYS_FORK, 0, 0, 0, 0, 0)
-}
+// pub fn sys_fork() -> i32 {
+// 	kernel::syscall::syscall(SYS_FORK, 0, 0, 0, 0, 0)
+// }
 
-pub fn sys_wait() -> i32 {
-	crate::syscall::syscall(SYS_WAIT, 0, 0, 0, 0, 0)
-}
+// pub fn sys_wait() -> i32 {
+// 	kernel::syscall::syscall(SYS_WAIT, 0, 0, 0, 0, 0)
+// }
 
-pub fn sys_open(path: &str) -> i32 {
-	let path_ptr = path.as_ptr() as u64;
-	let path_len = path.len() as u64;
-	crate::syscall::syscall(SYS_OPEN, path_ptr, path_len, 0, 0, 0)
-}
+// pub fn sys_open(path: &str) -> i32 {
+// 	let path_ptr = path.as_ptr() as u64;
+// 	let path_len = path.len() as u64;
+// 	kernel::syscall::syscall(SYS_OPEN, path_ptr, path_len, 0, 0, 0)
+// }
 
-pub fn sys_close(fd: u32) -> i32 {
-	crate::syscall::syscall(SYS_CLOSE, fd as u64, 0, 0, 0, 0)
-}
+// pub fn sys_close(fd: u32) -> i32 {
+// 	kernel::syscall::syscall(SYS_CLOSE, fd as u64, 0, 0, 0, 0)
+// }
 
-pub fn sys_read(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
-	crate::syscall::syscall(SYS_READ, fd as u64, buf_ptr as u64, len as u64, 0, 0)
-}
+// pub fn sys_read(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
+// 	kernel::syscall::syscall(SYS_READ, fd as u64, buf_ptr as u64, len as u64, 0,
+// 0) }
 
-pub fn sys_write(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
-	crate::syscall::syscall(SYS_WRITE, fd as u64, buf_ptr as u64, len as u64, 0, 0)
-}
+// pub fn sys_write(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
+// 	kernel::syscall::syscall(SYS_WRITE, fd as u64, buf_ptr as u64, len as u64,
+// 0, 0) }
 
-pub fn sys_exec(path: &str) -> i32 {
-	let path_ptr = path.as_ptr() as u64;
-	let path_len = path.len() as u64;
-	crate::syscall::syscall(SYS_EXEC, path_ptr, path_len, 0, 0, 0)
-}
+// pub fn sys_exec(path: &str) -> i32 {
+// 	let path_ptr = path.as_ptr() as u64;
+// 	let path_len = path.len() as u64;
+// 	kernel::syscall::syscall(SYS_EXEC, path_ptr, path_len, 0, 0, 0)
+// }
 
-pub fn sys_kill(pid: u64) -> i32 {
-	crate::syscall::syscall(SYS_KILL, pid, 0, 0, 0, 0)
+// pub fn sys_kill(pid: u64) -> i32 {
+// 	kernel::syscall::syscall(SYS_KILL, pid, 0, 0, 0, 0)
+// }
+
+impl<'a> UserspaceSyscalls<'a> {
+	pub fn sys_print(&self, s: &str) -> i32 {
+		self.iface.sys_print(s)
+	}
+
+	pub fn sys_exit(&self, exit_code: i32) -> i32 {
+		self.iface.sys_exit(exit_code)
+	}
+
+	pub fn sys_fork(&self) -> i32 {
+		self.iface.sys_fork()
+	}
+
+	pub fn sys_wait(&self) -> i32 {
+		self.iface.sys_wait()
+	}
+
+	pub fn sys_open(&self, path: &str) -> i32 {
+		self.iface.sys_open(path)
+	}
+
+	pub fn sys_close(&self, fd: u32) -> i32 {
+		self.iface.sys_close(fd)
+	}
+
+	pub fn sys_read(&self, fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
+		self.iface.sys_read(fd, buf_ptr, len)
+	}
+
+	pub fn sys_exec(&self, path: &str) -> i32 {
+		self.iface.sys_exec(path)
+	}
+
+	pub fn sys_kill(&self, pid: u64) -> i32 {
+		self.iface.sys_kill(pid)
+	}
 }

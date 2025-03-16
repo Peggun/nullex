@@ -3,7 +3,7 @@
 Nullex is a kernel written fully in Rust. It is easily extendable and modular, making it easy to implement and make changes to. 
 This kernel currently only runs in QEMU, because I have not tested creating a ISO file.
 
-My goal is to create a fully fledged kernel in Rust, similar to Linux and RedosOS, aiming to support multiple different architectures, and other things
+My goal is to create a fully fledged kernel in Rust, similar to Linux and RedoxOS, aiming to support multiple different architectures, and other things
 and to also get the community involved in having fun in coding something very tedious, like a Kernel / Operating System.
 
 Thanks so much to [Philipp Oppermann's Blog OS Tutorial](https://os.phil-opp.com/) I highly recommend it if you want to get started into OS and Kernel Programming.
@@ -24,6 +24,8 @@ Just a quick note: When using `cargo test` no tests are found. If you want to te
 - [Cargo](https://doc.rust-lang.org/cargo/)
 - [QEMU](https://www.qemu.org/download/)
 - [CMake](https://cmake.org/download)
+- [LLVM Tools](https://github.com/llvm/llvm-project/releases)
+- [MSYS2](https://www.msys2.org/) (if on windows)
 
 ### Installation
 

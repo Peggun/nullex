@@ -4,7 +4,7 @@
 Interrupt handling module for the kernel.
 */
 
-use core::sync::atomic::Ordering;
+use core::{arch::asm, sync::atomic::Ordering};
 
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
@@ -17,6 +17,10 @@ use crate::{
 	hlt_loop,
 	println
 };
+
+// Syscall IDs
+pub const SYS_PRINT: u32 = 1;
+pub const SYS_EXIT: u32 = 2;
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
@@ -42,6 +46,9 @@ lazy_static! {
 
 			// Leave the keyboard handler using PIC (for example).
 			idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
+
+			// Add syscall handler at vector 0x80
+			idt[0x80].set_handler_fn(syscall_handler);
 		}
 		idt
 	};
@@ -105,6 +112,43 @@ extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) 
 		send_eoi();
 	}
 }
+
+/// Syscall handler via int 0x80.
+extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
+	let syscall_id: u32;
+	let arg1: u64;
+	let arg2: u64;
+	unsafe {
+		asm!(
+			"mov {0:r}, rax",  // Syscall ID
+			"mov {1}, rdi",  // First argument
+			"mov {2}, rsi",  // Second argument
+			out(reg) syscall_id,
+			out(reg) arg1,
+			out(reg) arg2,
+		);
+	}
+
+	match syscall_id {
+		SYS_PRINT => {
+			let ptr = arg1 as *const u8;
+			let len = arg2 as usize;
+			let slice = unsafe { core::slice::from_raw_parts(ptr, len) };
+			if let Ok(s) = core::str::from_utf8(slice) {
+				crate::println!("{}", s);
+			}
+		}
+		SYS_EXIT => {
+			let exit_code = arg1 as i32;
+			crate::println!("Process exiting with code {}", exit_code);
+			crate::hlt_loop();
+		}
+		_ => {
+			crate::println!("Unknown syscall ID: {}", syscall_id);
+		}
+	}
+}
+
 /// Defines the interrupt vectors used in the IDT.
 ///
 /// Although the PIC is no longer used for the timer, we can reuse the same

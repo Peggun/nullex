@@ -4,3 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+orchestrator = { path = "../orchestrator", default-features = false }
+
+[[bin]]
+name = "userprog"
+path = "src/main.rs"
