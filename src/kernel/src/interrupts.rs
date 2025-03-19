@@ -9,13 +9,13 @@ use core::{arch::asm, sync::atomic::Ordering};
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
 use spin;
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
+use x86_64::{structures::idt::{EntryOptions, InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}, PrivilegeLevel};
 
 use crate::{
-	apic::{TICK_COUNT, apic::send_eoi},
+	apic::{apic::send_eoi, TICK_COUNT},
 	gdt,
 	hlt_loop,
-	println
+	println, serial_println
 };
 
 // Syscall IDs
@@ -29,26 +29,28 @@ pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 pub static PICS: spin::Mutex<ChainedPics> =
 	spin::Mutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
 
+
+
 lazy_static! {
 	static ref IDT: InterruptDescriptorTable = {
 		let mut idt = InterruptDescriptorTable::new();
-
-		// Standard exception handlers.
-		idt.breakpoint.set_handler_fn(breakpoint_handler);
-		idt.page_fault.set_handler_fn(page_fault_handler);
+		idt.breakpoint
+			.set_handler_fn(breakpoint_handler)
+			.set_privilege_level(x86_64::PrivilegeLevel::Ring3); // Set Ring 3 privilege level
 		unsafe {
 			idt.double_fault
 				.set_handler_fn(double_fault_handler)
 				.set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
-
-			// For the timer, switch from the PIC timer handler to the APIC timer handler.
+			idt.page_fault
+				.set_handler_fn(page_fault_handler)
+				.set_stack_index(gdt::PAGE_FAULT_IST_INDEX); // Use IST
 			idt[InterruptIndex::Timer.as_usize()].set_handler_fn(apic_timer_handler);
-
-			// Leave the keyboard handler using PIC (for example).
 			idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
-
-			// Add syscall handler at vector 0x80
-			idt[0x80].set_handler_fn(syscall_handler);
+			idt[0x80]
+				.set_handler_fn(syscall_handler)
+				.set_privilege_level(x86_64::PrivilegeLevel::Ring3);
+			idt.general_protection_fault.set_handler_fn(gp_fault_handler);
+			idt[6].set_handler_fn(invalid_opcode_handler);
 		}
 		idt
 	};
@@ -62,6 +64,7 @@ pub fn init_idt() {
 /// Breakpoint exception handler.
 extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame) {
 	println!("EXCEPTION: BREAKPOINT\n{:#?}", stack_frame);
+	serial_println!("EXCEPTION: BREAKPOINT\n{:#?}", stack_frame);
 }
 
 /// Double fault handler.
@@ -70,7 +73,31 @@ extern "x86-interrupt" fn double_fault_handler(
 	_error_code: u64
 ) -> ! {
 	println!("\n\nDOUBLE FAULT");
-	panic!("System halted");
+	println!("Error Code: {:?}", _error_code);
+    println!("{:#?}", _stack_frame);
+	serial_println!("\n\nDOUBLE FAULT");
+	serial_println!("Error Code: {:?}", _error_code);
+    serial_println!("{:#?}", _stack_frame);
+	hlt_loop();
+	//panic!("System halted");
+}
+
+extern "x86-interrupt" fn gp_fault_handler(stack_frame: InterruptStackFrame, error_code: u64) {
+    println!("EXCEPTION: GENERAL PROTECTION FAULT");
+    println!("Error Code: {}", error_code);
+    println!("{:#?}", stack_frame);
+	serial_println!("EXCEPTION: GENERAL PROTECTION FAULT");
+    serial_println!("Error Code: {}", error_code);
+    serial_println!("{:#?}", stack_frame);
+    hlt_loop();
+}
+
+extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: InterruptStackFrame) {
+	println!("EXCEPTION: INVALID OPCODE");
+	println!("{:#?}", stack_frame);
+	serial_println!("EXCEPTION: INVALID OPCODE");
+	serial_println!("{:#?}", stack_frame);
+	hlt_loop();
 }
 
 /// Keyboard interrupt handler (still using the PIC).
@@ -87,17 +114,17 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 }
 
 /// Page fault handler.
-extern "x86-interrupt" fn page_fault_handler(
-	stack_frame: InterruptStackFrame,
-	error_code: PageFaultErrorCode
-) {
-	use x86_64::registers::control::Cr2;
-
-	println!("EXCEPTION: PAGE FAULT");
-	println!("Accessed Address: {:?}", Cr2::read());
-	println!("Error Code: {:?}", error_code);
-	println!("{:#?}", stack_frame);
-	hlt_loop();
+extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, error_code: PageFaultErrorCode) {
+    use x86_64::registers::control::Cr2;
+    println!("EXCEPTION: PAGE FAULT");
+    println!("Accessed Address: {:?}", Cr2::read());
+    println!("Error Code: {:?}", error_code);
+    println!("{:#?}", stack_frame);
+	serial_println!("EXCEPTION: PAGE FAULT");
+    serial_println!("Accessed Address: {:?}", Cr2::read());
+    serial_println!("Error Code: {:?}", error_code);
+    serial_println!("{:#?}", stack_frame);
+    crate::hlt_loop(); // Avoid further faults
 }
 
 /// APIC Timer Interrupt Handler.
