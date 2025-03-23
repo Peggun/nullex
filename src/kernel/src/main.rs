@@ -176,8 +176,17 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	let user_prog_ptr = user_prog_virt_addr.as_mut_ptr::<u8>();
 
 	// Your test program, loaded at 0x100000.
-	let test_program: [u8; 2] = [
-		0xEB, 0xFE, // jmp $
+	let test_program: [u8; 34] = [
+		// SYS_PRINT
+		0xB8, 0x01, 0x00, 0x00, 0x00, // mov eax, 1
+		0xBB, 0x1F, 0x00, 0x10, 0x00, // mov ebx, 0x10001F (0x100000 + 31, where "Hello" starts)
+		0xB9, 0x05, 0x00, 0x00, 0x00, // mov ecx, 5
+		0xCD, 0x80,                   // int 0x80
+		// SYS_EXIT
+		0xB8, 0x02, 0x00, 0x00, 0x00, // mov eax, 2
+		0xBB, 0x00, 0x00, 0x00, 0x00, // mov ebx, 0
+		0xCD, 0x80,                   // int 0x80
+		b'H', b'e', b'l', b'l', b'o', // String "Hello" at 0x10001F
 	];
 
 	// Copy the test program into the first page.

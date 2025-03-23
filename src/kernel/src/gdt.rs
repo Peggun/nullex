@@ -67,8 +67,7 @@ pub fn init() {
         segmentation::{CS, DS, ES, FS, GS, SS, Segment},
         tables::load_tss,
     };
-    
-    // Initialize stacks
+
     // Initialize stacks
     let kernel_stack_start = VirtAddr::from_ptr(unsafe { &raw const KERNEL_STACK as *const _ });
     let kernel_stack_top = kernel_stack_start + STACK_SIZE;
