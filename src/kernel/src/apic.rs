@@ -45,9 +45,7 @@ pub mod apic {
 
 	use super::{TICK_COUNT, TICKS_PER_MS};
 	use crate::{
-		errors::{APIC_TIMER_CONFIGURATION_ERROR, APIC_TIMER_INIT_FAILED, KernelError},
-		println,
-		task::yield_now
+		errors::{KernelError, APIC_TIMER_CONFIGURATION_ERROR, APIC_TIMER_INIT_FAILED}, println, serial_println, task::yield_now
 	};
 
 	/// The base address of the Local APIC (xAPIC mode).
@@ -65,8 +63,8 @@ pub mod apic {
 	// Timer mode and configuration bits.
 	/// Bit flag for periodic mode in the LVT Timer Register.
 	pub const TIMER_PERIODIC: u32 = 0x20000;
-	/// The interrupt vector you choose for timer interrupts (commonly 0x20).
-	pub const TIMER_INTERRUPT_VECTOR: u32 = 0x20;
+	/// The interrupt vector you choose for timer interrupts.
+	pub const TIMER_INTERRUPT_VECTOR: u32 = 0x30;
 	/// Divide configuration value: here, 0x3 typically means divide by 16.
 	pub const DIVIDE_BY_16: u32 = 0x3;
 
@@ -94,29 +92,22 @@ pub mod apic {
 	/// Returns Ok(()) on success or an appropriate KernelError.
 	pub unsafe fn init_timer(initial_count: u32) -> Result<(), KernelError> {
 		unsafe {
-			println!("[Info] Initializing APIC Timer...");
-
-			// For example, a zero initial_count may be invalid.
+			serial_println!("[Info] Initializing APIC Timer...");
 			if initial_count == 0 {
-				println!("[Error] APIC Timer initialization failed: initial_count is zero.");
+				serial_println!("[Error] APIC Timer initialization failed: initial_count is zero.");
 				return Err(KernelError::ApicError(APIC_TIMER_INIT_FAILED));
 			}
-
-			write_register(TIMER_DIVIDE, DIVIDE_BY_16); // Set timer divide to divide-by-16.
-			write_register(LVT_TIMER, TIMER_PERIODIC | TIMER_INTERRUPT_VECTOR);
+			write_register(TIMER_DIVIDE, DIVIDE_BY_16); // Divide by 16
+			// Explicitly set periodic mode, vector 32, and unmask (bit 16 = 0)
+			let lvt_config = TIMER_PERIODIC | TIMER_INTERRUPT_VECTOR; // Mask bit (16) is 0 by default
+			write_register(LVT_TIMER, lvt_config);
 			write_register(TIMER_INIT_COUNT, initial_count);
-
-			// Verify that the LVT_TIMER register is set as expected.
 			let lvt_value = read_register(LVT_TIMER);
-			if lvt_value != (TIMER_PERIODIC | TIMER_INTERRUPT_VECTOR) {
-				println!(
-					"[Error] APIC Timer configuration error: unexpected LVT_TIMER value: {}",
-					lvt_value
-				);
+			if lvt_value != lvt_config {
+				serial_println!("[Error] APIC Timer configuration error: expected {:#x}, got {:#x}", lvt_config, lvt_value);
 				return Err(KernelError::ApicError(APIC_TIMER_CONFIGURATION_ERROR));
 			}
-
-			println!("[Info] APIC Timer initialized successfully.");
+			serial_println!("[Info] APIC Timer initialized successfully with count {}", initial_count);
 			Ok(())
 		}
 	}
@@ -136,6 +127,11 @@ pub mod apic {
 			println!("[Info] Enabling APIC Timer...");
 			let mut msr = Msr::new(0x1B);
 			let value = msr.read();
+			println!("[Debug] APIC base MSR: {:#x}", value);
+			let base_addr = value & 0xFFFFF000; // Mask to get physical base address
+			if base_addr != APIC_BASE as u64 {
+				panic!("[Error] APIC base mismatch: expected {:#x}, got {:#x}", APIC_BASE, base_addr);
+			}
 			msr.write(value | 0x800); // Set the "Enable APIC" bit (bit 11)
 
 			// Verify that the APIC is enabled.

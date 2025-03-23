@@ -22,29 +22,19 @@ use x86_64::{
 
 use crate::println;
 
-pub fn map_apic(
-	mapper: &mut impl Mapper<Size4KiB>,
-	frame_allocator: &mut impl FrameAllocator<Size4KiB>
-) {
-	println!("[Info] Mapping APIC Timer...");
-
-	let apic_phys_start = 0xFEE00000;
-	let apic_page = Page::containing_address(VirtAddr::new(apic_phys_start));
-	let apic_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
-
+pub fn map_apic(mapper: &mut impl Mapper<Size4KiB>, frame_allocator: &mut impl FrameAllocator<Size4KiB>) {
+	use x86_64::structures::paging::{Page, PhysFrame, PageTableFlags};
+	let apic_phys_addr = PhysAddr::new(0xFEE00000);
+	let apic_virt_addr = VirtAddr::new(0xFEE00000);
+	let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+	let page = Page::containing_address(apic_virt_addr);
+	let frame = PhysFrame::containing_address(apic_phys_addr);
 	unsafe {
-		mapper
-			.map_to(
-				apic_page,
-				PhysFrame::containing_address(PhysAddr::new(apic_phys_start)),
-				apic_flags,
-				frame_allocator
-			)
-			.unwrap()
+		mapper.map_to(page, frame, flags, frame_allocator)
+			.expect("Failed to map APIC registers")
 			.flush();
 	}
-
-	println!("[Info] Done.");
+	println!("[Info] APIC mapped at {:#x}", apic_virt_addr.as_u64());
 }
 
 /// A FrameAllocator that returns usable frames from the bootloader's memory

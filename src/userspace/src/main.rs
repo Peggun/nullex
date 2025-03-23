@@ -32,19 +32,19 @@ unsafe fn syscall(id: u32, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() -> ! {
 	unsafe {
-        asm!(
-            "mov eax, 1",
-            "mov ebx, {msg}",
-            "mov ecx, {len}",
-            "int 0x80",
-            "mov eax, 2",
-            "mov ebx, 0",
-            "int 0x80",
-            msg = sym MSG,
-            len = const MSG_LEN,
-        );
-    }
-    loop {}
+		asm!(
+			"mov eax, 1",
+			"mov ebx, {msg}",
+			"mov ecx, {len}",
+			"int 0x80",
+			"mov eax, 2",
+			"mov ebx, 0",
+			"int 0x80",
+			msg = sym MSG,
+			len = const MSG_LEN,
+		);
+	}
+	loop {}
 }
 
 static MSG: &[u8] = b"Hello from userspace\0";

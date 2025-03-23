@@ -22,9 +22,19 @@ disk_image: userspace
 run: disk_image
 	cargo run -p kernel -- -drive format=raw,file=ext2test.img,index=1,media=disk,if=ide -serial mon:stdio
 
+debug: disk_image
+	cargo run -p kernel -- -drive format=raw,file=ext2test.img,index=1,media=disk,if=ide -serial mon:stdio -s -S
+
+full-debug: disk_image
+	make clean
+	cargo build
+	$(RM) output.txt
+	objdump -D target\x86_64-unknown-none\debug\kernel >> output.txt
+	cargo run -p kernel -- -drive format=raw,file=ext2test.img,index=1,media=disk,if=ide -serial mon:stdio -s -S -d int,cpu_reset,guest_errors -D debug.log
+
 clean:
 	cargo clean
 	cargo clean --manifest-path src/kernel/Cargo.toml
 	cargo clean --manifest-path src/userspace/Cargo.toml
 	cargo clean --manifest-path src/orchestrator/Cargo.toml
-	$(RM) src\userspace\userprog.bin
+	$(RM) src\userspace\userprog.bin output.txt debug.log

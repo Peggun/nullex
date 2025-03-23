@@ -4,23 +4,42 @@
 Interrupt handling module for the kernel.
 */
 
-use core::{arch::asm, sync::atomic::Ordering};
+use core::{arch::asm, sync::atomic::{AtomicBool, Ordering}};
 
+use embedded_time::Timer;
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
 use spin;
-use x86_64::{structures::idt::{EntryOptions, InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode}, PrivilegeLevel};
+use x86_64::{
+	registers::segmentation::Segment, structures::idt::{
+		EntryOptions,
+		InterruptDescriptorTable,
+		InterruptStackFrame,
+		PageFaultErrorCode
+	}, PrivilegeLevel
+};
 
 use crate::{
 	apic::{apic::send_eoi, TICK_COUNT},
 	gdt,
 	hlt_loop,
-	println, serial_println
+	println,
+	serial_println, task::executor::{run_combined_executor, ProcessWaker, UserProcessState, CURRENT_PID, EXECUTOR, EXECUTOR_STACK, PROCESS_QUEUE},
 };
+use crate::task::executor::kernel_stack_top;
 
 // Syscall IDs
 pub const SYS_PRINT: u32 = 1;
 pub const SYS_EXIT: u32 = 2;
+pub const SYS_FORK: u32 = 3;
+pub const SYS_WAIT: u32 = 4;
+pub const SYS_OPEN: u32 = 5;
+pub const SYS_CLOSE: u32 = 6;
+pub const SYS_READ: u32 = 7;
+pub const SYS_WRITE: u32 = 8;
+pub const SYS_EXEC: u32 = 9;
+pub const SYS_KILL: u32 = 10;
+pub const SYS_SLEEP: u32 = 11;
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
@@ -28,8 +47,6 @@ pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 // We'll keep the PIC for devices such as the keyboard.
 pub static PICS: spin::Mutex<ChainedPics> =
 	spin::Mutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
-
-
 
 lazy_static! {
 	static ref IDT: InterruptDescriptorTable = {
@@ -44,7 +61,9 @@ lazy_static! {
 			idt.page_fault
 				.set_handler_fn(page_fault_handler)
 				.set_stack_index(gdt::PAGE_FAULT_IST_INDEX); // Use IST
-			idt[InterruptIndex::Timer.as_usize()].set_handler_fn(apic_timer_handler);
+			idt[InterruptIndex::Timer.as_usize()]
+                .set_handler_fn(apic_timer_handler)
+                .set_stack_index(gdt::TIMER_IST_INDEX);
 			idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
 			idt[0x80]
 				.set_handler_fn(syscall_handler)
@@ -74,21 +93,50 @@ extern "x86-interrupt" fn double_fault_handler(
 ) -> ! {
 	println!("\n\nDOUBLE FAULT");
 	println!("Error Code: {:?}", _error_code);
-    println!("{:#?}", _stack_frame);
+	println!("{:#?}", _stack_frame);
 	serial_println!("\n\nDOUBLE FAULT");
 	serial_println!("Error Code: {:?}", _error_code);
-    serial_println!("{:#?}", _stack_frame);
+	serial_println!("{:#?}", _stack_frame);
 	hlt_loop();
 	//panic!("System halted");
 }
 
 extern "x86-interrupt" fn gp_fault_handler(stack_frame: InterruptStackFrame, error_code: u64) {
-    println!("EXCEPTION: GENERAL PROTECTION FAULT");
-    println!("Error Code: {}", error_code);
-    println!("{:#?}", stack_frame);
-	serial_println!("EXCEPTION: GENERAL PROTECTION FAULT");
-    serial_println!("Error Code: {}", error_code);
-    serial_println!("{:#?}", stack_frame);
+    serial_println!("EXCEPTION: GENERAL PROTECTION FAULT");
+    serial_println!("Error Code: {:#x}", error_code);
+    serial_println!("Stack Frame: {:#?}", stack_frame);
+
+    // Get the current RSP
+    let rsp: u64;
+    unsafe { asm!("mov {}, rsp", out(reg) rsp); }
+
+    // Access the stack values that iretq was about to pop
+    let stack = rsp as *const u64;
+    let rip_to_return = unsafe { *stack.add(4) };  // rsp + 32
+    let cs_to_return = unsafe { *stack.add(5) };   // rsp + 40
+    let rflags_to_return = unsafe { *stack.add(6) }; // rsp + 48
+    let rsp_to_return = unsafe { *stack.add(7) };  // rsp + 56
+    let ss_to_return = unsafe { *stack.add(8) };   // rsp + 64
+
+    serial_println!("Values to be popped by iretq:");
+    serial_println!("RIP: {:#x}", rip_to_return);
+    serial_println!("CS: {:#x}", cs_to_return);
+    serial_println!("RFLAGS: {:#x}", rflags_to_return);
+    serial_println!("RSP: {:#x}", rsp_to_return);
+    serial_println!("SS: {:#x}", ss_to_return);
+
+    // Print current segment registers
+    let ds = x86_64::registers::segmentation::DS::get_reg();
+    let es = x86_64::registers::segmentation::ES::get_reg();
+    let fs = x86_64::registers::segmentation::FS::get_reg();
+    let gs = x86_64::registers::segmentation::GS::get_reg();
+    let ss = x86_64::registers::segmentation::SS::get_reg();
+    let cs = x86_64::registers::segmentation::CS::get_reg();
+
+    serial_println!("Current Segment Registers:");
+    serial_println!("DS: {:#x}, ES: {:#x}, FS: {:#x}, GS: {:#x}, SS: {:#x}, CS: {:#x}",
+        ds.0, es.0, fs.0, gs.0, ss.0, cs.0);
+
     hlt_loop();
 }
 
@@ -114,17 +162,21 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 }
 
 /// Page fault handler.
-extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, error_code: PageFaultErrorCode) {
+extern "x86-interrupt" fn page_fault_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: PageFaultErrorCode
+) {
     use x86_64::registers::control::Cr2;
-    println!("EXCEPTION: PAGE FAULT");
-    println!("Accessed Address: {:?}", Cr2::read());
-    println!("Error Code: {:?}", error_code);
-    println!("{:#?}", stack_frame);
-	serial_println!("EXCEPTION: PAGE FAULT");
-    serial_println!("Accessed Address: {:?}", Cr2::read());
+    serial_println!("EXCEPTION: PAGE FAULT");
+    serial_println!("Accessed Address: {:?}", Cr2::read()); // Faulting address
     serial_println!("Error Code: {:?}", error_code);
-    serial_println!("{:#?}", stack_frame);
-    crate::hlt_loop(); // Avoid further faults
+    serial_println!("Stack Frame: {:#?}", stack_frame);
+    unsafe {
+        let rax: u64;
+        asm!("mov {}, rax", out(reg) rax);
+        serial_println!("RAX: {:#x}", rax); // Print RAX
+    }
+    crate::hlt_loop();
 }
 
 /// APIC Timer Interrupt Handler.
@@ -134,10 +186,9 @@ extern "x86-interrupt" fn page_fault_handler(stack_frame: InterruptStackFrame, e
 /// no longer use the PIC to acknowledge the interrupt; instead, we signal the
 /// end-of-interrupt directly to the APIC using `send_eoi()`.
 extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) {
-	TICK_COUNT.fetch_add(1, Ordering::Relaxed);
-	unsafe {
-		send_eoi();
-	}
+    serial_println!("[Debug] APIC timer interrupt, tick count: {}", TICK_COUNT.load(Ordering::Relaxed));
+    TICK_COUNT.fetch_add(1, Ordering::Relaxed);
+    unsafe { send_eoi(); }
 }
 
 /// Syscall handler via int 0x80.
@@ -147,9 +198,9 @@ extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 	let arg2: u64;
 	unsafe {
 		asm!(
-			"mov {0:r}, rax",  // Syscall ID
-			"mov {1}, rdi",  // First argument
-			"mov {2}, rsi",  // Second argument
+			"mov {0:e}, eax",  // Syscall ID
+			"mov {1}, rbx",  // First argument
+			"mov {2}, rcx",  // Second argument
 			out(reg) syscall_id,
 			out(reg) arg1,
 			out(reg) arg2,
@@ -165,26 +216,73 @@ extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 				crate::println!("{}", s);
 			}
 		}
+
 		SYS_EXIT => {
 			let exit_code = arg1 as i32;
-			crate::println!("Process exiting with code {}", exit_code);
-			crate::hlt_loop();
+			serial_println!("Process exiting with code {}", exit_code);
+			if let Some(pid) = CURRENT_PID.lock().as_ref() {
+				if let Some(queue) = PROCESS_QUEUE.lock().as_mut() {
+					if let Some(proc) = queue.iter_mut().find(|p| p.id == *pid) {
+						serial_println!("Process {} found, setting state to Terminated", pid.get());
+						proc.state = UserProcessState::Terminated;
+					}
+				}
+			}
+			// Force a context switch back to the kernel's scheduler loop
+			unsafe {
+				asm!(
+					"mov rsp, {0}",
+					"jmp {1}",
+					in(reg) crate::task::executor::kernel_stack_top(),
+					sym crate::task::executor::run_combined_executor,
+					options(noreturn)
+				);
+			}
+		}
+		SYS_KILL => {
+			let pid_to_kill = arg1 as u64; // PID to kill
+			crate::serial_println!("Killing process {}", pid_to_kill);
+			if let Some(queue) = PROCESS_QUEUE.lock().as_mut() {
+				if let Some(proc) = queue.iter_mut().find(|p| p.id.get() == pid_to_kill) {
+					proc.state = UserProcessState::Terminated;
+				}
+			}
+			// Force a context switch back to the kernel's scheduler loop
+			unsafe {
+				asm!(
+					"mov rsp, {0}",
+					"jmp {1}",
+					in(reg) crate::task::executor::kernel_stack_top(),
+					sym crate::task::executor::run_combined_executor,
+					options(noreturn)
+				);
+			}
 		}
 		_ => {
 			crate::println!("Unknown syscall ID: {}", syscall_id);
 		}
 	}
+
+	let rsp_before: u64;
+    unsafe { asm!("mov {}, rsp", out(reg) rsp_before); }
+    serial_println!("[Debug] Before iretq RSP: {:#x}", rsp_before);
+    for i in 0..5 {
+        serial_println!("[Debug] RSP + {}*8: {:#x}", i, unsafe { *(rsp_before as *const u64).add(i) });
+    }
+
+    unsafe { asm!("iretq", options(noreturn)); }
 }
 
 /// Defines the interrupt vectors used in the IDT.
 ///
 /// Although the PIC is no longer used for the timer, we can reuse the same
 /// vector (32 or 0x20) for our APIC timer interrupt.
+// interrupts.rs (partial update)
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum InterruptIndex {
-	Timer = PIC_1_OFFSET, // Vector 32 (0x20)
-	Keyboard              // Vector 33 (0x21)
+    Timer = 0x30,       // Vector 48 (0x30)
+    Keyboard = 0x21,    // Vector 33 (0x21)
 }
 
 impl InterruptIndex {
