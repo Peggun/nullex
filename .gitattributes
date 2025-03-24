@@ -2,3 +2,4 @@
 *.txt text
 *.rs text
 *.toml text
+kernel.asm filter=lfs diff=lfs merge=lfs -text
