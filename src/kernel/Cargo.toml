@@ -53,13 +53,13 @@ version = "0.3.4"
 default-features = false
 features = ["alloc"]
 
-[profile.dev]
+#[profile.dev]
 #panic = "abort"
-debug = true
+#debug = true
 
-[profile.release]
+#[profile.release]
 #panic = "abort"
-debug = true
+#debug = true
 
 [package.metadata.bootimage]
 test-args = [
