@@ -1,60 +1,45 @@
-// src/userspace/src/main.rs
-
-#![no_std]
 #![no_main]
-#![feature(lang_items)]
+#![no_std]
+#[allow(asm_sub_register)]
 
 use core::{arch::asm, panic::PanicInfo};
 
-use orchestrator::syscall_interface::{SYS_EXIT, SYS_PRINT};
+const SYS_PRINT: u32 = 0;
+const SYS_EXIT: u32 = 1;
 
-/// Performs a syscall using the syscall instruction.
-/// Defined here directly for simplicity, matching userspace/src/syscalls.rs.
-unsafe fn syscall(id: u32, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> i32 {
-	let result: i32;
-	unsafe {
-		asm!(
-			"syscall",
-			in("rax") id,
-			in("rdi") arg1,
-			in("rsi") arg2,
-			in("rdx") arg3,
-			in("r10") arg4,
-			in("r8") arg5,
-			lateout("rax") result,
-			clobber_abi("sysv64"),
-		);
-	}
-	result
-}
-
-/// Entry point for the userspace program.
 #[unsafe(no_mangle)]
-pub extern "C" fn _start() -> ! {
+pub extern "C" fn _start() {
+	let message = "Hello from userspace!\n";
 	unsafe {
 		asm!(
-			"mov eax, 1",
-			"mov ebx, {msg}",
-			"mov ecx, {len}",
-			"int 0x80",
-			"mov eax, 2",
-			"mov ebx, 0",
-			"int 0x80",
-			msg = sym MSG,
-			len = const MSG_LEN,
+			"mov eax, {id}",      // Syscall ID
+			"mov rdi, {arg1}",    // Arg 1: pointer to string
+			"mov rsi, {arg2}",    // Arg 2: length
+			"syscall",
+			id = const SYS_PRINT,
+			arg1 = in(reg) message.as_ptr(),
+			arg2 = in(reg) message.len(),
+			out("rax") _,
+			out("rcx") _,
+			out("r11") _,
 		);
 	}
-	loop {}
+
+	unsafe {
+		asm!(
+			"mov eax, {id}",      // Syscall ID
+			"mov rdi, {arg1}",    // Arg 1: exit code
+			"syscall",
+			id = const SYS_EXIT,
+			arg1 = in(reg) 42,
+			out("rax") _,
+			out("rcx") _,
+			out("r11") _,
+		);
+	}
 }
 
-static MSG: &[u8] = b"Hello from userspace\0";
-const MSG_LEN: usize = MSG.len();
-
-/// Panic handler.
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
 	loop {}
 }
-
-#[lang = "eh_personality"]
-extern "C" fn eh_personality() {}

@@ -1,5 +1,3 @@
-// main.rs
-
 #![no_std]
 #![no_main]
 #![feature(custom_test_frameworks)]
@@ -9,37 +7,49 @@
 extern crate alloc;
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
-use core::{
-	arch::asm,
-	sync::atomic::Ordering,
-	task::{Context, Poll}
-};
+use core::arch::asm;
 
 use bootloader::{BootInfo, entry_point};
+use kernel::syscall::init_syscalls;
 use kernel::{
-	allocator, apic::{self, apic::sleep}, constants::{initialize_constants, SYSLOG_SINK}, errors::KernelError, fs::{
+	allocator,
+	apic::{self, apic::sleep},
+	constants::{SYSLOG_SINK, initialize_constants},
+	errors::KernelError,
+	fs::{
 		self,
 		ata::AtaDisk,
 		ramfs::{FileSystem, Permission}
-	}, hlt_loop, interrupts::PICS, memory::{self, BootInfoFrameAllocator}, println, serial, serial_println, syscall::invoke_syscall, task::{
-		executor::{self, allocate_kernel_stack, deallocate_kernel_stack, run_combined_executor, run_executor, ProcessWaker, UserProcess, UserProcessState, CURRENT_PROCESS, EXECUTOR},
-		keyboard, Process, ProcessId, ProcessState
-	}, utils::{
+	},
+	gdt,
+	interrupts::PICS,
+	memory::{self, BootInfoFrameAllocator},
+	println,
+	serial_println,
+	task::{
+		ProcessId,
+		ProcessState,
+		executor::{
+			PROCESS_QUEUE,
+			allocate_kernel_stack,
+			deallocate_kernel_stack,
+			run_executor
+		},
+		keyboard,
+		yield_now
+	},
+	utils::{
 		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
 		process::spawn_process
-	}, vga_buffer::WRITER
+	},
+	vga_buffer::WRITER
 };
-use lazy_static::lazy_static;
-use orchestrator::syscall_interface::{SYS_EXIT, SYS_PRINT};
 use raw_cpuid::CpuId;
 use vga::colors::Color16;
 use x86_64::{
-	VirtAddr,
 	instructions::tlb::flush,
-	structures::paging::{FrameAllocator, Mapper, Page, PageTable, PageTableFlags}
+	structures::paging::{FrameAllocator, Mapper, Page, PageTableFlags}
 };
-use kernel::task::yield_now; // Import yield_now from your task module
-use kernel::task::executor::{CURRENT_PID, PROCESS_QUEUE};
 
 entry_point!(kernel_main);
 
@@ -69,7 +79,6 @@ async fn process_two(_state: Arc<ProcessState>) -> Result<i32, KernelError> {
 /// Idle process: never terminates, simply yields control.
 async fn idle_process(_state: Arc<ProcessState>) -> Result<i32, KernelError> {
 	loop {
-		// Yield to the scheduler and then continue looping
 		yield_now().await;
 	}
 }
@@ -84,14 +93,20 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	let mut mapper = unsafe { memory::init(phys_mem_offset) };
 	let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
+	// Setup PIC masks
 	unsafe {
 		PICS.lock().write_masks(0b11111101, 0b11111111);
 	}
 
-	serial_println!("[Debug] Physical memory offset: {:#x}", phys_mem_offset.as_u64());
+	serial_println!(
+		"[Debug] Physical memory offset: {:#x}",
+		phys_mem_offset.as_u64()
+	);
 
+	// Initialize GDT/TSS and IDT
 	kernel::init();
 
+	// Heap initialization
 	match allocator::init_heap(&mut mapper, &mut frame_allocator) {
 		Ok(()) => println!("Heap initialized successfully"),
 		Err(e) => panic!("Heap initialization failed: {:?}", e)
@@ -99,43 +114,48 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
 	unsafe {
 		let _ = apic::apic::enable_apic();
-	};
+	}
 	memory::map_apic(&mut mapper, &mut frame_allocator);
-	
+
 	unsafe {
 		let _ = apic::apic::init_timer(1_000_000).expect("Failed to initialize APIC Timer");
-	};
-
-	unsafe { serial_println!("[Debug] Timer IST stack: {:#x}", &kernel::gdt::TSS.interrupt_stack_table[2].as_u64()); }
-	unsafe {
-		let stack_top = allocate_kernel_stack();
-		let ptr = (stack_top - 8) as *mut u64;
-		*ptr = 0xDEADBEEF;
-		let bool = *ptr == 0xDEADBEEF;
-		serial_println!("[Debug] Kernel stack allocated at {:#x}, value: {:#x}, success: {}", stack_top, *ptr, bool);
-		deallocate_kernel_stack(stack_top);
+		serial_println!(
+			"[Debug] Timer IST stack: {:#x}",
+			&gdt::TSS.interrupt_stack_table[2].as_u64()
+		);
 	}
 
-	// unsafe {
-	// 	let stack_ptr = kernel::gdt::TSS.interrupt_stack_table[2].as_mut_ptr::<u64>();
-	// 	*stack_ptr = 0; // Try writing to it
-	// }
+	{
+		// Test kernel stack allocation and deallocation.
+		unsafe {
+			let stack_top = allocate_kernel_stack();
+			let ptr = (stack_top - 8) as *mut u64;
+			*ptr = 0xDEADBEEF;
+			let success = *ptr == 0xDEADBEEF;
+			serial_println!(
+				"[Debug] Kernel stack allocated at {:#x}, value: {:#x}, success: {}",
+				stack_top,
+				*ptr,
+				success
+			);
+			deallocate_kernel_stack(stack_top);
+		}
+	}
 
 	initialize_constants();
+	init_syscalls();
 
 	let cpuid = CpuId::new();
 
 	if let Some(vf) = cpuid.get_vendor_info() {
 		serial_println!("Vendor Info: {}", vf.as_str())
 	}
-
 	let has_sse = cpuid
 		.get_feature_info()
 		.map_or(false, |finfo| finfo.has_sse());
 	if has_sse {
 		serial_println!("CPU supports SSE!");
 	}
-
 	if let Some(cparams) = cpuid.get_cache_parameters() {
 		for cache in cparams {
 			let size = cache.associativity()
@@ -148,6 +168,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 		serial_println!("No cache parameter information available")
 	}
 
+	// Initialize RAMFS
 	let mut fs = FileSystem::new();
 	println!("[Info] Initializing RAMFS...");
 	if let Err(e) = fs.create_dir("/logs", Permission::all()) {
@@ -155,6 +176,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	}
 	fs::init_fs(fs);
 
+	// ATA disk read test
 	let mut sector_buffer = [0u8; 512];
 	let mut ata = unsafe { AtaDisk::new() };
 	unsafe {
@@ -162,34 +184,34 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 			.expect("Failed to read sector");
 	}
 
-	/// Set up the test program
+	// Set up the test program
 	let user_prog_frame = frame_allocator
 		.allocate_frame()
 		.expect("Failed to allocate frame for user program");
-
-	// Allocate a second frame for the page after the test program
 	let user_prog_frame_next = frame_allocator
 		.allocate_frame()
 		.expect("Failed to allocate frame for user program extra page");
 
+	// IMPORTANT:
+	// Copy the test program to the physical frame by using the physical memory
+	// offset. This assumes that phys_mem_offset maps all physical memory.
 	let user_prog_virt_addr = phys_mem_offset + user_prog_frame.start_address().as_u64();
 	let user_prog_ptr = user_prog_virt_addr.as_mut_ptr::<u8>();
 
-	// Your test program, loaded at 0x100000.
+	// Test program loaded at 0x100000.
 	let test_program: [u8; 34] = [
 		// SYS_PRINT
 		0xB8, 0x01, 0x00, 0x00, 0x00, // mov eax, 1
-		0xBB, 0x1F, 0x00, 0x10, 0x00, // mov ebx, 0x10001F (0x100000 + 31, where "Hello" starts)
+		0xBB, 0x1D, 0x00, 0x10, 0x00, // mov ebx, 0x10001D
 		0xB9, 0x05, 0x00, 0x00, 0x00, // mov ecx, 5
-		0xCD, 0x80,                   // int 0x80
+		0xCD, 0x80, // int 0x80
 		// SYS_EXIT
 		0xB8, 0x02, 0x00, 0x00, 0x00, // mov eax, 2
 		0xBB, 0x00, 0x00, 0x00, 0x00, // mov ebx, 0
-		0xCD, 0x80,                   // int 0x80
-		b'H', b'e', b'l', b'l', b'o', // String "Hello" at 0x10001F
+		0xCD, 0x80, // int 0x80
+		b'H', b'e', b'l', b'l', b'o' // String "Hello" at 0x10001F
 	];
-
-	// Copy the test program into the first page.
+	// Copy test program into the allocated frame.
 	unsafe {
 		for i in 0..test_program.len() {
 			*user_prog_ptr.add(i) = test_program[i];
@@ -197,38 +219,37 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 		asm!("mfence");
 	}
 
-	// Map the first page for the user program at 0x100000.
+	// Map the first frame for the user program at virtual address 0x100000.
 	let user_prog_page = Page::containing_address(VirtAddr::new(0x100000));
 	let user_prog_flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
 	unsafe {
-	mapper
-		.map_to(
-			user_prog_page,
-			user_prog_frame,
-			user_prog_flags,
-			&mut frame_allocator
-		)
-		.expect("Failed to map user program")
-		.flush();
-	flush(VirtAddr::new(0x100000));
+		mapper
+			.map_to(
+				user_prog_page,
+				user_prog_frame,
+				user_prog_flags,
+				&mut frame_allocator
+			)
+			.expect("Failed to map user program")
+			.flush();
+		flush(VirtAddr::new(0x100000));
 	}
 
-	// Map an extra page right after the first (at 0x101000) so that any return address landing
-	// at the end of the first page is covered.
+	// Map an extra page (at 0x101000) for safety.
 	let user_prog_page_next = Page::containing_address(VirtAddr::new(0x101000));
 	unsafe {
-	mapper
-		.map_to(
-			user_prog_page_next,
-			user_prog_frame_next,
-			user_prog_flags,
-			&mut frame_allocator
-		)
-		.expect("Failed to map extra user program page")
-		.flush();
+		mapper
+			.map_to(
+				user_prog_page_next,
+				user_prog_frame_next,
+				user_prog_flags,
+				&mut frame_allocator
+			)
+			.expect("Failed to map extra user program page")
+			.flush();
 	}
-	
-	// Allocate and map user stack
+
+	// Allocate and map user stack (three pages)
 	let stack_frame = frame_allocator
 		.allocate_frame()
 		.expect("Failed to allocate frame for user stack");
@@ -255,33 +276,29 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
 	let stack_frame3 = frame_allocator
 		.allocate_frame()
-		.expect("Failed to allocate second frame for user stack");
+		.expect("Failed to allocate third frame for user stack");
 	let stack_page3 = Page::containing_address(VirtAddr::new(0x302000));
 	unsafe {
 		mapper
 			.map_to(stack_page3, stack_frame3, stack_flags, &mut frame_allocator)
-			.expect("Failed to map second user stack page")
+			.expect("Failed to map third user stack page")
 			.flush();
 	}
 
-	// Initialize the process queue
-	unsafe {
-		kernel::task::executor::PROCESS_QUEUE.lock().replace(Vec::new());
-		if let Some(queue) = kernel::task::executor::PROCESS_QUEUE.lock().as_mut() {
-			// Allocate kernel stack for the process
-			let kernel_stack_top = kernel::task::executor::allocate_kernel_stack();
-			
-			// Push the user process into the queue
-			queue.push(kernel::task::executor::UserProcess {
-				id: ProcessId::new(1),
-				entry_point: 0x100000,      // Matches your test program address
-				stack_pointer: 0x301ff0,    // Matches your user stack mapping
-				kernel_stack_top,           // Newly allocated kernel stack
-				state: kernel::task::executor::UserProcessState::Ready,
-			});
-			println!("[Info] User process with ID 1 added to PROCESS_QUEUE");
-		}
-	}
+	// Initialize the process queue and add our test user process.
+    PROCESS_QUEUE.lock().replace(Vec::new());
+    if let Some(queue) = PROCESS_QUEUE.lock().as_mut() {
+        let kernel_stack_top = allocate_kernel_stack();
+        queue.push(kernel::task::executor::UserProcess {
+            id: ProcessId::new(1),
+            entry_point: 0x100000, // Test program start address
+            // Set user stack to near the top of second stack page (stack grows downward).
+            stack_pointer: 0x301ff0,
+            kernel_stack_top,
+            state: kernel::task::executor::UserProcessState::Ready
+        });
+        println!("[Info] User process with ID 1 added to PROCESS_QUEUE");
+    }
 
 	println!("[Info] Done.");
 	SYSLOG_SINK.log("Initialized Main Kernel Successfully\n", LogLevel::Info);
@@ -291,19 +308,17 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
 	let _ = crate::keyboard::commands::init_commands();
 
-	// Spawn the four kernel processes
+	// Spawn kernel processes.
 	let _keyboard_pid = spawn_process(|_state| Box::pin(keyboard::print_keypresses()), false);
 	let _process1_pid = spawn_process(|state| Box::pin(process_one(state)), false);
 	let _process2_pid = spawn_process(|state| Box::pin(process_two(state)), false);
 	let _idle_pid = spawn_process(|state| Box::pin(idle_process(state)), false);
 
-	//serial_println!("test");
-
 	serial_println!("[Info] Starting combined executor...");
 	run_executor();
 }
 
-/// This function is called on panic.
+/// Panic handler.
 #[cfg(not(test))]
 #[panic_handler]
 fn panic(info: &core::panic::PanicInfo) -> ! {

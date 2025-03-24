@@ -14,6 +14,7 @@ Kernel module for the kernel.
 #![feature(associated_type_defaults)]
 #![feature(alloc_error_handler)]
 #![feature(str_from_raw_parts)]
+#![feature(naked_functions)]
 
 #[macro_use]
 extern crate alloc;
@@ -40,7 +41,6 @@ pub mod memory;
 pub mod serial;
 pub mod syscall;
 pub mod task;
-//pub mod user_space;
 pub mod utils;
 pub mod vga_buffer;
 

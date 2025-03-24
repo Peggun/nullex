@@ -14,7 +14,6 @@ use x86_64::{
 		OffsetPageTable,
 		Page,
 		PageTable,
-		PageTableFlags,
 		PhysFrame,
 		Size4KiB
 	}
@@ -22,15 +21,19 @@ use x86_64::{
 
 use crate::println;
 
-pub fn map_apic(mapper: &mut impl Mapper<Size4KiB>, frame_allocator: &mut impl FrameAllocator<Size4KiB>) {
-	use x86_64::structures::paging::{Page, PhysFrame, PageTableFlags};
+pub fn map_apic(
+	mapper: &mut impl Mapper<Size4KiB>,
+	frame_allocator: &mut impl FrameAllocator<Size4KiB>
+) {
+	use x86_64::structures::paging::{Page, PageTableFlags, PhysFrame};
 	let apic_phys_addr = PhysAddr::new(0xFEE00000);
 	let apic_virt_addr = VirtAddr::new(0xFEE00000);
 	let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
 	let page = Page::containing_address(apic_virt_addr);
 	let frame = PhysFrame::containing_address(apic_phys_addr);
 	unsafe {
-		mapper.map_to(page, frame, flags, frame_allocator)
+		mapper
+			.map_to(page, frame, flags, frame_allocator)
 			.expect("Failed to map APIC registers")
 			.flush();
 	}

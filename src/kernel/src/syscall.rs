@@ -5,9 +5,13 @@ Syscall module for the kernel.
 */
 
 use alloc::{string::ToString, sync::Arc};
-use core::{arch::asm, sync::atomic::AtomicBool};
+use core::{
+	arch::{asm, naked_asm},
+	sync::atomic::AtomicBool
+};
 
 use orchestrator::syscall_interface::*;
+use x86_64::registers::model_specific::{Efer, EferFlags, Msr};
 
 use crate::{
 	apic::apic::sleep,
@@ -53,6 +57,89 @@ impl Syscalls for KernelSyscalls {
 	}
 }
 
+#[naked]
+#[unsafe(no_mangle)]
+pub extern "C" fn syscall_handler() {
+	unsafe {
+		naked_asm!(
+		"
+            push rcx  // Save user RIP
+            push r11  // Save user RFLAGS
+            // Stack: [..., user RIP, user RFLAGS]
+
+            call {rust_handler}  // Call Rust handler
+
+            pop r11   // Restore user RFLAGS
+            pop rcx   // Restore user RIP
+            sysretq   // Return to user mode
+            ",
+		rust_handler = sym rust_syscall_handler,
+		options()
+		);
+	}
+}
+
+pub fn rust_syscall_handler() {
+	let syscall_id: u32;
+	let arg1: u64;
+	let arg2: u64;
+	let arg3: u64;
+	let arg4: u64;
+	let arg5: u64;
+
+	unsafe {
+		asm!(
+			"mov {0:e}, eax", // Syscall ID
+			"mov {1}, rdi",   // Arg 1
+			"mov {2}, rsi",   // Arg 2
+			"mov {3}, rdx",   // Arg 3
+			"mov {4}, r10",   // Arg 4
+			"mov {5}, r8",    // Arg 5
+			out(reg) syscall_id,
+			out(reg) arg1,
+			out(reg) arg2,
+			out(reg) arg3,
+			out(reg) arg4,
+			out(reg) arg5,
+		);
+	}
+
+	let result = crate::syscall::syscall(syscall_id, arg1, arg2, arg3, arg4, arg5);
+
+	unsafe {
+		asm!(
+		"mov rax, {0}",  // Return value in RAX
+		in(reg) result as u64,
+		);
+	}
+}
+
+/// Initialises the syscalls for the Nullex Kernel
+pub fn init_syscalls() {
+	unsafe {
+		// Enable the syscall instruction (set SCE bit in EFER)
+		let mut efer = Efer::read();
+		efer |= EferFlags::SYSTEM_CALL_EXTENSIONS;
+		Efer::write(efer);
+
+		// Set IA32_LSTAR to the syscall handler address
+		unsafe extern "C" {
+			fn syscall_handler();
+		}
+		Msr::new(0xC0000082).write(syscall_handler as u64); // IA32_LSTAR
+
+		// Set IA32_STAR for segment selectors
+		let kernel_cs = 0x08; // Kernel code segment (index 1)
+		let _user_cs = 0x1B; // User code segment (index 3 | RPL 3)
+		let user_ss = 0x23; // User data segment (index 4 | RPL 3)
+		let star = ((user_ss as u64) << 48) | ((kernel_cs as u64) << 32);
+		Msr::new(0xC0000081).write(star); // IA32_STAR
+
+		// Set IA32_FMASK to clear the Interrupt Flag (IF) on syscall entry
+		Msr::new(0xC0000084).write(1 << 9); // IA32_FMASK
+	}
+}
+
 // System call handler function
 pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _arg5: u64) -> i32 {
 	match syscall_id {
@@ -65,6 +152,7 @@ pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _ar
 		SYS_EXIT => {
 			let exit_code = arg1 as i32;
 			sys_exit(exit_code);
+			//0
 		}
 		SYS_FORK => sys_fork(),
 		SYS_WAIT => sys_wait(),
@@ -100,9 +188,8 @@ pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _ar
 			let pid = arg1 as u64;
 			sys_kill(pid)
 		}
-		// SYS_SLEEP => sys_sleep(arg1 as u32).await,
 		_ => {
-			serial_println!("Invalid syscall ID: {}", syscall_id);
+			serial_println!("Invalid syscall ID: {}", syscall_id); // Replace with your logging function
 			-1 // Error code for unhandled syscall
 		}
 	}

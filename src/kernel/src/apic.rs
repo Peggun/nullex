@@ -45,7 +45,10 @@ pub mod apic {
 
 	use super::{TICK_COUNT, TICKS_PER_MS};
 	use crate::{
-		errors::{KernelError, APIC_TIMER_CONFIGURATION_ERROR, APIC_TIMER_INIT_FAILED}, println, serial_println, task::yield_now
+		errors::{APIC_TIMER_CONFIGURATION_ERROR, APIC_TIMER_INIT_FAILED, KernelError},
+		println,
+		serial_println,
+		task::yield_now
 	};
 
 	/// The base address of the Local APIC (xAPIC mode).
@@ -104,10 +107,17 @@ pub mod apic {
 			write_register(TIMER_INIT_COUNT, initial_count);
 			let lvt_value = read_register(LVT_TIMER);
 			if lvt_value != lvt_config {
-				serial_println!("[Error] APIC Timer configuration error: expected {:#x}, got {:#x}", lvt_config, lvt_value);
+				serial_println!(
+					"[Error] APIC Timer configuration error: expected {:#x}, got {:#x}",
+					lvt_config,
+					lvt_value
+				);
 				return Err(KernelError::ApicError(APIC_TIMER_CONFIGURATION_ERROR));
 			}
-			serial_println!("[Info] APIC Timer initialized successfully with count {}", initial_count);
+			serial_println!(
+				"[Info] APIC Timer initialized successfully with count {}",
+				initial_count
+			);
 			Ok(())
 		}
 	}
@@ -130,7 +140,10 @@ pub mod apic {
 			println!("[Debug] APIC base MSR: {:#x}", value);
 			let base_addr = value & 0xFFFFF000; // Mask to get physical base address
 			if base_addr != APIC_BASE as u64 {
-				panic!("[Error] APIC base mismatch: expected {:#x}, got {:#x}", APIC_BASE, base_addr);
+				panic!(
+					"[Error] APIC base mismatch: expected {:#x}, got {:#x}",
+					APIC_BASE, base_addr
+				);
 			}
 			msr.write(value | 0x800); // Set the "Enable APIC" bit (bit 11)
 
