@@ -22,6 +22,9 @@ disk_image: userspace
 run: disk_image
 	cargo run -p kernel -- -drive format=raw,file=ext2test.img,index=1,media=disk,if=ide -serial mon:stdio
 
+build: disk_image
+	cargo build
+
 debug: disk_image
 	cargo run -p kernel -- -drive format=raw,file=ext2test.img,index=1,media=disk,if=ide -serial mon:stdio -s -S
 

@@ -37,7 +37,7 @@ jobs:
       run: cargo install bootimage
 
     - name: Build bootable image
-      run: cargo bootimage --verbose
+      run: cargo build
 
     - name: Run tests
       run: echo "Need to fix the cargo test problem, its not causing any major issues, so I'll leave it for now."

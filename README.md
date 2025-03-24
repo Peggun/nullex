@@ -42,6 +42,17 @@ Install bootimage:
 cargo install bootimage
 ```
 
+#### Setup rustup
+Install required rustup tools
+```bash
+rustup component add llvm-tools-preview
+```
+
+#### Install Linux Packages
+```bash
+sudo apt install build-essential make llvm 
+```
+
 #### Setup MSYS2
 To setup MSYS2 tools, we would prefer if you used UCRT64 
 
