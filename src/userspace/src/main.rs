@@ -39,7 +39,14 @@ pub extern "C" fn _start() {
 	}
 }
 
+#[cfg(not(test))]
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
+fn panic(info: &core::panic::PanicInfo) -> ! {
+	loop {}
+}
+
+#[cfg(test)]
+#[panic_handler]
+fn panic(info: &core::panic::PanicInfo) -> ! {
 	loop {}
 }
