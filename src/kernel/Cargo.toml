@@ -33,7 +33,6 @@ time = { version = "0.3.39", default-features = false, features = ["alloc"] }
 raw-cpuid = "11.5.0"
 
 orchestrator = { path = "../orchestrator" }
-userspace = { path = "../userspace" }
 
 [dependencies.lazy_static]
 version = "1.0"
@@ -55,11 +54,9 @@ features = ["alloc"]
 
 #[profile.dev]
 #panic = "abort"
-#debug = true
 
 #[profile.release]
 #panic = "abort"
-#debug = true
 
 [package.metadata.bootimage]
 test-args = [
