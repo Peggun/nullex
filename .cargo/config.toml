@@ -12,5 +12,4 @@ runner = "bootimage runner"
 rustflags = [
     "-C", "link-arg=-Tlink.ld",
     "-C", "linker=rust-lld",
-    "-C", "relocation-model=pic",
 ]
