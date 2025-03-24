@@ -42,6 +42,14 @@ Install bootimage:
 cargo install bootimage
 ```
 
+#### Setup MSYS2
+To setup MSYS2 tools, we would prefer if you used UCRT64 
+
+Install the following:
+```bash
+pacman -S mingw-w64-ucrt-x86_64-binutils mingw-w64-ucrt-x86_64-toolchain
+```
+
 #### Building
 You can build the project, but for debugging purposes, you don't need to. 
 Building in release mode is mostly recommended for public release.
