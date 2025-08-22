@@ -30,7 +30,6 @@ pub mod allocator;
 pub mod apic;
 pub mod common;
 pub mod config;
-pub mod constants;
 pub mod fs;
 pub mod gdt;
 pub mod interrupts;
@@ -109,12 +108,10 @@ pub fn exit_qemu(exit_code: QemuExitCode) {
 }
 
 pub fn init() {
-	println!("[Info] Initializing kernel...");
 	gdt::init();
 	interrupts::init_idt();
 	unsafe { interrupts::PICS.lock().initialize() };
 	x86_64::instructions::interrupts::enable();
-	println!("[Info] Done.");
 }
 
 pub fn hlt_loop() -> ! {
