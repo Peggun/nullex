@@ -100,11 +100,26 @@ pub async fn serial_consumer_loop() -> i32 {
 		if byte == 0x0A || byte == 0x0D {
 			serial_raw_print!(b"\r\n");
     		serial_print!("serial@nullex: $ ");
-
+			line.clear();
 			continue;
 		}
 
+		// 7F is the main cause here, 0x08 is js there.
+		if byte == 0x08 || byte == 0x7F {
+			if line.is_empty() {
+				serial_raw_print!(b"\x1B[1C"); // move it back so it cannot delete anything.
+			}
+			
+			line.pop();
+			serial_raw_print!(b"\x08 \x08");
+			
+			continue;
+		} 
+
+		println!("{}", line);
+
 		let c = byte as char;
+		line.push(c);
 		serial_print!("{}", c);
 	}
 
