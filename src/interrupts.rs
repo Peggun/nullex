@@ -12,10 +12,10 @@ use spin;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
-	apic::{TICK_COUNT, apic::send_eoi},
+	apic::{apic::send_eoi, TICK_COUNT},
 	gdt,
 	hlt_loop,
-	println
+	println, serial::add_byte
 };
 
 pub const PIC_1_OFFSET: u8 = 32;
@@ -42,6 +42,8 @@ lazy_static! {
 
 			// Leave the keyboard handler using PIC (for example).
 			idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
+
+			idt[InterruptIndex::Serial.as_usize()].set_handler_fn(serial_input_interrupt_handler);
 		}
 		idt
 	};
@@ -79,6 +81,28 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 	}
 }
 
+extern "x86-interrupt" fn serial_input_interrupt_handler(_stack_frame: InterruptStackFrame) {
+	use x86_64::instructions::port::Port;
+	loop {
+		let mut lsb = Port::<u8>::new(0x3FD);
+		let lsb_data = unsafe {
+			lsb.read()
+		};
+		if (lsb_data & 0x01) == 0 {
+			break;
+		}
+
+		let mut rbr = Port::<u8>::new(0x3F8);
+		let byte = unsafe { rbr.read() };
+		add_byte(byte);
+	}
+
+	unsafe {
+		PICS.lock()
+    	.notify_end_of_interrupt(InterruptIndex::Serial.as_u8());
+	}
+}
+
 /// Page fault handler.
 extern "x86-interrupt" fn page_fault_handler(
 	stack_frame: InterruptStackFrame,
@@ -112,8 +136,9 @@ extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum InterruptIndex {
-	Timer = PIC_1_OFFSET, // Vector 32 (0x20)
-	Keyboard              // Vector 33 (0x21)
+	Timer = PIC_1_OFFSET, 		// Vector 32 (0x20)
+	Keyboard,             		// Vector 33 (0x21)
+	Serial = PIC_1_OFFSET + 4	// Vector 36 (0x24) (Serial Input)
 }
 
 impl InterruptIndex {

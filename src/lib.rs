@@ -14,6 +14,7 @@ Kernel module for the kernel.
 #![feature(associated_type_defaults)]
 #![feature(alloc_error_handler)]
 #![feature(str_from_raw_parts)]
+#![feature(generic_atomic)]
 
 #[macro_use]
 extern crate alloc;

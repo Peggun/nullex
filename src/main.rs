@@ -12,7 +12,7 @@ Main entry code for the kernel.
 
 extern crate alloc;
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::boxed::Box;
 use core::{
 	future::Future,
 	pin::Pin,
@@ -22,64 +22,28 @@ use core::{
 
 use bootloader::{BootInfo, entry_point};
 use nullex::{
-	allocator,
-	apic::{self, apic::sleep},
-	constants::{SYSLOG_SINK, initialize_constants},
-	fs::{
+	allocator, apic::{self}, constants::{initialize_constants, SYSLOG_SINK}, fs::{
 		self,
 		ramfs::{FileSystem, Permission}
-	},
-	interrupts::PICS,
-	memory::{self, BootInfoFrameAllocator},
-	println,
-	serial_println,
-	task::{
-		Process,
-		ProcessState,
-		executor::{self, CURRENT_PROCESS, EXECUTOR},
-		keyboard
-	},
-	utils::{
+	}, interrupts::{init_idt, PICS}, memory::{self, BootInfoFrameAllocator}, println, serial::{init_serial_input, serial_consumer_loop}, serial_println, task::{
+		executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard, Process
+	}, utils::{
 		logger::{
-			levels::LogLevel,
-			traits::logger_sink::LoggerSink
+			levels::LogLevel, traits::logger_sink::LoggerSink
 		},
 		process::spawn_process
-	},
-	vga_buffer::WRITER
+	}, vga_buffer::WRITER
 };
 use vga::colors::Color16;
 
 entry_point!(kernel_main);
-
-/// A dummy async delay approximating half a second.
-async fn sleep_half_second() {
-	unsafe {
-		sleep(500).await;
-	}
-}
-
-/// Process 1: prints a message every half second.
-async fn process_one(_state: Arc<ProcessState>) -> i32 {
-	loop {
-		serial_println!("Process 1: Hello every half second");
-		sleep_half_second().await;
-	}
-}
-
-/// Process 2: prints a message every half second.
-async fn process_two(_state: Arc<ProcessState>) -> i32 {
-	loop {
-		serial_println!("Process 2: Hello every half second");
-		sleep_half_second().await;
-	}
-}
 
 #[unsafe(no_mangle)]
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	use x86_64::VirtAddr;
 
 	println!("[Info] Starting Kernel Init...");
+	init_idt();
 
 	let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 	let mut mapper = unsafe { memory::init(phys_mem_offset) };
@@ -93,6 +57,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	unsafe {
 		PICS.lock().write_masks(0b11111101, 0b11111111);
 	}
+
+
 
 	nullex::init();
 
@@ -124,6 +90,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	WRITER.lock().set_colors(Color16::White, Color16::Black);
 
 	crate::keyboard::commands::init_commands();
+	init_serial_input();
 
 	// Spawn the keyboard process.
 	let _keyboard_pid = spawn_process(
@@ -131,16 +98,8 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 		false
 	);
 
-	// Spawn process one.
-	let _process1_pid = spawn_process(
-		|state| Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>,
-		false
-	);
-
-	// Spawn process two.
-	let _process2_pid = spawn_process(
-		|state| Box::pin(process_two(state)) as Pin<Box<dyn Future<Output = i32>>>,
-		false
+	let _serial_kbd_pid = spawn_process(|_state| Box::pin(serial_consumer_loop()) as Pin<Box<dyn Future<Output = i32>>>,
+	false
 	);
 
 	// Main executor loop with CURRENT_PROCESS management.

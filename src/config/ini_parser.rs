@@ -19,7 +19,7 @@ pub struct IniFile<'a> {
 }
 
 /// Parses an INI formatted string into an IniFile structure.
-pub fn parse_ini(input: &str) -> IniFile {
+pub fn parse_ini(input: &'_ str) -> IniFile<'_> {
 	let mut sections = Vec::new();
 	// Optionally, use a default section if key/value pairs occur outside any
 	// section.

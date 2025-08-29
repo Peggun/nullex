@@ -27,7 +27,6 @@ use crate::{
 	fs,
 	print,
 	println,
-	serial_println,
 	task::{
 		keyboard::commands::{CMD_HISTORY, CMD_HISTORY_INDEX},
 		yield_now
@@ -140,7 +139,7 @@ pub async fn print_keypresses() -> i32 {
 						} else if key == KeyCode::ArrowDown {
 							downarrow_completion(&mut line);
 						} else {
-							serial_println!("unhandled key {:?}", key);
+							//serial_println!("unhandled key {:?}", key);
 						}
 					}
 					pc_keyboard::DecodedKey::Unicode(c) => {
