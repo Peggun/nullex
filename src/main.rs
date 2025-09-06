@@ -28,10 +28,9 @@ use nullex::{
 	}, interrupts::{init_idt, PICS}, memory::{self, BootInfoFrameAllocator}, println, serial::{init_serial_input, serial_consumer_loop}, serial_println, task::{
 		executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard, Process
 	}, utils::{
-		logger::{
+		kfunc::init_serial_commands, logger::{
 			levels::LogLevel, traits::logger_sink::LoggerSink
-		},
-		process::spawn_process
+		}, process::spawn_process
 	}, vga_buffer::WRITER
 };
 use vga::colors::Color16;
@@ -91,6 +90,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
 	crate::keyboard::commands::init_commands();
 	init_serial_input();
+	init_serial_commands();
 
 	// Spawn the keyboard process.
 	let _keyboard_pid = spawn_process(

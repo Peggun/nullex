@@ -20,6 +20,8 @@ use crate::println;
 use crate::serial_print;
 use crate::serial_println;
 use crate::serial_raw_print;
+use crate::task::yield_now;
+use crate::utils::kfunc::run_serial_command;
 
 static SERIAL_SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
 static SERIAL_WAKER: AtomicWaker = AtomicWaker::new();
@@ -98,9 +100,19 @@ pub async fn serial_consumer_loop() -> i32 {
 
 	while let Some(byte) = bytes.next().await {
 		if byte == 0x0A || byte == 0x0D {
-			serial_raw_print!(b"\r\n");
-    		serial_print!("serial@nullex: $ ");
-			line.clear();
+			if !line.is_empty() {
+				let cmd_line = line.clone();
+				line.clear();
+				yield_now().await;
+				serial_println!();
+				run_serial_command(&cmd_line);
+				serial_print!("serial@nullex: $ ");
+			} else {
+				serial_raw_print!(b"\r\n");
+				serial_print!("serial@nullex: $ ");
+				line.clear();
+			}
+
 			continue;
 		}
 
@@ -115,8 +127,6 @@ pub async fn serial_consumer_loop() -> i32 {
 			
 			continue;
 		} 
-
-		println!("{}", line);
 
 		let c = byte as char;
 		line.push(c);

@@ -22,12 +22,35 @@ Just a quick note: When using `cargo test` no tests are found. If you want to te
 
 - [Rust](https://www.rust-lang.org/tools/install) (install the appropriate version; nightly is required)
 - [Cargo](https://doc.rust-lang.org/cargo/)
-- [QEMU](https://www.qemu.org/download/)
+- [QEMU](https://www.qemu.org/download/) (unless installing through MSYS2, read below)
 - [CMake](https://cmake.org/download)
+- [MSYS2](https://msys2.org/) (windows only)
+- [LLVM](https://github.com/llvm/llvm-project/releases)
+
+### MSYS2 package installation - Windows
+After running the installer, and adding the `C:\msys64\ucrt64\bin` to `PATH`, you need to install the following packages:
+
+```sh
+pacman -Syu
+pacman -S mingw-w64-ucrt-x86_64-qemu
+```
+
+### Linux packages installation
+If you are on Linux / MacOS, you need to install some further packages, here you would use your respective package manager, but Debian is the example
+
+```sh
+sudo apt update
+sudo apt-get install build-essential qemu-utils qemu-system-x86 qemu-system-gui
+```
+
+You will also need to install the LLVM packages, which can be installed through a `bash` script provided by `apt.llvm.org`
+```bash
+sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
+```
 
 ### Installation
-
-Clone the repository:
+After installing all of the other tools, 
+clone the repository:
 
 ```bash
 git clone https://github.com/Peggun/nullex.git

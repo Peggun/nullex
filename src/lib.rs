@@ -41,6 +41,7 @@ pub mod syscall;
 pub mod task;
 pub mod utils;
 pub mod vga_buffer;
+pub mod error;
 
 #[cfg(test)]
 use bootloader::{BootInfo, entry_point};

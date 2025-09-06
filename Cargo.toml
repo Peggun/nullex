@@ -30,6 +30,7 @@ embedded-time = "0.12.1"
 embedded-timers = "0.4.0"
 dyn-clone = "1.0.18"
 time = { version = "0.3.39", default-features = false, features = ["alloc"] }
+thiserror = { version = "2.0.16", default-features = false }
 
 [dependencies.lazy_static]
 version = "1.0"
