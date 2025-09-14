@@ -28,6 +28,14 @@ impl Permission {
 			execute: true
 		}
 	}
+
+	pub fn read() -> Self {
+		Self {
+			read: true,
+			write: false,
+			execute: false
+		}
+	}
 }
 
 #[derive(Debug)]

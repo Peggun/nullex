@@ -1,30 +1,41 @@
-use alloc::{collections::btree_map::BTreeMap, string::{String, ToString}, vec::Vec};
-use hashbrown::HashMap;
+use alloc::{
+	collections::btree_map::BTreeMap,
+	string::{String, ToString},
+	vec::Vec
+};
+
 use lazy_static::lazy_static;
 use spin::Mutex;
 
-use crate::{error::NullexError, serial_println};
+use crate::{
+	apic::{TICK_COUNT, apic::to_hrt},
+	serial_println,
+	utils::cpu_utils::get_cpu_clock
+};
 
 pub type SerialCmdFn = fn(&[&str]);
 
 #[derive(Debug, Copy, Clone)]
 pub struct SerialCommand {
-    pub name: &'static str,
-    pub help: &'static str,
-    pub func: SerialCmdFn,
+	pub name: &'static str,
+	pub help: &'static str,
+	pub func: SerialCmdFn
 }
 
 lazy_static! {
-    static ref SERIAL_COMMAND_REGISTRY: Mutex<BTreeMap<String, SerialCommand>> = Mutex::new(BTreeMap::new());
+	static ref SERIAL_COMMAND_REGISTRY: Mutex<BTreeMap<String, SerialCommand>> =
+		Mutex::new(BTreeMap::new());
 }
 
 pub fn register_serial_command(cmd: SerialCommand) {
-    SERIAL_COMMAND_REGISTRY.lock().insert(cmd.name.to_string(), cmd);
+	SERIAL_COMMAND_REGISTRY
+		.lock()
+		.insert(cmd.name.to_string(), cmd);
 }
 
 // same as vga keyboard commands.
 pub fn run_serial_command(input: &str) {
-    let parts: Vec<&str> = input.split_whitespace().collect();
+	let parts: Vec<&str> = input.split_whitespace().collect();
 	if parts.is_empty() {
 		return;
 	}
@@ -37,7 +48,6 @@ pub fn run_serial_command(input: &str) {
 	};
 
 	if let Some(cmd) = cmd_opt {
-		
 		(cmd.func)(args);
 	} else {
 		serial_println!("Command not found: {}", command);
@@ -45,13 +55,48 @@ pub fn run_serial_command(input: &str) {
 }
 
 pub fn init_serial_commands() {
-    register_serial_command(SerialCommand {
-        name: "echo",
-        func: echo,
-        help: "Print arguments",
-    });
+	register_serial_command(SerialCommand {
+		name: "echo",
+		func: echo,
+		help: "Print arguments"
+	});
+	register_serial_command(SerialCommand {
+		name: "uptime",
+		help: "Shows how long nullex has been running",
+		func: uptime
+	});
+	register_serial_command(SerialCommand {
+		name: "clock",
+		help: "Gets the CPU Clock Speed",
+		func: clock
+	});
 }
 
 pub fn echo(args: &[&str]) {
 	serial_println!("{}", args.join(" "));
+}
+
+pub fn help(_args: &[&str]) {
+	// prints the commands, last command i will code.
+	serial_println!("");
+}
+
+pub fn uptime(_args: &[&str]) {
+	//update_system_uptime();
+	let ticks = TICK_COUNT.load(core::sync::atomic::Ordering::Relaxed);
+	let time = to_hrt(ticks);
+	serial_println!(
+		"up {} days {}:{}:{}.{}",
+		time.days,
+		time.hours,
+		time.mins,
+		time.secs,
+		time.ms
+	);
+}
+
+pub fn clock(_args: &[&str]) {
+	unsafe {
+		serial_println!("clock: {}", get_cpu_clock());
+	}
 }

@@ -25,13 +25,12 @@ extern crate spin;
 #[cfg(any(test))]
 extern crate core;
 
-use core::panic::PanicInfo;
-
 pub mod allocator;
 pub mod apic;
 pub mod common;
 pub mod config;
 pub mod constants;
+pub mod error;
 pub mod fs;
 pub mod gdt;
 pub mod interrupts;
@@ -41,10 +40,13 @@ pub mod syscall;
 pub mod task;
 pub mod utils;
 pub mod vga_buffer;
-pub mod error;
+
+use core::panic::PanicInfo;
 
 #[cfg(test)]
 use bootloader::{BootInfo, entry_point};
+
+use crate::fs::ramfs::{FileSystem, Permission};
 
 #[cfg(test)]
 entry_point!(test_kernel_main);
@@ -139,4 +141,35 @@ impl<T> Align512<T> {
 	pub fn inner_mut(&mut self) -> &mut T {
 		&mut self.0
 	}
+}
+
+pub fn setup_system_files(mut fs: FileSystem) {
+	fs.create_dir("/logs", Permission::all()).unwrap();
+	fs.create_dir("/proc", Permission::read()).unwrap();
+
+	fs::init_fs(fs);
+}
+
+pub fn compute_ticks_per_ms_from_sample(
+	consumed: u64,
+	elapsed_tsc: u64,
+	cpu_hz: u64
+) -> Option<u64> {
+	if consumed == 0 || elapsed_tsc == 0 || cpu_hz == 0 {
+		return None;
+	}
+
+	let num = (consumed as u128).checked_mul(cpu_hz as u128).unwrap();
+	let denom = (elapsed_tsc as u128).checked_mul(1_000u128).unwrap();
+
+	let ticks_per_ms128 = num / denom;
+	if ticks_per_ms128 == 0 {
+		return None;
+	}
+
+	if ticks_per_ms128 > (u64::MAX as u128) {
+		return None;
+	}
+
+	Some(ticks_per_ms128 as u64)
 }

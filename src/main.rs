@@ -12,7 +12,7 @@ Main entry code for the kernel.
 
 extern crate alloc;
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, sync::Arc};
 use core::{
 	future::Future,
 	pin::Pin,
@@ -22,20 +22,52 @@ use core::{
 
 use bootloader::{BootInfo, entry_point};
 use nullex::{
-	allocator, apic::{self}, constants::{initialize_constants, SYSLOG_SINK}, fs::{
-		self,
-		ramfs::{FileSystem, Permission}
-	}, interrupts::{init_idt, PICS}, memory::{self, BootInfoFrameAllocator}, println, serial::{init_serial_input, serial_consumer_loop}, serial_println, task::{
-		executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard, Process
-	}, utils::{
-		kfunc::init_serial_commands, logger::{
-			levels::LogLevel, traits::logger_sink::LoggerSink
-		}, process::spawn_process
-	}, vga_buffer::WRITER
+	allocator,
+	apic::{self, TICKS_PER_MS, apic::sleep},
+	constants::{SYSLOG_SINK, initialize_constants},
+	fs::ramfs::FileSystem,
+	interrupts::{PICS, init_idt},
+	memory::{self, BootInfoFrameAllocator},
+	println,
+	serial::{init_serial_input, serial_consumer_loop},
+	serial_println,
+	setup_system_files,
+	task::{
+		Process,
+		ProcessState,
+		executor::{self, CURRENT_PROCESS, EXECUTOR},
+		keyboard
+	},
+	utils::{
+		kfunc::init_serial_commands,
+		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
+		process::spawn_process
+	},
+	vga_buffer::WRITER
 };
 use vga::colors::Color16;
 
 entry_point!(kernel_main);
+
+async fn sleep_half_second() {
+	unsafe {
+		sleep(500).await;
+	}
+}
+
+async fn process_one(_state: Arc<ProcessState>) -> i32 {
+	loop {
+		println!("Process 1: Hello every half second");
+		sleep_half_second().await;
+	}
+}
+
+async fn process_two(_state: Arc<ProcessState>) -> i32 {
+	loop {
+		println!("Process 2: Hello every half second");
+		sleep_half_second().await;
+	}
+}
 
 #[unsafe(no_mangle)]
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
@@ -48,16 +80,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	let mut mapper = unsafe { memory::init(phys_mem_offset) };
 	let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
 
-	unsafe { apic::apic::enable_apic() };
-	memory::map_apic(&mut mapper, &mut frame_allocator);
-	unsafe { apic::apic::init_timer(6125) };
-	initialize_constants();
-
 	unsafe {
 		PICS.lock().write_masks(0b11111101, 0b11111111);
 	}
-
-
 
 	nullex::init();
 
@@ -66,20 +91,17 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 		Err(e) => panic!("Heap initialization failed: {:?}", e)
 	}
 
-	let mut fs = FileSystem::new();
+	unsafe { apic::apic::enable_apic() };
+	memory::map_apic(&mut mapper, &mut frame_allocator);
+	unsafe { apic::apic::init_timer() };
+	initialize_constants();
+
+	let fs = FileSystem::new();
 
 	println!("[Info] Initializing RAMFS...");
 
-	fs.create_file("/hello.txt", Permission::all()).unwrap();
-	fs.write_file("/hello.txt", b"Hello Kernel World!").unwrap();
-	fs.create_dir("/mydir", Permission::all()).unwrap();
-	fs.create_file("/mydir/test.txt", Permission::all())
-		.unwrap();
-	fs.write_file("/mydir/test.txt", b"Secret message").unwrap();
-
-	fs.create_dir("/logs", Permission::all()).unwrap();
-
-	fs::init_fs(fs);
+	// setup files and ramfs.
+	setup_system_files(fs);
 
 	println!("[Info] Done.");
 
@@ -92,19 +114,40 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	init_serial_input();
 	init_serial_commands();
 
+	println!(
+		"APIC Timer Clock Speed: {}",
+		TICKS_PER_MS.load(Ordering::Relaxed)
+	);
+
 	// Spawn the keyboard process.
 	let _keyboard_pid = spawn_process(
 		|_state| Box::pin(keyboard::print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>,
 		false
 	);
 
-	let _serial_kbd_pid = spawn_process(|_state| Box::pin(serial_consumer_loop()) as Pin<Box<dyn Future<Output = i32>>>,
-	false
+	let _serial_kbd_pid = spawn_process(
+		|_state| Box::pin(serial_consumer_loop()) as Pin<Box<dyn Future<Output = i32>>>,
+		false
+	);
+
+	let _process1_pid = spawn_process(
+		|state| Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>,
+		false
+	);
+
+	let _process2_pid = spawn_process(
+		|state| Box::pin(process_two(state)) as Pin<Box<dyn Future<Output = i32>>>,
+		false
 	);
 
 	// Main executor loop with CURRENT_PROCESS management.
 	let process_queue = EXECUTOR.lock().process_queue.clone();
 	loop {
+		// unsafe {
+		// 	serial_println!("[INFO] timer current count: {}, tick count: {}, isrs fired:
+		// {}", read_register(TIMER_CURRENT_COUNT), TICK_COUNT.load(Ordering::Acquire),
+		// DEBUG_ISR_FIRED.load(Ordering::Acquire)); }
+
 		if let Some(pid) = process_queue.pop() {
 			// Before scheduling, clear the queued flag.
 			if let Some(process_arc) = EXECUTOR.lock().processes.get(&pid) {

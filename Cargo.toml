@@ -31,6 +31,9 @@ embedded-timers = "0.4.0"
 dyn-clone = "1.0.18"
 time = { version = "0.3.39", default-features = false, features = ["alloc"] }
 thiserror = { version = "2.0.16", default-features = false }
+percpu = "0.2.0"
+raw-cpuid = "11.6.0"
+acpi = "6.0.1"
 
 [dependencies.lazy_static]
 version = "1.0"
@@ -49,6 +52,11 @@ default-features = false
 version = "0.3.4"
 default-features = false
 features = ["alloc"]
+
+[dependencies.num-traits]
+version = "0.2.19"
+default-features = false
+features = ["libm"]
 
 #[profile.dev]
 #panic = "abort"

@@ -4,24 +4,25 @@
 Serial Interface module for the kernel.
 */
 
-use core::arch::asm;
-use core::task::Poll;
 use alloc::string::String;
+use core::{arch::asm, task::Poll};
+
 use conquer_once::spin::OnceCell;
 use crossbeam_queue::ArrayQueue;
-use futures::StreamExt;
-use futures::{task::AtomicWaker, Stream};
+use futures::{Stream, StreamExt, task::AtomicWaker};
 use lazy_static::lazy_static;
 use spin::Mutex;
 use uart_16550::SerialPort;
 use x86_64::instructions::interrupts;
 
-use crate::println;
-use crate::serial_print;
-use crate::serial_println;
-use crate::serial_raw_print;
-use crate::task::yield_now;
-use crate::utils::kfunc::run_serial_command;
+use crate::{
+	println,
+	serial_print,
+	serial_println,
+	serial_raw_print,
+	task::yield_now,
+	utils::kfunc::run_serial_command
+};
 
 static SERIAL_SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
 static SERIAL_WAKER: AtomicWaker = AtomicWaker::new();
@@ -48,8 +49,8 @@ pub struct SerialScancodeStream {
 impl SerialScancodeStream {
 	pub fn new() -> Self {
 		SERIAL_SCANCODE_QUEUE
-    		.try_init_once(|| ArrayQueue::new(1000))
-    		.expect("SerialScancodeStream::new should only be called once.");
+			.try_init_once(|| ArrayQueue::new(1000))
+			.expect("SerialScancodeStream::new should only be called once.");
 
 		Self {
 			_private: ()
@@ -121,12 +122,12 @@ pub async fn serial_consumer_loop() -> i32 {
 			if line.is_empty() {
 				serial_raw_print!(b"\x1B[1C"); // move it back so it cannot delete anything.
 			}
-			
+
 			line.pop();
 			serial_raw_print!(b"\x08 \x08");
-			
+
 			continue;
-		} 
+		}
 
 		let c = byte as char;
 		line.push(c);
@@ -147,13 +148,7 @@ pub fn init_serial_input() {
 	});
 
 	// unmask IRQ4
-	unsafe {
-		asm!(
-			"in al, 0x21",
-			"and al, 0xEF",
-			"out 0x21, al",
-		)
-	};
+	unsafe { asm!("in al, 0x21", "and al, 0xEF", "out 0x21, al",) };
 }
 
 #[doc(hidden)]
@@ -182,7 +177,7 @@ pub fn _send_raw_serial(bytes: &[u8]) {
 #[macro_export]
 macro_rules! serial_print {
     ($($arg:tt)*) => {
-        $crate::serial::_print(core::format_args!($($arg)*));
+        $crate::serial::_print(core::format_args!($($arg)*))
     };
 }
 
@@ -197,5 +192,5 @@ macro_rules! serial_println {
 macro_rules! serial_raw_print {
 	($bytes:expr) => {
 		$crate::serial::_send_raw_serial($bytes)
-	}
+	};
 }

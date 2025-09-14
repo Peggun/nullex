@@ -12,10 +12,11 @@ use spin;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
-	apic::{apic::send_eoi, TICK_COUNT},
+	apic::{TICK_COUNT, apic::send_eoi},
 	gdt,
 	hlt_loop,
-	println, serial::add_byte
+	println,
+	serial::add_byte
 };
 
 pub const PIC_1_OFFSET: u8 = 32;
@@ -85,9 +86,7 @@ extern "x86-interrupt" fn serial_input_interrupt_handler(_stack_frame: Interrupt
 	use x86_64::instructions::port::Port;
 	loop {
 		let mut lsb = Port::<u8>::new(0x3FD);
-		let lsb_data = unsafe {
-			lsb.read()
-		};
+		let lsb_data = unsafe { lsb.read() };
 		if (lsb_data & 0x01) == 0 {
 			break;
 		}
@@ -99,7 +98,7 @@ extern "x86-interrupt" fn serial_input_interrupt_handler(_stack_frame: Interrupt
 
 	unsafe {
 		PICS.lock()
-    	.notify_end_of_interrupt(InterruptIndex::Serial.as_u8());
+			.notify_end_of_interrupt(InterruptIndex::Serial.as_u8());
 	}
 }
 
@@ -136,9 +135,9 @@ extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) 
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum InterruptIndex {
-	Timer = PIC_1_OFFSET, 		// Vector 32 (0x20)
-	Keyboard,             		// Vector 33 (0x21)
-	Serial = PIC_1_OFFSET + 4	// Vector 36 (0x24) (Serial Input)
+	Timer = PIC_1_OFFSET,      // Vector 32 (0x20)
+	Keyboard,                  // Vector 33 (0x21)
+	Serial = PIC_1_OFFSET + 4  // Vector 36 (0x24) (Serial Input)
 }
 
 impl InterruptIndex {
