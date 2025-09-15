@@ -16,6 +16,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 
 use crate::{
+	apic::{TICK_COUNT, apic::to_hrt},
 	constants::SYSLOG_SINK,
 	fs::{self, ramfs::Permission},
 	print,
@@ -156,6 +157,8 @@ pub fn init_commands() {
 		func: kill,
 		help: "Kill a process"
 	});
+	//register_command(Command { name: "uptime", func: uptime, help: "How long the
+	// system has been running." });
 	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
 }
 
@@ -395,4 +398,13 @@ pub fn kill(args: &[&str]) {
 
 	// Kill process
 	serial_println!("Killed process {}", pid);
+}
+
+pub fn uptime(_args: &[&str]) {
+	let ticks = TICK_COUNT.load(core::sync::atomic::Ordering::Relaxed);
+	let time = to_hrt(ticks);
+	println!(
+		"up: {} days {}:{}:{}.{}",
+		time.days, time.hours, time.mins, time.secs, time.ms
+	);
 }

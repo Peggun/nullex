@@ -84,15 +84,7 @@ pub fn help(_args: &[&str]) {
 pub fn uptime(_args: &[&str]) {
 	//update_system_uptime();
 	let ticks = TICK_COUNT.load(core::sync::atomic::Ordering::Relaxed);
-	let time = to_hrt(ticks);
-	serial_println!(
-		"up {} days {}:{}:{}.{}",
-		time.days,
-		time.hours,
-		time.mins,
-		time.secs,
-		time.ms
-	);
+	serial_println!("ticks: {}", ticks);
 }
 
 pub fn clock(_args: &[&str]) {

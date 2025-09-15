@@ -49,25 +49,25 @@ use vga::colors::Color16;
 
 entry_point!(kernel_main);
 
-async fn sleep_half_second() {
-	unsafe {
-		sleep(500).await;
-	}
-}
+// async fn sleep_half_second() {
+// 	unsafe {
+// 		sleep(500).await;
+// 	}
+// }
 
-async fn process_one(_state: Arc<ProcessState>) -> i32 {
-	loop {
-		println!("Process 1: Hello every half second");
-		sleep_half_second().await;
-	}
-}
+// async fn process_one(_state: Arc<ProcessState>) -> i32 {
+// 	loop {
+// 		println!("Process 1: Hello every half second");
+// 		sleep_half_second().await;
+// 	}
+// }
 
-async fn process_two(_state: Arc<ProcessState>) -> i32 {
-	loop {
-		println!("Process 2: Hello every half second");
-		sleep_half_second().await;
-	}
-}
+// async fn process_two(_state: Arc<ProcessState>) -> i32 {
+// 	loop {
+// 		println!("Process 2: Hello every half second");
+// 		sleep_half_second().await;
+// 	}
+// }
 
 #[unsafe(no_mangle)]
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
@@ -111,13 +111,13 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	WRITER.lock().set_colors(Color16::White, Color16::Black);
 
 	crate::keyboard::commands::init_commands();
-	init_serial_input();
-	init_serial_commands();
+	// init_serial_input();
+	// init_serial_commands();
 
-	println!(
-		"APIC Timer Clock Speed: {}",
-		TICKS_PER_MS.load(Ordering::Relaxed)
-	);
+	// println!(
+	// 	"APIC Timer Clock Speed: {}",
+	// 	TICKS_PER_MS.load(Ordering::Relaxed)
+	// );
 
 	// Spawn the keyboard process.
 	let _keyboard_pid = spawn_process(
@@ -125,20 +125,20 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 		false
 	);
 
-	let _serial_kbd_pid = spawn_process(
-		|_state| Box::pin(serial_consumer_loop()) as Pin<Box<dyn Future<Output = i32>>>,
-		false
-	);
+	// let _serial_kbd_pid = spawn_process(
+	// 	|_state| Box::pin(serial_consumer_loop()) as Pin<Box<dyn Future<Output = i32>>>,
+	// 	false
+	// );
 
-	let _process1_pid = spawn_process(
-		|state| Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>,
-		false
-	);
+	// let _process1_pid = spawn_process(
+	// 	|state| Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>,
+	// 	false
+	// );
 
-	let _process2_pid = spawn_process(
-		|state| Box::pin(process_two(state)) as Pin<Box<dyn Future<Output = i32>>>,
-		false
-	);
+	// let _process2_pid = spawn_process(
+	// 	|state| Box::pin(process_two(state)) as Pin<Box<dyn Future<Output = i32>>>,
+	// 	false
+	// );
 
 	// Main executor loop with CURRENT_PROCESS management.
 	let process_queue = EXECUTOR.lock().process_queue.clone();
