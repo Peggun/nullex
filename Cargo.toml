@@ -14,7 +14,6 @@ linked_list_allocator = "0.10.2"
 vga = "0.2.9" # just in case
 zerocopy = { version = "0.8.18", features = ["derive"] }
 bytemuck = "1.21.0"
-libc = "0.2.169"
 genfs = "0.1.4"
 spin = "0.9.8"
 bitflags = "2.8.0"
@@ -34,6 +33,13 @@ thiserror = { version = "2.0.16", default-features = false }
 percpu = "0.2.0"
 raw-cpuid = "11.6.0"
 acpi = "6.0.1"
+elf_rs = "0.3.1"
+
+logos = { version = "0.15.1", default-features = false, features = ["export_derive", "logos-derive"]}
+chumsky = { version = "0.11.1", default-features = false }
+
+libc = { version = "0.2.175", default-features = false }
+#termios = "0.3.3"
 
 [dependencies.lazy_static]
 version = "1.0"

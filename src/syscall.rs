@@ -5,7 +5,9 @@ Syscall module for the kernel.
 */
 
 use alloc::{string::ToString, sync::Arc};
-use core::sync::atomic::AtomicBool;
+use conquer_once::doc::OnceCell;
+use futures::task::AtomicWaker;
+use core::{future, sync::atomic::AtomicBool};
 
 use crate::{
 	apic::apic::sleep,
@@ -13,11 +15,7 @@ use crate::{
 	println,
 	serial_println,
 	task::{
-		OpenFile,
-		Process,
-		ProcessId,
-		ProcessState,
-		executor::{self, CURRENT_PROCESS, EXECUTOR}
+		executor::{self, CURRENT_PROCESS, EXECUTOR}, OpenFile, Process, ProcessId, ProcessState
 	}
 };
 
@@ -35,14 +33,7 @@ pub const SYS_KILL: u32 = 10;
 pub const SYS_SLEEP: u32 = 11;
 
 // System call handler function
-pub async fn syscall(
-	syscall_id: u32,
-	arg1: u64,
-	arg2: u64,
-	arg3: u64,
-	_arg4: u64,
-	_arg5: u64
-) -> i32 {
+pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _arg5: u64) -> i32 {
 	match syscall_id {
 		SYS_PRINT => {
 			let ptr = arg1 as *const u8;
@@ -89,7 +80,6 @@ pub async fn syscall(
 			let pid = arg1 as u64;
 			sys_kill(pid)
 		}
-		SYS_SLEEP => sys_sleep(arg1 as u32).await,
 		_ => {
 			serial_println!("Invalid syscall ID: {}", syscall_id);
 			-1 // Error code for unhandled syscall
@@ -117,7 +107,9 @@ pub fn sys_fork() -> i32 {
 		id: child_pid,
 		is_child: true,
 		future_fn: future_fn_clone,
-		queued: AtomicBool::new(false)
+		queued: AtomicBool::new(false),
+		scancode_queue: OnceCell::uninit(),
+		waker: AtomicWaker::new(),
 	});
 	let child_process = Process::new(child_state);
 	executor.spawn_process(child_process);

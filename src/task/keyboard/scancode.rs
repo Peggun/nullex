@@ -14,6 +14,7 @@ use alloc::{
 	string::{String, ToString},
 	vec::Vec
 };
+use x86_64::registers;
 use core::task::Poll;
 
 use conquer_once::spin::OnceCell;

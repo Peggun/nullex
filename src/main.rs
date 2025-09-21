@@ -14,6 +14,7 @@ extern crate alloc;
 
 use alloc::{boxed::Box, sync::Arc};
 use core::{
+	arch::asm,
 	future::Future,
 	pin::Pin,
 	sync::atomic::Ordering,
@@ -32,6 +33,7 @@ use nullex::{
 	serial::{init_serial_input, serial_consumer_loop},
 	serial_println,
 	setup_system_files,
+	syscall::syscall,
 	task::{
 		Process,
 		ProcessState,
@@ -67,6 +69,13 @@ entry_point!(kernel_main);
 // 		println!("Process 2: Hello every half second");
 // 		sleep_half_second().await;
 // 	}
+// }
+
+// async fn test_syscall(_state: Arc<ProcessState>) -> i32 {
+// 	let msg = b"Hello";
+
+//     let res = syscall(1, msg.as_ptr() as u64, 5_u64, 0, 0, 0);
+//     res
 // }
 
 #[unsafe(no_mangle)]
@@ -139,6 +148,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	// 	|state| Box::pin(process_two(state)) as Pin<Box<dyn Future<Output = i32>>>,
 	// 	false
 	// );
+
+	//let proc = spawn_process(|state| Box::pin(test_syscall(state)) as Pin<Box<dyn
+	// Future<Output = i32>>>, false);
 
 	// Main executor loop with CURRENT_PROCESS management.
 	let process_queue = EXECUTOR.lock().process_queue.clone();

@@ -1,6 +1,7 @@
 pub mod ata;
 pub mod ramfs;
 
+use alloc::{string::{String, ToString}, vec::Vec};
 use spin::Mutex;
 
 use crate::fs::ramfs::FileSystem;
@@ -21,4 +22,42 @@ pub fn with_fs<R>(f: impl FnOnce(&mut FileSystem) -> R) -> R {
 	crate::vga_buffer::WRITER.lock();
 
 	result
+}
+
+/// Helper function to resolve a file path relative to the current working
+/// directory.
+pub fn resolve_path(path: &str) -> String {
+	// We import CWD from the scancode module.
+	use crate::task::keyboard::scancode::CWD;
+	let mut cwd = CWD.lock().clone();
+	let mut result = if path.starts_with('/') {
+		String::new()
+	} else {
+		cwd.push('/');
+		cwd
+	};
+	result.push_str(path);
+	normalize_path(&result)
+}
+
+pub fn normalize_path(path: &str) -> String {
+	let parts: Vec<&str> = path
+		.split('/')
+		.filter(|&p| !p.is_empty() && p != ".")
+		.collect();
+	let mut stack = Vec::new();
+	for part in parts {
+		if part == ".." {
+			if !stack.is_empty() {
+				stack.pop();
+			}
+		} else {
+			stack.push(part);
+		}
+	}
+	if stack.is_empty() {
+		"/".to_string()
+	} else {
+		format!("/{}/", stack.join("/"))
+	}
 }

@@ -7,7 +7,7 @@ Most of this code comes via https://github.com/ash-hashtag/samanthi-os
 So thanks.
 */
 
-use core::fmt::{self, Write};
+use core::{fmt::{self, Write}, ops::Deref};
 
 use lazy_static::lazy_static;
 use spin::Mutex;
@@ -24,6 +24,32 @@ use crate::serial_println;
 
 lazy_static! {
 	pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer::new());
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BufferEntry {
+	pub character: u8,
+	pub colour_code: u8,
+}
+
+impl Deref for BufferEntry {
+	type Target = u8;
+
+	fn deref(&self) -> &Self::Target {
+		&self.character
+	}
+}
+
+impl BufferEntry {
+    pub fn character(&self) -> u8 { self.character }
+    pub fn colour_code(&self) -> u8 { self.colour_code }
+    pub fn foreground(&self) -> Color {
+        Color::from_u8(self.colour_code & 0x0F).unwrap()
+    }
+
+    pub fn background(&self) -> Color {
+        Color::from_u8(self.colour_code >> 4).unwrap()
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -47,25 +73,6 @@ pub enum Color {
 	White = 15
 }
 
-pub fn string_to_color(s: &str) -> Option<Color16> {
-	let color = match s {
-		"red" => Color16::Red,
-		"blue" => Color16::Blue,
-		"green" => Color16::Green,
-		"cyan" => Color16::Cyan,
-		"brown" => Color16::Brown,
-		"magenta" => Color16::Magenta,
-		"pink" => Color16::Pink,
-		"yellow" => Color16::Yellow,
-		"white" => Color16::White,
-		"black" => Color16::Black,
-		_ => {
-			return None;
-		}
-	};
-	Some(color)
-}
-
 impl Color {
 	pub fn from_string(s: &str) -> Option<Color> {
 		let color = match s {
@@ -85,7 +92,32 @@ impl Color {
 		};
 		Some(color)
 	}
+
+	pub fn from_u8(n: u8) -> Option<Color> {
+		let color = match n {
+			0x0 => Self::Black,
+			0x1 => Self::Blue,
+			0x2 => Self::Green,
+			0x3 => Self::Cyan,
+			0x4 => Self::Red,
+			0x5 => Self::Magenta,
+			0x6 => Self::Brown,
+			0x7 => Self::LightGray,
+			0x8 => Self::DarkGray,
+			0x9 => Self::LightBlue,
+			0x10 => Self::LightGreen,
+			0x11 => Self::LightCyan,
+			0x12 => Self::LightRed,
+			0x13 => Self::Pink,
+			0x14 => Self::Yellow,
+			0x15 => Self::White,
+			_ => return None,
+		};
+		Some(color)
+	}
 }
+
+
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -109,14 +141,14 @@ const BUFFER_WIDTH: usize = 80;
 
 #[repr(transparent)]
 pub struct Buffer {
-	chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT]
+	pub chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT]
 }
 
 pub struct Writer {
 	column_position: usize,
 	pub color_code: ColorCode,
 	//buffer: &'static mut Buffer,
-	text: Text80x25,
+	pub text: Text80x25,
 	color: TextModeColor,
 	pub current_row: usize
 }
@@ -248,6 +280,40 @@ impl Writer {
 		self.current_row = 0;
 		self.update_cursor();
 	}
+
+	pub fn copy_vga_buffer(&self) -> [[BufferEntry; BUFFER_WIDTH]; BUFFER_HEIGHT] {
+        let mut buffer = [[BufferEntry { character: 0, colour_code: 0 }; BUFFER_WIDTH]; BUFFER_HEIGHT];
+        let vga_buffer_ptr = 0xb8000 as *const u16;
+
+        unsafe {
+            for row in 0..BUFFER_HEIGHT {
+                for col in 0..BUFFER_WIDTH {
+                    let offset = row * BUFFER_WIDTH + col;
+                    let vga_entry = core::ptr::read_volatile(vga_buffer_ptr.add(offset));
+                    buffer[row][col] = BufferEntry {
+                        character: (vga_entry & 0xFF) as u8,
+                        colour_code: (vga_entry >> 8) as u8,
+                    };
+                }
+            }
+        }
+        buffer
+    }
+
+	pub fn restore_vga_buffer(&self, buffer: &[[BufferEntry; BUFFER_WIDTH]; BUFFER_HEIGHT]) {
+        let vga_buffer_ptr = 0xb8000 as *mut u16;
+
+        unsafe {
+            for row in 0..BUFFER_HEIGHT {
+                for col in 0..BUFFER_WIDTH {
+                    let offset = row * BUFFER_WIDTH + col;
+                    let entry = buffer[row][col];
+                    let vga_entry: u16 = ((entry.colour_code as u16) << 8) | (entry.character as u16);
+                    core::ptr::write_volatile(vga_buffer_ptr.add(offset), vga_entry);
+                }
+            }
+        }
+    }
 }
 
 pub fn console_backspace() {

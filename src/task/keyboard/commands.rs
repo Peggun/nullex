@@ -6,26 +6,18 @@ Command handling and definitions module for the kernel.
 
 extern crate alloc;
 
+use core::pin::Pin;
+
 use alloc::{
-	collections::BTreeMap,
-	string::{String, ToString},
-	vec::Vec
+	boxed::Box, collections::BTreeMap, string::{String, ToString}, vec::Vec
 };
 
 use lazy_static::lazy_static;
 use spin::Mutex;
 
+// fix nulx::nulx::nulx() pathnames
 use crate::{
-	apic::{TICK_COUNT, apic::to_hrt},
-	constants::SYSLOG_SINK,
-	fs::{self, ramfs::Permission},
-	print,
-	println,
-	serial_println,
-	syscall,
-	task::{ProcessId, executor::EXECUTOR},
-	utils::logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
-	vga_buffer::WRITER
+	apic::{apic::to_hrt, TICK_COUNT}, constants::SYSLOG_SINK, fs::{self, ramfs::Permission, resolve_path}, print, println, programs::{nedit::app::nedit_app, nulx::run}, serial_println, syscall, task::{executor::EXECUTOR, ProcessId}, utils::{logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, process::spawn_process}, vga_buffer::WRITER
 };
 
 lazy_static! {
@@ -36,13 +28,20 @@ lazy_static! {
 /// A type alias for a command function.
 pub type CommandFunction = fn(args: &[&str]);
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum CommandType {
+	Generic,
+	Application,
+}
+
 /// A command structure containing the command name, the function to call, and
 /// help text.
 #[derive(Clone, Copy)]
 pub struct Command {
 	pub name: &'static str,
 	pub func: CommandFunction,
-	pub help: &'static str
+	pub help: &'static str,
+	pub cmd_type: CommandType
 }
 
 lazy_static! {
@@ -77,7 +76,6 @@ pub fn run_command(input: &str) {
 	}
 
 	if let Some(cmd) = cmd_opt {
-		// At this point, the lock is dropped, so it's safe to call the command.
 		(cmd.func)(args);
 	} else {
 		println!("Command not found: {}", command);
@@ -90,115 +88,103 @@ pub fn init_commands() {
 	register_command(Command {
 		name: "echo",
 		func: echo,
-		help: "Print arguments"
+		help: "Print arguments",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "clear",
 		func: clear,
-		help: "Clear the screen"
+		help: "Clear the screen",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "help",
 		func: help,
-		help: "Show available commands"
+		help: "Show available commands",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "ls",
 		func: ls,
-		help: "List directory contents"
+		help: "List directory contents",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "cat",
 		func: cat,
-		help: "Display file content"
+		help: "Display file content",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "cd",
 		func: cd,
-		help: "Change directory"
+		help: "Change directory",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "touch",
 		func: touch,
-		help: "Create an empty file"
+		help: "Create an empty file",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "mkdir",
 		func: mkdir,
-		help: "Create a directory"
+		help: "Create a directory",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "rm",
 		func: rm,
-		help: "Remove a file"
+		help: "Remove a file",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "rmdir",
 		func: rmdir,
-		help: "Remove a directory"
+		help: "Remove a directory",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "write",
 		func: write_file,
-		help: "Write content to a file"
+		help: "Write content to a file",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "exit",
 		func: sys_exit_shell,
-		help: "Exit the shell"
+		help: "Exit the shell",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "progs",
 		func: progs,
-		help: "List running processes"
+		help: "List running processes",
+		cmd_type: CommandType::Generic,
 	});
 	register_command(Command {
 		name: "kill",
 		func: kill,
-		help: "Kill a process"
+		help: "Kill a process",
+		cmd_type: CommandType::Generic,
 	});
-	//register_command(Command { name: "uptime", func: uptime, help: "How long the
-	// system has been running." });
+	register_command(Command { 
+		name: "nulx", 
+		func: run, // nulx_run
+		help: "Run the nulx programming language",
+		cmd_type: CommandType::Generic,
+	});
+	register_command(Command {
+		name: "nedit",
+		func: nedit_app,
+		help: "Edit any files within Nullex",
+		cmd_type: CommandType::Application,
+	});
 	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
 }
 
-/// Helper function to resolve a file path relative to the current working
-/// directory.
-fn resolve_path(path: &str) -> String {
-	// We import CWD from the scancode module.
-	use crate::task::keyboard::scancode::CWD;
-	let mut cwd = CWD.lock().clone();
-	let mut result = if path.starts_with('/') {
-		String::new()
-	} else {
-		cwd.push('/');
-		cwd
-	};
-	result.push_str(path);
-	normalize_path(&result)
-}
 
-fn normalize_path(path: &str) -> String {
-	let parts: Vec<&str> = path
-		.split('/')
-		.filter(|&p| !p.is_empty() && p != ".")
-		.collect();
-	let mut stack = Vec::new();
-	for part in parts {
-		if part == ".." {
-			if !stack.is_empty() {
-				stack.pop();
-			}
-		} else {
-			stack.push(part);
-		}
-	}
-	if stack.is_empty() {
-		"/".to_string()
-	} else {
-		format!("/{}/", stack.join("/"))
-	}
-}
 
 pub fn progs(_args: &[&str]) {
 	if let Some(executor) = EXECUTOR.try_lock() {
@@ -247,7 +233,7 @@ pub fn cat(args: &[&str]) {
 			let s = String::from_utf8_lossy(content);
 			println!("{}", s)
 		}
-		Err(_) => println!("cat: {}: No such file", path)
+		Err(_) => println!("cat: {}: No such file ", path)
 	});
 }
 

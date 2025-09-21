@@ -1,4 +1,6 @@
 use alloc::{boxed::Box, sync::Arc};
+use conquer_once::spin::OnceCell;
+use futures::task::AtomicWaker;
 use core::{future::Future, pin::Pin, sync::atomic::AtomicBool};
 
 use crate::task::{Process, ProcessId, ProcessState, executor::EXECUTOR};
@@ -37,7 +39,9 @@ where
 		id: pid,
 		is_child,
 		future_fn: Arc::new(future_fn),
-		queued: AtomicBool::new(false)
+		queued: AtomicBool::new(false),
+		scancode_queue: OnceCell::uninit(),
+		waker: AtomicWaker::new(),
 	});
 
 	// Construct the process.

@@ -75,11 +75,13 @@ pub mod apic {
 	}
 
 	/// Initialize the APIC timer in periodic mode.
-	///
 	// https://wiki.osdev.org/APIC_Timer#Example_code_in_C
-	// this code isnt great, i will came back later, 
-	// maybe when the repo gets some attaction and people 
+	// this code isnt great, i will came back later,
+	// maybe when the repo gets some attaction and people
 	// would like to help.
+	// like currently, for example, 5 seconds real-time
+	// is 0.6 seconds kernel time.
+	// fuck knows why. which is why i'll come back to it.
 	pub unsafe fn init_timer() {
 		println!("[Info] Initializing APIC Timer...");
 		unsafe {

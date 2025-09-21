@@ -6,3 +6,7 @@ pub enum NullexError {
 	#[error("generic serial error")]
 	GenericSerialError
 }
+
+// error consts
+pub const EBADF: i32 = 9;
+pub const ENOTTY: i32 = 25;

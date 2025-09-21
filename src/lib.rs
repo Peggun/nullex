@@ -15,12 +15,14 @@ Kernel module for the kernel.
 #![feature(alloc_error_handler)]
 #![feature(str_from_raw_parts)]
 #![feature(generic_atomic)]
+#![feature(string_from_utf8_lossy_owned)]
 
 #[macro_use]
 extern crate alloc;
 extern crate bitflags;
 extern crate genfs;
 extern crate spin;
+extern crate libc;
 
 #[cfg(any(test))]
 extern crate core;
@@ -35,6 +37,7 @@ pub mod fs;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;
+pub mod programs;
 pub mod pit;
 pub mod serial;
 pub mod syscall;
@@ -147,6 +150,17 @@ impl<T> Align512<T> {
 pub fn setup_system_files(mut fs: FileSystem) {
 	fs.create_dir("/logs", Permission::all()).unwrap();
 	fs.create_dir("/proc", Permission::read()).unwrap();
+
+	fs.create_file("test.nx", Permission::all()).unwrap();
+	fs.write_file("test.nx", b"
+		// simple test
+		func main() {
+			set num = 1;
+
+			print(\"Hello, world!\");
+			print(num);
+		}"
+	);
 
 	fs::init_fs(fs);
 }

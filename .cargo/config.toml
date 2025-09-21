@@ -5,5 +5,12 @@ build-std = ["core", "compiler_builtins", "alloc"]
 [build]
 target = "x86_64-unknown-none.json"
 
+[env]
+AS = "x86_64-elf-as"
+CC = "x86_64-elf-gcc"
+CC_x86_64_unknown_none = "x86_64-elf-gcc"
+AR = "x86_64-elf-ar"
+LD = "x86_64-elf-ld"
+
 [target.'cfg(target_os = "none")']
 runner = "bootimage runner"

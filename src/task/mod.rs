@@ -4,11 +4,11 @@ pub mod executor;
 pub mod keyboard;
 
 use alloc::{boxed::Box, string::String, sync::Arc};
+use conquer_once::spin::OnceCell;
+use crossbeam_queue::ArrayQueue;
+use futures::task::AtomicWaker;
 use core::{
-	future::Future,
-	pin::Pin,
-	sync::atomic::AtomicBool,
-	task::{Context, Poll}
+	fmt::Debug, future::Future, pin::Pin, sync::atomic::AtomicBool, task::{Context, Poll}
 };
 
 use hashbrown::HashMap;
@@ -37,7 +37,9 @@ pub struct ProcessState {
 	pub is_child: bool,
 	pub future_fn:
 		Arc<dyn Fn(Arc<ProcessState>) -> Pin<Box<dyn Future<Output = i32>>> + Send + Sync>,
-	pub queued: AtomicBool
+	pub queued: AtomicBool,
+	pub scancode_queue: OnceCell<ArrayQueue<u8>>,
+	pub waker: AtomicWaker,
 }
 
 pub struct Process {

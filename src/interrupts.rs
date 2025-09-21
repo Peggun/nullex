@@ -4,7 +4,7 @@
 Interrupt handling module for the kernel.
 */
 
-use core::sync::atomic::Ordering;
+use core::{arch::asm, sync::atomic::Ordering};
 
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
@@ -12,11 +12,13 @@ use spin;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
-	apic::{TICK_COUNT, apic::send_eoi},
+	apic::{apic::send_eoi, TICK_COUNT},
 	gdt,
 	hlt_loop,
 	println,
-	serial::add_byte
+	serial::add_byte,
+	serial_println,
+	syscall::{sys_print, syscall, SYS_PRINT}, task::executor::CURRENT_PROCESS
 };
 
 pub const PIC_1_OFFSET: u8 = 32;
@@ -45,6 +47,8 @@ lazy_static! {
 			idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
 
 			idt[InterruptIndex::Serial.as_usize()].set_handler_fn(serial_input_interrupt_handler);
+
+			idt[0x80].set_handler_fn(syscall_handler);
 		}
 		idt
 	};
@@ -74,7 +78,38 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 	use x86_64::instructions::port::Port;
 	let mut port = Port::new(0x60);
 	let scancode: u8 = unsafe { port.read() };
-	crate::task::keyboard::scancode::add_scancode(scancode);
+	
+	{
+		let mut lock = CURRENT_PROCESS.lock();
+
+		let curr_proc = match lock.as_mut() {
+			Some(proc) => proc,
+			// keyboard process assumed
+			// as that will always be running. 
+			None => {
+				crate::task::keyboard::scancode::add_scancode(scancode);
+				unsafe {
+					PICS.lock()
+						.notify_end_of_interrupt(InterruptIndex::Keyboard.as_u8());
+				}
+				return;
+			}
+		};
+		let curr_proc_queue = curr_proc.scancode_queue.try_get();
+		let curr_proc_waker = &curr_proc.waker;
+
+		if let Ok(queue) = curr_proc_queue {
+			if let Err(_) = queue.push(scancode) {
+				// skip, the keypress gets dropped. 
+				// its not needed because only processes that dont use the keyboard
+				// will fill up the scanqueueu
+			} else {
+				curr_proc_waker.wake();
+			}
+		}
+		// same here, its not needed because all processes that need the keyboard
+		// will have the scanqueue setup
+	}
 
 	unsafe {
 		PICS.lock()
@@ -128,6 +163,47 @@ extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) 
 		send_eoi();
 	}
 }
+
+extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
+	let rax: u32; // syscall number
+	let arg1: u64;
+	let arg2: u64;
+	let arg3: u64;
+
+	// get syscall number and args
+	unsafe {
+		asm!(
+			"mov {rax_out:r}, rax",
+			"mov {rdi_out:r}, rdi",
+			"mov {rsi_out:r}, rsi",
+			"mov {rdx_out:r}, rdx",
+			rax_out = out(reg) rax,
+			rdi_out = out(reg) arg1,
+			rsi_out = out(reg) arg2,
+			rdx_out = out(reg) arg3,
+			options(nostack, nomem),
+		);
+	}
+
+	serial_println!(
+		"rax: {}, arg1: {}, arg2: {}, arg3: {}",
+		rax,
+		arg1,
+		arg2,
+		arg3
+	);
+
+	let ret = syscall(rax, arg1, arg2, arg3, 0, 0);
+
+	unsafe {
+		core::arch::asm!(
+			"mov rax, {0}",
+			in(reg) ret as u64,
+			options(nostack, nomem),
+		);
+	}
+}
+
 /// Defines the interrupt vectors used in the IDT.
 ///
 /// Although the PIC is no longer used for the timer, we can reuse the same
