@@ -1,7 +1,11 @@
 pub mod ata;
 pub mod ramfs;
 
-use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{
+	string::{String, ToString},
+	vec::Vec
+};
+
 use spin::Mutex;
 
 use crate::fs::ramfs::FileSystem;
@@ -16,7 +20,7 @@ pub fn with_fs<R>(f: impl FnOnce(&mut FileSystem) -> R) -> R {
 	let mut fs_lock = FS.lock();
 	let fs_ref = fs_lock.as_mut().expect("Filesystem must be initialized");
 
-	// Release VGA lock before FS operations
+	// release VGA lock before FS operations
 	unsafe { crate::vga_buffer::WRITER.force_unlock() };
 	let result = f(fs_ref);
 	crate::vga_buffer::WRITER.lock();
@@ -27,8 +31,8 @@ pub fn with_fs<R>(f: impl FnOnce(&mut FileSystem) -> R) -> R {
 /// Helper function to resolve a file path relative to the current working
 /// directory.
 pub fn resolve_path(path: &str) -> String {
-	// We import CWD from the scancode module.
 	use crate::task::keyboard::scancode::CWD;
+
 	let mut cwd = CWD.lock().clone();
 	let mut result = if path.starts_with('/') {
 		String::new()

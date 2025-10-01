@@ -4,13 +4,17 @@ pub mod executor;
 pub mod keyboard;
 
 use alloc::{boxed::Box, string::String, sync::Arc};
+use core::{
+	fmt::Debug,
+	future::Future,
+	pin::Pin,
+	sync::atomic::AtomicBool,
+	task::{Context, Poll}
+};
+
 use conquer_once::spin::OnceCell;
 use crossbeam_queue::ArrayQueue;
 use futures::task::AtomicWaker;
-use core::{
-	fmt::Debug, future::Future, pin::Pin, sync::atomic::AtomicBool, task::{Context, Poll}
-};
-
 use hashbrown::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -29,7 +33,7 @@ impl ProcessId {
 // Struct to represent an open file in a process
 pub struct OpenFile {
 	pub path: String,
-	pub offset: usize // Current read offset
+	pub offset: usize // current read offset
 }
 
 pub struct ProcessState {
@@ -39,14 +43,14 @@ pub struct ProcessState {
 		Arc<dyn Fn(Arc<ProcessState>) -> Pin<Box<dyn Future<Output = i32>>> + Send + Sync>,
 	pub queued: AtomicBool,
 	pub scancode_queue: OnceCell<ArrayQueue<u8>>,
-	pub waker: AtomicWaker,
+	pub waker: AtomicWaker
 }
 
 pub struct Process {
 	pub state: Arc<ProcessState>,
 	pub future: Pin<Box<dyn Future<Output = i32>>>,
-	pub open_files: HashMap<u32, OpenFile>, // File descriptor to OpenFile mapping
-	pub next_fd: u32                        // Next available file descriptor
+	pub open_files: HashMap<u32, OpenFile>, // file descriptor to OpenFile mapping
+	pub next_fd: u32                        // next available file descriptor
 }
 
 impl Process {
@@ -56,7 +60,7 @@ impl Process {
 			state,
 			future,
 			open_files: HashMap::new(),
-			next_fd: 0 // Start file descriptors at 0
+			next_fd: 0 // start file descriptors at 0
 		}
 	}
 

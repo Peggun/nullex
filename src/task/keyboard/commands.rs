@@ -6,18 +6,33 @@ Command handling and definitions module for the kernel.
 
 extern crate alloc;
 
-use core::pin::Pin;
-
 use alloc::{
-	boxed::Box, collections::BTreeMap, string::{String, ToString}, vec::Vec
+	boxed::Box,
+	collections::BTreeMap,
+	string::{String, ToString},
+	vec::Vec
 };
+use core::pin::Pin;
 
 use lazy_static::lazy_static;
 use spin::Mutex;
 
-// fix nulx::nulx::nulx() pathnames
+// TODO: fix nulx::nulx::nulx() pathnames
 use crate::{
-	apic::{apic::to_hrt, TICK_COUNT}, constants::SYSLOG_SINK, fs::{self, ramfs::Permission, resolve_path}, print, println, programs::{nedit::app::nedit_app, nulx::run}, serial_println, syscall, task::{executor::EXECUTOR, ProcessId}, utils::{logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, process::spawn_process}, vga_buffer::WRITER
+	apic::{TICK_COUNT, apic::to_hrt},
+	constants::SYSLOG_SINK,
+	fs::{self, ramfs::Permission, resolve_path},
+	print,
+	println,
+	programs::{nedit::app::nedit_app, nulx::run},
+	serial_println,
+	syscall,
+	task::{ProcessId, executor::EXECUTOR},
+	utils::{
+		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
+		process::spawn_process
+	},
+	vga_buffer::WRITER
 };
 
 lazy_static! {
@@ -31,7 +46,7 @@ pub type CommandFunction = fn(args: &[&str]);
 #[derive(Clone, Copy, PartialEq)]
 pub enum CommandType {
 	Generic,
-	Application,
+	Application
 }
 
 /// A command structure containing the command name, the function to call, and
@@ -62,16 +77,16 @@ pub fn run_command(input: &str) {
 	let command = parts[0];
 	let args = &parts[1..];
 
-	// Copy the command out while holding the lock
+	// copy the command out while holding the lock
 	let cmd_opt = {
 		let registry = COMMAND_REGISTRY.lock();
-		registry.get(command).copied() // `copied()` turns &Command into Command
+		registry.get(command).copied()
 	};
 
 	{
 		let mut history = CMD_HISTORY.lock();
 		history.push(input.to_string());
-		// Reset the history index to the end of the history.
+		// reset the history index to the end of the history.
 		*CMD_HISTORY_INDEX.lock() = history.len();
 	}
 
@@ -89,102 +104,100 @@ pub fn init_commands() {
 		name: "echo",
 		func: echo,
 		help: "Print arguments",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "clear",
 		func: clear,
 		help: "Clear the screen",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "help",
 		func: help,
 		help: "Show available commands",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "ls",
 		func: ls,
 		help: "List directory contents",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "cat",
 		func: cat,
 		help: "Display file content",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "cd",
 		func: cd,
 		help: "Change directory",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "touch",
 		func: touch,
 		help: "Create an empty file",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "mkdir",
 		func: mkdir,
 		help: "Create a directory",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "rm",
 		func: rm,
 		help: "Remove a file",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "rmdir",
 		func: rmdir,
 		help: "Remove a directory",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "write",
 		func: write_file,
 		help: "Write content to a file",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "exit",
 		func: sys_exit_shell,
 		help: "Exit the shell",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "progs",
 		func: progs,
 		help: "List running processes",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "kill",
 		func: kill,
 		help: "Kill a process",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
-	register_command(Command { 
-		name: "nulx", 
+	register_command(Command {
+		name: "nulx",
 		func: run, // nulx_run
 		help: "Run the nulx programming language",
-		cmd_type: CommandType::Generic,
+		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
 		name: "nedit",
 		func: nedit_app,
 		help: "Edit any files within Nullex",
-		cmd_type: CommandType::Application,
+		cmd_type: CommandType::Application
 	});
 	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
 }
-
-
 
 pub fn progs(_args: &[&str]) {
 	if let Some(executor) = EXECUTOR.try_lock() {
@@ -340,7 +353,7 @@ pub fn write_file(args: &[&str]) {
 	let path = resolve_path(args[0]);
 	let content = args[1..].join(" ");
 	fs::with_fs(|fs| {
-		if let Err(_) = fs.write_file(&path, content.as_bytes()) {
+		if let Err(_) = fs.write_file(&path, content.as_bytes(), false) {
 			println!("write: failed to write to '{}'", args[0]);
 		}
 	});
@@ -350,7 +363,7 @@ pub fn sys_exit_shell(_args: &[&str]) {
 	syscall::sys_exit(0);
 }
 
-/// Optional helper: join two paths together.
+/// join two paths together.
 pub fn join_paths(path: &str, next: &str, out: &mut String) {
 	const FS_SEP: char = '/';
 	out.clear();

@@ -42,28 +42,82 @@ pub fn init_heap(
 	mapper: &mut impl Mapper<Size4KiB>,
 	frame_allocator: &mut impl FrameAllocator<Size4KiB>
 ) -> Result<(), MapToError<Size4KiB>> {
-	println!("[Info] Initializing Heap...");
-	let page_range = {
-		let heap_start = VirtAddr::new(HEAP_START as u64);
-		let heap_end = heap_start + HEAP_SIZE - 1u64;
-		let heap_start_page = Page::containing_address(heap_start);
-		let heap_end_page = Page::containing_address(heap_end);
-		Page::range_inclusive(heap_start_page, heap_end_page)
-	};
+	use x86_64::VirtAddr;
 
-	for page in page_range {
+	println!("[Info] Initializing Heap...");
+
+	// Basic sanity checks
+	assert!(HEAP_SIZE > 0, "HEAP_SIZE must be > 0");
+	assert!(HEAP_START % 4096 == 0, "HEAP_START must be page-aligned");
+
+	// Use u64 for address math to match VirtAddr
+	let heap_start_u64 = HEAP_START as u64;
+	// compute last byte in heap safely
+	let heap_end_u64 = heap_start_u64
+		.checked_add(HEAP_SIZE as u64)
+		.and_then(|v| v.checked_sub(1))
+		.expect("HEAP_START + HEAP_SIZE overflow");
+
+	// Check canonicalness instead of letting VirtAddr::new panic invisibly
+	if VirtAddr::try_new(heap_start_u64).is_err() {
+		panic!(
+			"HEAP_START (0x{:x}) is not a canonical virtual address",
+			heap_start_u64
+		);
+	}
+	if VirtAddr::try_new(heap_end_u64).is_err() {
+		panic!(
+			"HEAP_END (0x{:x}) is not a canonical virtual address",
+			heap_end_u64
+		);
+	}
+
+	let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_start_u64));
+	let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_end_u64));
+
+	// Extra sanity
+	let start_index = start_page.start_address().as_u64() / 4096;
+	let end_index = end_page.start_address().as_u64() / 4096;
+	assert!(start_index <= end_index, "heap start page > heap end page");
+
+	let num_pages = end_index - start_index + 1;
+	// avoid absurd page counts (protect against bad arithmetic)
+	let max_reasonable_pages: u64 = 10 * 1024 * 1024; // ~10M pages (≈40GB)
+	assert!(
+		num_pages <= max_reasonable_pages,
+		"heap range too large: {} pages",
+		num_pages
+	);
+
+	println!(
+		"[Info] heap: start=0x{:x}, end=0x{:x}, pages={}, start_page=0x{:x}, end_page=0x{:x}",
+		heap_start_u64,
+		heap_end_u64,
+		num_pages,
+		start_page.start_address().as_u64(),
+		end_page.start_address().as_u64()
+	);
+
+	// Map pages one-by-one (safe, explicit)
+	for page_index in start_index..=end_index {
+		let va = VirtAddr::new(page_index * 4096);
+		let page = Page::containing_address(va);
+
 		let frame = frame_allocator
 			.allocate_frame()
 			.ok_or(MapToError::FrameAllocationFailed)?;
 		let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
-		unsafe { mapper.map_to(page, frame, flags, frame_allocator)?.flush() };
+
+		unsafe {
+			mapper.map_to(page, frame, flags, frame_allocator)?.flush();
+		}
 	}
 
 	unsafe {
 		ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
 	}
 
-	println!("[Info] Done.");
+	println!("[Info] Heap initialized ({} pages).", num_pages);
 	Ok(())
 }
 

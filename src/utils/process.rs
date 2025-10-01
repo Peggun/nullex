@@ -1,7 +1,8 @@
 use alloc::{boxed::Box, sync::Arc};
+use core::{future::Future, pin::Pin, sync::atomic::AtomicBool};
+
 use conquer_once::spin::OnceCell;
 use futures::task::AtomicWaker;
-use core::{future::Future, pin::Pin, sync::atomic::AtomicBool};
 
 use crate::task::{Process, ProcessId, ProcessState, executor::EXECUTOR};
 
@@ -30,23 +31,23 @@ pub fn spawn_process<F>(future_fn: F, is_child: bool) -> ProcessId
 where
 	F: Fn(Arc<ProcessState>) -> Pin<Box<dyn Future<Output = i32>>> + Send + Sync + 'static
 {
-	// Lock the executor and create a new PID.
+	// lock the executor and create a new PID.
 	let mut executor = EXECUTOR.lock();
 	let pid = executor.create_pid();
 
-	// Create the process state.
+	// create the process state.
 	let state = Arc::new(ProcessState {
 		id: pid,
 		is_child,
 		future_fn: Arc::new(future_fn),
 		queued: AtomicBool::new(false),
 		scancode_queue: OnceCell::uninit(),
-		waker: AtomicWaker::new(),
+		waker: AtomicWaker::new()
 	});
 
-	// Construct the process.
+	// construct the process.
 	let process = Process::new(state);
-	// Spawn the process.
+	// spawn the process.
 	executor.spawn_process(process);
 	pid
 }

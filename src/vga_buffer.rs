@@ -7,8 +7,12 @@ Most of this code comes via https://github.com/ash-hashtag/samanthi-os
 So thanks.
 */
 
-use core::{fmt::{self, Write}, ops::Deref};
+use core::{
+	fmt::{self, Write},
+	ops::Deref
+};
 
+use chumsky::container::Seq;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use vga::{
@@ -29,7 +33,7 @@ lazy_static! {
 #[derive(Debug, Clone, Copy)]
 pub struct BufferEntry {
 	pub character: u8,
-	pub colour_code: u8,
+	pub colour_code: u8
 }
 
 impl Deref for BufferEntry {
@@ -41,15 +45,21 @@ impl Deref for BufferEntry {
 }
 
 impl BufferEntry {
-    pub fn character(&self) -> u8 { self.character }
-    pub fn colour_code(&self) -> u8 { self.colour_code }
-    pub fn foreground(&self) -> Color {
-        Color::from_u8(self.colour_code & 0x0F).unwrap()
-    }
+	pub fn character(&self) -> u8 {
+		self.character
+	}
 
-    pub fn background(&self) -> Color {
-        Color::from_u8(self.colour_code >> 4).unwrap()
-    }
+	pub fn colour_code(&self) -> u8 {
+		self.colour_code
+	}
+
+	pub fn foreground(&self) -> Color {
+		Color::from_u8(self.colour_code & 0x0F).unwrap()
+	}
+
+	pub fn background(&self) -> Color {
+		Color::from_u8(self.colour_code >> 4).unwrap()
+	}
 }
 
 #[derive(Clone, Copy)]
@@ -111,13 +121,11 @@ impl Color {
 			0x13 => Self::Pink,
 			0x14 => Self::Yellow,
 			0x15 => Self::White,
-			_ => return None,
+			_ => return None
 		};
 		Some(color)
 	}
 }
-
-
 
 #[derive(Clone, Copy)]
 #[repr(transparent)]
@@ -145,7 +153,7 @@ pub struct Buffer {
 }
 
 pub struct Writer {
-	column_position: usize,
+	pub column_position: usize,
 	pub color_code: ColorCode,
 	//buffer: &'static mut Buffer,
 	pub text: Text80x25,
@@ -177,7 +185,7 @@ impl Writer {
 		}
 	}
 
-	fn update_cursor(&mut self) {
+	pub fn update_cursor(&mut self) {
 		let position = self.current_row * BUFFER_WIDTH + self.column_position;
 		let mut port_3d4 = Port::<u8>::new(0x3D4);
 		let mut port_3d5 = Port::<u8>::new(0x3D5);
@@ -194,12 +202,24 @@ impl Writer {
 			match byte {
 				// Printable ASCII bytes or newline
 				0x20..=0x7e | b'\n' => self.write_byte(byte),
+				b'\t' => {
+					for _ in 0..4 {
+						self.write_byte(b' ');
+					}
+				}
 				_ => {
 					self.write_byte(0xfe);
 					serial_println!("unknown key pressed {}", byte);
 				}
 			};
 		}
+	}
+
+	/// Sets the cursor to a specific coordinate.
+	pub fn set_cursor(&mut self, row: usize, col: usize) {
+		self.current_row = row;
+		self.column_position = col;
+		self.update_cursor();
 	}
 
 	pub fn write_byte(&mut self, byte: u8) {
@@ -252,7 +272,7 @@ impl Writer {
 
 		if self.column_position == 0 {
 			if self.current_row == 0 {
-				return; // Already at top-left, can't backspace
+				return; // already at top-left, can't backspace
 			}
 			self.current_row -= 1;
 			self.column_position = BUFFER_WIDTH - 1;
@@ -282,38 +302,46 @@ impl Writer {
 	}
 
 	pub fn copy_vga_buffer(&self) -> [[BufferEntry; BUFFER_WIDTH]; BUFFER_HEIGHT] {
-        let mut buffer = [[BufferEntry { character: 0, colour_code: 0 }; BUFFER_WIDTH]; BUFFER_HEIGHT];
-        let vga_buffer_ptr = 0xb8000 as *const u16;
+		let mut buffer = [[BufferEntry {
+			character: 0,
+			colour_code: 0
+		}; BUFFER_WIDTH]; BUFFER_HEIGHT];
+		let vga_buffer_ptr = 0xb8000 as *const u16;
 
-        unsafe {
-            for row in 0..BUFFER_HEIGHT {
-                for col in 0..BUFFER_WIDTH {
-                    let offset = row * BUFFER_WIDTH + col;
-                    let vga_entry = core::ptr::read_volatile(vga_buffer_ptr.add(offset));
-                    buffer[row][col] = BufferEntry {
-                        character: (vga_entry & 0xFF) as u8,
-                        colour_code: (vga_entry >> 8) as u8,
-                    };
-                }
-            }
-        }
-        buffer
-    }
+		unsafe {
+			for row in 0..BUFFER_HEIGHT {
+				for col in 0..BUFFER_WIDTH {
+					let offset = row * BUFFER_WIDTH + col;
+					let vga_entry = core::ptr::read_volatile(vga_buffer_ptr.add(offset));
+					buffer[row][col] = BufferEntry {
+						character: (vga_entry & 0xFF) as u8,
+						colour_code: (vga_entry >> 8) as u8
+					};
+				}
+			}
+		}
+		buffer
+	}
 
 	pub fn restore_vga_buffer(&self, buffer: &[[BufferEntry; BUFFER_WIDTH]; BUFFER_HEIGHT]) {
-        let vga_buffer_ptr = 0xb8000 as *mut u16;
+		let vga_buffer_ptr = 0xb8000 as *mut u16;
 
-        unsafe {
-            for row in 0..BUFFER_HEIGHT {
-                for col in 0..BUFFER_WIDTH {
-                    let offset = row * BUFFER_WIDTH + col;
-                    let entry = buffer[row][col];
-                    let vga_entry: u16 = ((entry.colour_code as u16) << 8) | (entry.character as u16);
-                    core::ptr::write_volatile(vga_buffer_ptr.add(offset), vga_entry);
-                }
-            }
-        }
-    }
+		unsafe {
+			for row in 0..BUFFER_HEIGHT {
+				for col in 0..BUFFER_WIDTH {
+					let offset = row * BUFFER_WIDTH + col;
+					let entry = buffer[row][col];
+					let vga_entry: u16 =
+						((entry.colour_code as u16) << 8) | (entry.character as u16);
+					core::ptr::write_volatile(vga_buffer_ptr.add(offset), vga_entry);
+				}
+			}
+		}
+	}
+
+	pub fn copy_cursor_position(&mut self) -> (usize, usize) {
+		return (self.current_row, self.column_position)
+	}
 }
 
 pub fn console_backspace() {

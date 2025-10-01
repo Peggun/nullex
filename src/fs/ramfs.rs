@@ -137,14 +137,23 @@ impl FileSystem {
 		Ok(())
 	}
 
-	pub fn write_file(&mut self, path: &str, content: &[u8]) -> Result<(), FsError> {
+	pub fn write_file(
+		&mut self,
+		path: &str,
+		content: &[u8],
+		overwrite: bool
+	) -> Result<(), FsError> {
 		let file = self.get_file_mut(path)?;
-		// Check if the file has write permission before appending
+		// check if the file has write permission before appending
 		if !file.permission.write {
 			return Err(FsError::PermissionDenied);
 		}
-		// Append the new content instead of overwriting
-		file.content.extend_from_slice(content);
+		// append the new content instead of overwriting
+		if overwrite {
+			file.content = content.to_vec();
+		} else {
+			file.content.extend_from_slice(content);
+		}
 		Ok(())
 	}
 
@@ -153,7 +162,8 @@ impl FileSystem {
 		Ok(&file.content)
 	}
 
-	// Helper functions
+	// ----- HELPER FUNCTIONS ----- //
+
 	fn path_components(path: &str) -> Result<Vec<String>, FsError> {
 		let mut components = Vec::new();
 		for component in path.split('/').filter(|s| !s.is_empty()) {
@@ -273,7 +283,7 @@ impl FileSystem {
 			Err(_) => return false
 		};
 
-		// Special case for root directory
+		// special case for root directory
 		if components.is_empty() {
 			return true;
 		}
@@ -291,10 +301,10 @@ impl FileSystem {
 	}
 
 	pub fn remove(&mut self, path: &str, del_dir: bool, recursive: bool) -> Result<(), FsError> {
-		// Split the path into parent components and the name of the entry.
+		// split the path into parent components and the name of the entry.
 		let (parent_components, name) = Self::split_path(path)?;
 		let parent_dir = self.get_dir_mut_from_components(&parent_components)?;
-		// Remove entry from parent's entries to gain ownership.
+		// remove entry from parent's entries to gain ownership.
 		let entry = parent_dir
 			.entries
 			.remove(&name)
@@ -303,14 +313,13 @@ impl FileSystem {
 		match entry {
 			Entry::Directory(mut dir_box) => {
 				if !del_dir {
-					// Caller did not intend to delete a directory.
-					// Optionally, you could reinsert the entry before returning.
+					// caller did not intend to delete a directory.
 					parent_dir.entries.insert(name, Entry::Directory(dir_box));
 					return Err(FsError::NotADirectory);
 				}
 
 				if !recursive && !dir_box.entries.is_empty() {
-					// Recursive deletion not enabled and directory is not empty.
+					// recursive deletion not enabled and directory is not empty.
 					parent_dir.entries.insert(name, Entry::Directory(dir_box));
 					return Err(FsError::DirectoryNotEmpty);
 				}
@@ -318,7 +327,7 @@ impl FileSystem {
 				if recursive {
 					Self::recursive_remove(&mut *dir_box);
 				}
-				// With recursive deletion (or if empty), dropping dir_box completes removal.
+				// with recursive deletion (or if empty), dropping dir_box completes removal.
 				Ok(())
 			}
 			Entry::File(_) => Ok(())
@@ -326,8 +335,8 @@ impl FileSystem {
 	}
 
 	fn recursive_remove(dir: &mut Directory) {
-		// Recursively remove all entries inside the directory.
-		// First, collect keys to avoid mutable borrow issues.
+		// recursively remove all entries inside the directory.
+		// first collect keys to avoid mutable borrow issues.
 		let keys: Vec<String> = dir.entries.keys().cloned().collect();
 		for key in keys {
 			if let Some(entry) = dir.entries.get_mut(&key) {
@@ -336,7 +345,7 @@ impl FileSystem {
 				}
 			}
 		}
-		// Clear all entries from the directory.
+		// clear all entries from the directory.
 		dir.entries.clear();
 	}
 

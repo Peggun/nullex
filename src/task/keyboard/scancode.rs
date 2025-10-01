@@ -14,15 +14,15 @@ use alloc::{
 	string::{String, ToString},
 	vec::Vec
 };
-use x86_64::registers;
 use core::task::Poll;
 
 use conquer_once::spin::OnceCell;
 use crossbeam::queue::ArrayQueue;
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
 use lazy_static::lazy_static;
-use pc_keyboard::{HandleControl, KeyCode, Keyboard, ScancodeSet1, layouts};
+use pc_keyboard::{HandleControl, KeyCode, KeyState, Keyboard, ScancodeSet1, layouts};
 use spin::Mutex;
+use x86_64::registers;
 
 use crate::{
 	fs,
@@ -109,9 +109,9 @@ impl Stream for ScancodeStream {
 }
 
 /// The async function that reads scancodes and processes keypresses.
-/// Notice that when a full command line is ready (on newline),
-/// we yield before calling run_command so that any locks (e.g. the VGA writer
-/// lock) used during key echoing have been released.
+/// Notice that when a full command line is ready on newline,
+/// we yield before calling run_command so that any locks like the VGA lock
+/// used during key echoing have been released.
 pub async fn print_keypresses() -> i32 {
 	let mut scancodes = ScancodeStream::new();
 
@@ -144,20 +144,20 @@ pub async fn print_keypresses() -> i32 {
 						}
 					}
 					pc_keyboard::DecodedKey::Unicode(c) => {
-						// Backspace (ASCII 8)
+						// backspace
 						if c as u8 == 8 {
 							if !line.is_empty() {
 								line.pop();
 								console_backspace();
 							}
 							continue;
-						// Escape (ASCII 27): clear screen
+						// escape: clear screen
 						} else if c as u8 == 27 {
 							WRITER.lock().clear_everything();
 							print!("test@nullex: {} $ ", *CWD.lock());
 							continue;
 
-						// Tab (ASCII 9): handle tab completion
+						// tab: handle tab completion
 						} else if c as u8 == 9 {
 							if line.is_empty() || line.trim().is_empty() {
 								line.push_str("    ");
@@ -170,10 +170,9 @@ pub async fn print_keypresses() -> i32 {
 
 						print!("{}", c);
 						if c == '\n' && !line.is_empty() {
-							// Clone the full line before clearing it.
 							let command_line = line.clone();
 							line.clear();
-							// Yield to ensure that any temporary locks (e.g. from print! calls)
+							// yield to ensure that any temporary locks
 							// are released before processing the command.
 							yield_now().await;
 							crate::task::keyboard::commands::run_command(&command_line);
@@ -186,7 +185,7 @@ pub async fn print_keypresses() -> i32 {
 			}
 		}
 	}
-	0 // Return an exit code when input stops.
+	0 // exit code
 }
 
 /// A helper function to determine whether the command should use file/directory
@@ -235,7 +234,7 @@ pub fn tab_completion(line: &mut String) {
 						{
 							let match_str = matches.pop().unwrap();
 
-							// Remove the part of the line that is being
+							// remove the part of the line that is being
 							// completed.
 							for _ in 0..part.len() {
 								line.pop();
@@ -252,8 +251,6 @@ pub fn tab_completion(line: &mut String) {
 						{
 							let match_str = matches.pop().unwrap();
 
-							// Remove the part of the line that is being
-							// completed.
 							for _ in 0..part.len() {
 								line.pop();
 								console_backspace();
@@ -271,8 +268,6 @@ pub fn tab_completion(line: &mut String) {
 						{
 							let match_str = matches.pop().unwrap();
 
-							// Remove the part of the line that is being
-							// completed.
 							for _ in 0..part.len() {
 								line.pop();
 								console_backspace();
@@ -321,27 +316,26 @@ pub fn tab_completion(line: &mut String) {
 }
 
 pub fn uparrow_completion(line: &mut String) {
-	// Lock the history and history index.
+	// lock the history and history index.
 	let history = CMD_HISTORY.lock();
 	let mut index = CMD_HISTORY_INDEX.lock();
 
-	// If history is empty, nothing to do.
 	if history.is_empty() {
 		return;
 	}
 
-	// If we're not at the oldest command, move one step backward.
+	// if we're not at the oldest command move one step backward.
 	if *index > 0 {
 		*index -= 1;
 	}
 
-	// Clear the current input from the screen.
+	// clear the current input from the screen.
 	for _ in 0..line.len() {
 		line.pop();
 		console_backspace();
 	}
 
-	// Get the command from history and print it.
+	// get the command from history and print it.
 	let cmd = &history[*index];
 	print!("{}", cmd);
 	line.push_str(cmd);
@@ -355,9 +349,9 @@ pub fn downarrow_completion(line: &mut String) {
 		return;
 	}
 
-	// If already at the newest command, clear the line and do nothing.
+	// if already at the newest command clear the line and do nothing.
 	if *index >= history.len() - 1 {
-		// Clear the current input from the screen.
+		// clear the current input from the screen.
 		for _ in 0..line.len() {
 			line.pop();
 			console_backspace();
@@ -365,16 +359,16 @@ pub fn downarrow_completion(line: &mut String) {
 		return;
 	}
 
-	// Otherwise, move one step forward.
+	// otherwise move one step forward.
 	*index += 1;
 
-	// Clear the current input from the screen.
+	// clear the current input from the screen.
 	for _ in 0..line.len() {
 		line.pop();
 		console_backspace();
 	}
 
-	// Get the command from history and display it.
+	// get the command from history and display it.
 	let cmd = &history[*index];
 	print!("{}", cmd);
 	line.push_str(cmd);

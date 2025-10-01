@@ -101,7 +101,7 @@ pub mod apic {
 		println!("[Info] Done.")
 	}
 
-	/// Signal End-of-Interrupt (EOI) to the Local APIC.
+	/// signal end of interrupt to the local apic.
 	pub unsafe fn send_eoi() {
 		unsafe { write_register(EOI, 0) };
 	}
@@ -124,12 +124,10 @@ pub mod apic {
 	/// # Safety
 	///
 	/// This function temporarily reconfigures the APIC timer to one-shot mode
-	/// and busy-waits. Make sure this is acceptable in your system context
-	/// (e.g., if the APIC timer is also used for system ticks, interfering
-	/// with it might cause timing issues).
+	/// and busy-waits.
 	///
 	/// `ticks_per_ms` is a calibrated value that indicates how many timer ticks
-	/// correspond to one millisecond.
+	/// correspond to one millisecond. Not very well calibrated, but calibrated
 	pub async unsafe fn sleep(duration_ms: u32) {
 		let start_tick = TICK_COUNT.load(Ordering::Acquire);
 		let target_tick = start_tick + duration_ms; // 500 ticks = 500ms

@@ -5,9 +5,10 @@ Syscall module for the kernel.
 */
 
 use alloc::{string::ToString, sync::Arc};
+use core::{future, sync::atomic::AtomicBool};
+
 use conquer_once::doc::OnceCell;
 use futures::task::AtomicWaker;
-use core::{future, sync::atomic::AtomicBool};
 
 use crate::{
 	apic::apic::sleep,
@@ -15,7 +16,11 @@ use crate::{
 	println,
 	serial_println,
 	task::{
-		executor::{self, CURRENT_PROCESS, EXECUTOR}, OpenFile, Process, ProcessId, ProcessState
+		OpenFile,
+		Process,
+		ProcessId,
+		ProcessState,
+		executor::{self, CURRENT_PROCESS, EXECUTOR}
 	}
 };
 
@@ -82,14 +87,14 @@ pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _ar
 		}
 		_ => {
 			serial_println!("Invalid syscall ID: {}", syscall_id);
-			-1 // Error code for unhandled syscall
+			-1 // error code for unhandled syscall
 		}
 	}
 }
 
 // --- Syscall implementations ---
 
-// Process management
+// process management
 
 pub fn sys_fork() -> i32 {
 	serial_println!("sys_fork called");
@@ -109,7 +114,7 @@ pub fn sys_fork() -> i32 {
 		future_fn: future_fn_clone,
 		queued: AtomicBool::new(false),
 		scancode_queue: OnceCell::uninit(),
-		waker: AtomicWaker::new(),
+		waker: AtomicWaker::new()
 	});
 	let child_process = Process::new(child_state);
 	executor.spawn_process(child_process);
@@ -117,15 +122,15 @@ pub fn sys_fork() -> i32 {
 }
 
 pub fn sys_wait() -> i32 {
-	// Placeholder: should wait for a child process to complete
+	// placeholder: should wait for a child process to complete
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
 			serial_println!("sys_wait: No current process guard");
 			return -1;
 		}
 		let _process = &mut *executor::CURRENT_PROCESS_GUARD;
-		// TODO: Implement waiting for a child process
-		0 // Placeholder return value
+		// TODO: implement waiting for a child process
+		0 // placeholder return value
 	}
 }
 
@@ -145,7 +150,7 @@ pub fn sys_exit(exit_code: i32) -> ! {
 	}
 }
 
-// File operations
+// file operations
 
 pub fn sys_open(path: &str) -> i32 {
 	unsafe {
@@ -177,10 +182,10 @@ pub fn sys_close(fd: u32) -> i32 {
 		}
 		let process = &mut *executor::CURRENT_PROCESS_GUARD;
 		if process.open_files.remove(&fd).is_some() {
-			0 // Success
+			0 // success
 		} else {
 			serial_println!("sys_close: Invalid file descriptor: {}", fd);
-			-1 // Error: invalid fd
+			-1 // invalid fd
 		}
 	}
 }
@@ -205,16 +210,16 @@ pub fn sys_read(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
 						open_file.offset += bytes_to_read;
 						bytes_to_read as i32
 					} else {
-						0 // End of file
+						0 // eof
 					}
 				} else {
 					serial_println!("sys_read: File not found: {}", path);
-					-1 // Error: file not found
+					-1 // file not found
 				}
 			})
 		} else {
 			serial_println!("sys_read: Invalid file descriptor: {}", fd);
-			-1 // Error: invalid fd
+			-1 // invalid fd
 		}
 	}
 }
@@ -230,17 +235,17 @@ pub fn sys_write(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
 			let path = &open_file.path;
 			let buf = core::slice::from_raw_parts(buf_ptr, len);
 			let result = fs::with_fs(|fs| {
-				if fs.write_file(path, buf).is_ok() {
-					len as i32 // Number of bytes written
+				if fs.write_file(path, buf, false).is_ok() {
+					len as i32 // number of bytes written
 				} else {
 					serial_println!("sys_write: Write failed: {}", path);
-					-1 // Error: write failed (e.g., permission denied)
+					-1 // write failed
 				}
 			});
 			result
 		} else {
 			serial_println!("sys_write: Invalid file descriptor: {}", fd);
-			-1 // Error: invalid fd
+			-1 // invalid fd
 		}
 	}
 }
@@ -255,16 +260,16 @@ pub fn sys_exec(path: &str) -> i32 {
 		}
 		let _process = &mut *executor::CURRENT_PROCESS_GUARD;
 		serial_println!("sys_exec: Executing {} (not implemented)", path);
-		0 // Placeholder: should replace process image
+		0 // placeholder: should replace process image
 	}
 }
 
 pub fn sys_kill(pid: u64) -> i32 {
 	EXECUTOR.lock().end_process(ProcessId::new(pid), -2);
-	0 // Placeholder: should terminate the specified process
+	0 // placeholder: should terminate the specified process
 }
 
 pub async fn sys_sleep(duration: u32) -> i32 {
 	unsafe { sleep(duration).await };
-	0 // Placeholder: should sleep the current process
+	0 // placeholder: should sleep the current process
 }

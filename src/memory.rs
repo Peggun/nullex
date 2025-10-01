@@ -56,10 +56,6 @@ pub struct BootInfoFrameAllocator {
 
 impl BootInfoFrameAllocator {
 	/// Create a FrameAllocator from the passed memory map.
-	///
-	/// This function is unsafe because the caller must guarantee that the
-	/// passed memory map is valid. The main requirement is that all frames
-	/// that are marked as `USABLE` in it are really unused.
 	pub unsafe fn init(memory_map: &'static MemoryMap) -> Self {
 		BootInfoFrameAllocator {
 			memory_map,
@@ -93,19 +89,11 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
 
 /// Translates the given virtual address to the mapped physical address, or
 /// `None` if the address is not mapped.
-///
-/// This function is unsafe because the caller must guarantee that the
-/// complete physical memory is mapped to virtual memory at the passed
-/// `physical_memory_offset`.
 pub unsafe fn translate_addr(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
 	translate_addr_inner(addr, physical_memory_offset)
 }
 
-/// Private function that is called by `translate_addr`.
-///
-/// This function is safe to limit the scope of `unsafe` because Rust treats
-/// the whole body of unsafe functions as an unsafe block. This function must
-/// only be reachable through `unsafe fn` from outside of this module.
+/// function that is called by `translate_addr`.
 fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
 	use x86_64::{registers::control::Cr3, structures::paging::page_table::FrameError};
 
@@ -141,11 +129,6 @@ fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Opt
 }
 
 /// Returns a mutable reference to the active level 4 table.
-///
-/// This function is unsafe because the caller must guarantee that the
-/// complete physical memory is mapped to virtual memory at the passed
-/// `physical_memory_offset`. Also, this function must be only called once
-/// to avoid aliasing `&mut` references (which is undefined behavior).
 unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
 	use x86_64::registers::control::Cr3;
 

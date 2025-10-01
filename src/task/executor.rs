@@ -67,25 +67,31 @@ impl Executor {
 		}
 	}
 
-	pub fn end_process(&mut self, pid: ProcessId, _exit_code: i32) {
+	pub fn end_process(&mut self, pid: ProcessId, exit_code: i32) {
 		let process_arc = self.processes.get(&pid).unwrap();
+		serial_println!("got arc");
 		let process = process_arc.lock();
+		serial_println!("locked arc");
 		let pid_to_remove = pid;
-		drop(process); // Release the immutable borrow
+		drop(process); // release the immutable borrow
+		serial_println!("dropped process");
 		self.processes.remove(&pid_to_remove);
 		self.waker_cache.remove(&pid_to_remove);
+		serial_println!("removed keys");
+
+		serial_println!("Process {} exited with code: {}", pid.get(), exit_code);
 	}
 }
 
 pub struct ProcessWaker {
 	pub pid: ProcessId,
 	pub process_queue: Arc<ArrayQueue<ProcessId>>,
-	pub state: Arc<ProcessState> // Added to store process state
+	pub state: Arc<ProcessState>
 }
 
 impl ProcessWaker {
 	pub fn wake_process(&self) {
-		// Use self.state directly, no need to lock the process
+		// use self.state directly no need to lock the process
 		if !self.state.queued.swap(true, Ordering::AcqRel) {
 			if self.process_queue.push(self.pid).is_err() {
 				serial_println!(

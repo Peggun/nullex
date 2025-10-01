@@ -2,6 +2,8 @@
 
 /*
 ATA disk module for the kernel.
+
+Currently not in use. But for the future.
 */
 
 use x86_64::instructions::{interrupts, port::Port};
@@ -39,7 +41,7 @@ impl AtaDisk {
 				if status & 0x80 == 0 {
 					// BSY clear
 					if status & 0x21 != 0 {
-						// Check ERR/DF
+						// check ERR/DF
 						return Err("Drive error");
 					}
 					return Ok(());
@@ -53,10 +55,10 @@ impl AtaDisk {
 	pub fn read_sector(&mut self, lba: u32, buf: &mut [u8; 512]) -> Result<(), &'static str> {
 		interrupts::without_interrupts(|| {
 			unsafe {
-				// 1. Select SLAVE drive (second disk in QEMU)
+				// select `slave` drive (second disk in QEMU)
 				self.device_port.write(0xF0 | ((lba >> 24) as u8 & 0x0F));
 
-				// 2. Full sector read
+				// full sector read
 				for i in 0..256 {
 					let word = self.data_port.read();
 					buf[i * 2] = word as u8;

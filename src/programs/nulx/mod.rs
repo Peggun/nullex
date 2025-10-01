@@ -5,11 +5,11 @@
 // and directly interacts within the kernel
 
 // TODO: split this code into a seperate crate later on.
-pub mod lexer;
 pub mod ast;
-pub mod parser;
-pub mod eval;
 pub mod errors;
+pub mod eval;
+pub mod lexer;
+pub mod parser;
 mod runtime;
 
 pub use runtime::run;

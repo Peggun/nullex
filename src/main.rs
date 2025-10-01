@@ -51,33 +51,6 @@ use vga::colors::Color16;
 
 entry_point!(kernel_main);
 
-// async fn sleep_half_second() {
-// 	unsafe {
-// 		sleep(500).await;
-// 	}
-// }
-
-// async fn process_one(_state: Arc<ProcessState>) -> i32 {
-// 	loop {
-// 		println!("Process 1: Hello every half second");
-// 		sleep_half_second().await;
-// 	}
-// }
-
-// async fn process_two(_state: Arc<ProcessState>) -> i32 {
-// 	loop {
-// 		println!("Process 2: Hello every half second");
-// 		sleep_half_second().await;
-// 	}
-// }
-
-// async fn test_syscall(_state: Arc<ProcessState>) -> i32 {
-// 	let msg = b"Hello";
-
-//     let res = syscall(1, msg.as_ptr() as u64, 5_u64, 0, 0, 0);
-//     res
-// }
-
 #[unsafe(no_mangle)]
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	use x86_64::VirtAddr;
@@ -123,43 +96,16 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	// init_serial_input();
 	// init_serial_commands();
 
-	// println!(
-	// 	"APIC Timer Clock Speed: {}",
-	// 	TICKS_PER_MS.load(Ordering::Relaxed)
-	// );
-
 	// Spawn the keyboard process.
 	let _keyboard_pid = spawn_process(
 		|_state| Box::pin(keyboard::print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>,
 		false
 	);
 
-	// let _serial_kbd_pid = spawn_process(
-	// 	|_state| Box::pin(serial_consumer_loop()) as Pin<Box<dyn Future<Output = i32>>>,
-	// 	false
-	// );
-
-	// let _process1_pid = spawn_process(
-	// 	|state| Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>,
-	// 	false
-	// );
-
-	// let _process2_pid = spawn_process(
-	// 	|state| Box::pin(process_two(state)) as Pin<Box<dyn Future<Output = i32>>>,
-	// 	false
-	// );
-
-	//let proc = spawn_process(|state| Box::pin(test_syscall(state)) as Pin<Box<dyn
-	// Future<Output = i32>>>, false);
-
-	// Main executor loop with CURRENT_PROCESS management.
+	// main executor loop with CURRENT_PROCESS management.
+	// i gotta fix this.
 	let process_queue = EXECUTOR.lock().process_queue.clone();
 	loop {
-		// unsafe {
-		// 	serial_println!("[INFO] timer current count: {}, tick count: {}, isrs fired:
-		// {}", read_register(TIMER_CURRENT_COUNT), TICK_COUNT.load(Ordering::Acquire),
-		// DEBUG_ISR_FIRED.load(Ordering::Acquire)); }
-
 		if let Some(pid) = process_queue.pop() {
 			// Before scheduling, clear the queued flag.
 			if let Some(process_arc) = EXECUTOR.lock().processes.get(&pid) {

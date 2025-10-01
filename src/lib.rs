@@ -21,8 +21,8 @@ Kernel module for the kernel.
 extern crate alloc;
 extern crate bitflags;
 extern crate genfs;
-extern crate spin;
 extern crate libc;
+extern crate spin;
 
 #[cfg(any(test))]
 extern crate core;
@@ -37,8 +37,8 @@ pub mod fs;
 pub mod gdt;
 pub mod interrupts;
 pub mod memory;
-pub mod programs;
 pub mod pit;
+pub mod programs;
 pub mod serial;
 pub mod syscall;
 pub mod task;
@@ -152,14 +152,16 @@ pub fn setup_system_files(mut fs: FileSystem) {
 	fs.create_dir("/proc", Permission::read()).unwrap();
 
 	fs.create_file("test.nx", Permission::all()).unwrap();
-	fs.write_file("test.nx", b"
-		// simple test
-		func main() {
-			set num = 1;
+	fs.write_file(
+		"test.nx",
+		b"// simple test
+func main() {
+	set num = 1;
 
-			print(\"Hello, world!\");
-			print(num);
-		}"
+	print(\"Hello, world!\");
+	print(num);
+}",
+		false
 	);
 
 	fs::init_fs(fs);

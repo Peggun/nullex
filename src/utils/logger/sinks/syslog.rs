@@ -9,7 +9,7 @@ use crate::{
 };
 
 pub struct SyslogSink {
-	pub formatter: Box<dyn LogFormatter> //pub config: LoggerConfig
+	pub formatter: Box<dyn LogFormatter>
 }
 
 impl SyslogSink {
@@ -30,7 +30,7 @@ impl LoggerSink for SyslogSink {
 			if !fs.exists("/logs/syslog") {
 				let _ = fs.create_file("/logs/syslog", Permission::all());
 			}
-			let _ = fs.write_file("/logs/syslog", formatted_message.as_bytes());
+			let _ = fs.write_file("/logs/syslog", formatted_message.as_bytes(), false);
 		})
 	}
 
@@ -48,7 +48,7 @@ impl LoggerSink for SyslogSink {
 				if !fs.exists("/logs/syslog") {
 					let _ = fs.create_file("/logs/syslog", Permission::all());
 				}
-				let _ = fs.write_file("/logs/syslog", formatted_message.as_bytes());
+				let _ = fs.write_file("/logs/syslog", formatted_message.as_bytes(), false);
 			})
 		}
 	}

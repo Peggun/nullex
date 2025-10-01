@@ -12,13 +12,14 @@ use spin;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
-	apic::{apic::send_eoi, TICK_COUNT},
+	apic::{TICK_COUNT, apic::send_eoi},
 	gdt,
 	hlt_loop,
 	println,
 	serial::add_byte,
 	serial_println,
-	syscall::{sys_print, syscall, SYS_PRINT}, task::executor::CURRENT_PROCESS
+	syscall::{SYS_PRINT, sys_print, syscall},
+	task::executor::CURRENT_PROCESS
 };
 
 pub const PIC_1_OFFSET: u8 = 32;
@@ -73,19 +74,19 @@ extern "x86-interrupt" fn double_fault_handler(
 	panic!("System halted");
 }
 
-/// Keyboard interrupt handler (still using the PIC).
+/// Keyboard interrupt handler (still using the pic).
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
 	use x86_64::instructions::port::Port;
 	let mut port = Port::new(0x60);
 	let scancode: u8 = unsafe { port.read() };
-	
+
 	{
 		let mut lock = CURRENT_PROCESS.lock();
 
 		let curr_proc = match lock.as_mut() {
 			Some(proc) => proc,
 			// keyboard process assumed
-			// as that will always be running. 
+			// as that will always be running.
 			None => {
 				crate::task::keyboard::scancode::add_scancode(scancode);
 				unsafe {
@@ -100,15 +101,15 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 
 		if let Ok(queue) = curr_proc_queue {
 			if let Err(_) = queue.push(scancode) {
-				// skip, the keypress gets dropped. 
-				// its not needed because only processes that dont use the keyboard
-				// will fill up the scanqueueu
+				// skip, the keypress gets dropped.
+				// its not needed because only processes that dont use the
+				// keyboard will fill up the scanqueueu
 			} else {
 				curr_proc_waker.wake();
 			}
 		}
-		// same here, its not needed because all processes that need the keyboard
-		// will have the scanqueue setup
+		// same here, its not needed because all processes that need the
+		// keyboard will have the scanqueue setup
 	}
 
 	unsafe {
@@ -153,10 +154,7 @@ extern "x86-interrupt" fn page_fault_handler(
 
 /// APIC Timer Interrupt Handler.
 ///
-/// This handler is invoked when the APIC timer fires. It can be expanded to
-/// include tick counting, scheduling, or other periodic tasks. Notice that we
-/// no longer use the PIC to acknowledge the interrupt; instead, we signal the
-/// end-of-interrupt directly to the APIC using `send_eoi()`.
+/// This handler is invoked when the APIC timer fires.
 extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) {
 	TICK_COUNT.fetch_add(1, Ordering::Relaxed);
 	unsafe {
