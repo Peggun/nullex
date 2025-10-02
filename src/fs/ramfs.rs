@@ -243,7 +243,7 @@ impl FileSystem {
 		let dir = self.get_dir_from_components(&dir_components)?;
 
 		match dir.entries.get(&file_name) {
-			Some(Entry::File(file)) => Ok(&file),
+			Some(Entry::File(file)) => Ok(file),
 			Some(_) => Err(FsError::NotAFile),
 			None => Err(FsError::EntryNotFound)
 		}
@@ -325,7 +325,7 @@ impl FileSystem {
 				}
 
 				if recursive {
-					Self::recursive_remove(&mut *dir_box);
+					Self::recursive_remove(&mut dir_box);
 				}
 				// with recursive deletion (or if empty), dropping dir_box completes removal.
 				Ok(())
@@ -339,10 +339,10 @@ impl FileSystem {
 		// first collect keys to avoid mutable borrow issues.
 		let keys: Vec<String> = dir.entries.keys().cloned().collect();
 		for key in keys {
-			if let Some(entry) = dir.entries.get_mut(&key) {
-				if let Entry::Directory(ref mut subdir) = *entry {
-					Self::recursive_remove(subdir);
-				}
+			if let Some(entry) = dir.entries.get_mut(&key)
+				&& let Entry::Directory(ref mut subdir) = *entry
+			{
+				Self::recursive_remove(subdir);
 			}
 		}
 		// clear all entries from the directory.
@@ -366,5 +366,11 @@ impl FileSystem {
 		} else {
 			false
 		}
+	}
+}
+
+impl Default for FileSystem {
+	fn default() -> Self {
+		Self::new()
 	}
 }

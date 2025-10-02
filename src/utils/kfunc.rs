@@ -7,11 +7,7 @@ use alloc::{
 use lazy_static::lazy_static;
 use spin::Mutex;
 
-use crate::{
-	apic::{TICK_COUNT, apic::to_hrt},
-	serial_println,
-	utils::cpu_utils::get_cpu_clock
-};
+use crate::{apic::TICK_COUNT, serial_println, utils::cpu_utils::get_cpu_clock};
 
 pub type SerialCmdFn = fn(&[&str]);
 

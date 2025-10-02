@@ -12,7 +12,6 @@ use core::{
 	ops::Deref
 };
 
-use chumsky::container::Seq;
 use lazy_static::lazy_static;
 use spin::Mutex;
 use vga::{
@@ -309,6 +308,7 @@ impl Writer {
 		let vga_buffer_ptr = 0xb8000 as *const u16;
 
 		unsafe {
+			#[expect(clippy::needless_range_loop)]
 			for row in 0..BUFFER_HEIGHT {
 				for col in 0..BUFFER_WIDTH {
 					let offset = row * BUFFER_WIDTH + col;
@@ -327,6 +327,7 @@ impl Writer {
 		let vga_buffer_ptr = 0xb8000 as *mut u16;
 
 		unsafe {
+			#[expect(clippy::needless_range_loop)]
 			for row in 0..BUFFER_HEIGHT {
 				for col in 0..BUFFER_WIDTH {
 					let offset = row * BUFFER_WIDTH + col;
@@ -340,7 +341,13 @@ impl Writer {
 	}
 
 	pub fn copy_cursor_position(&mut self) -> (usize, usize) {
-		return (self.current_row, self.column_position)
+		(self.current_row, self.column_position)
+	}
+}
+
+impl Default for Writer {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 

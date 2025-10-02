@@ -62,7 +62,7 @@ impl Executor {
 
 	pub fn list_processes(&self) {
 		println!("Running processes:");
-		for (pid, _) in &self.processes {
+		for pid in self.processes.keys() {
 			println!("  Process {}", pid.0);
 		}
 	}
@@ -83,6 +83,12 @@ impl Executor {
 	}
 }
 
+impl Default for Executor {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 pub struct ProcessWaker {
 	pub pid: ProcessId,
 	pub process_queue: Arc<ArrayQueue<ProcessId>>,
@@ -92,18 +98,18 @@ pub struct ProcessWaker {
 impl ProcessWaker {
 	pub fn wake_process(&self) {
 		// use self.state directly no need to lock the process
-		if !self.state.queued.swap(true, Ordering::AcqRel) {
-			if self.process_queue.push(self.pid).is_err() {
-				serial_println!(
-					"Warning: process_queue full, skipping wake for process {}",
-					self.pid.0
-				);
-				self.state.queued.store(false, Ordering::Release);
-			}
+		if !self.state.queued.swap(true, Ordering::AcqRel)
+			&& self.process_queue.push(self.pid).is_err()
+		{
+			serial_println!(
+				"Warning: process_queue full, skipping wake for process {}",
+				self.pid.0
+			);
+			self.state.queued.store(false, Ordering::Release);
 		}
 	}
 
-	pub fn new(
+	pub fn new_waker(
 		pid: ProcessId,
 		process_queue: Arc<ArrayQueue<ProcessId>>,
 		state: Arc<ProcessState>

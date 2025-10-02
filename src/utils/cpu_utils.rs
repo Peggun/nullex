@@ -5,13 +5,15 @@ use crate::apic;
 pub static SYSTEM_UPTIME: AtomicU32 = AtomicU32::new(0);
 
 pub fn update_system_uptime() {
-	let now = apic::apic::now();
+	let now = apic::now();
 
 	SYSTEM_UPTIME.store(now, core::sync::atomic::Ordering::Relaxed);
 }
 
 // from https://board.flatassembler.net/topic.php?p=240655
 // but translated to x64 with some AI magic, because fuck asm
+/// # Safety
+/// idfk uhh its raw asm maybe it does some cpu state fuckery
 pub unsafe fn get_cpu_clock() -> u32 {
 	let result: u32;
 	unsafe {

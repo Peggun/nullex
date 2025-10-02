@@ -45,6 +45,7 @@ impl FixedSizeBlockAllocator {
 
 	/// Initialize the allocator with the given heap bounds.
 	///
+	/// # Safety
 	/// This function is unsafe because the caller must guarantee that the given
 	/// heap bounds are valid and that the heap is unused. This method must be
 	/// called only once.
@@ -61,6 +62,12 @@ impl FixedSizeBlockAllocator {
 			Ok(ptr) => ptr.as_ptr(),
 			Err(_) => ptr::null_mut()
 		}
+	}
+}
+
+impl Default for FixedSizeBlockAllocator {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 

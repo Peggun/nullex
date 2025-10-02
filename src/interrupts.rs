@@ -12,13 +12,13 @@ use spin;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
-	apic::{TICK_COUNT, apic::send_eoi},
+	apic::{TICK_COUNT, send_eoi},
 	gdt,
 	hlt_loop,
 	println,
 	serial::add_byte,
 	serial_println,
-	syscall::{SYS_PRINT, sys_print, syscall},
+	syscall::syscall,
 	task::executor::CURRENT_PROCESS
 };
 
@@ -100,10 +100,10 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 		let curr_proc_waker = &curr_proc.waker;
 
 		if let Ok(queue) = curr_proc_queue {
-			if let Err(_) = queue.push(scancode) {
+			if queue.push(scancode).is_err() {
 				// skip, the keypress gets dropped.
 				// its not needed because only processes that dont use the
-				// keyboard will fill up the scanqueueu
+				// keyboard will fill up the scanqueue
 			} else {
 				curr_proc_waker.wake();
 			}
@@ -191,7 +191,7 @@ extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 		arg3
 	);
 
-	let ret = syscall(rax, arg1, arg2, arg3, 0, 0);
+	let ret = unsafe { syscall(rax, arg1, arg2, arg3, 0, 0) };
 
 	unsafe {
 		core::arch::asm!(

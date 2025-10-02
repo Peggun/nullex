@@ -20,9 +20,8 @@ use conquer_once::spin::OnceCell;
 use crossbeam::queue::ArrayQueue;
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
 use lazy_static::lazy_static;
-use pc_keyboard::{HandleControl, KeyCode, KeyState, Keyboard, ScancodeSet1, layouts};
+use pc_keyboard::{HandleControl, KeyCode, Keyboard, ScancodeSet1, layouts};
 use spin::Mutex;
-use x86_64::registers;
 
 use crate::{
 	fs,
@@ -52,7 +51,7 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 
 pub(crate) fn add_scancode(scancode: u8) {
 	if let Ok(queue) = SCANCODE_QUEUE.try_get() {
-		if let Err(_) = queue.push(scancode) {
+		if queue.push(scancode).is_err() {
 			println!(
 				"WARNING: scancode queue full; dropping keyboard input {}",
 				scancode
@@ -81,6 +80,12 @@ impl ScancodeStream {
 	}
 }
 
+impl Default for ScancodeStream {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl Stream for ScancodeStream {
 	type Item = u8;
 
@@ -96,7 +101,7 @@ impl Stream for ScancodeStream {
 			return Poll::Ready(Some(scancode));
 		}
 
-		WAKER.register(&cx.waker());
+		WAKER.register(cx.waker());
 
 		match queue.pop() {
 			Some(c) => {
@@ -125,61 +130,61 @@ pub async fn print_keypresses() -> i32 {
 
 	print!("test@nullex: {} $ ", *CWD.lock());
 	while let Some(scancode) = scancodes.next().await {
-		if let Ok(Some(key_event)) = keyboard.add_byte(scancode) {
-			if let Some(key) = keyboard.process_keyevent(key_event) {
-				match key {
-					pc_keyboard::DecodedKey::RawKey(key) => {
-						if key == KeyCode::LControl
-							|| key == KeyCode::RControl
-							|| key == KeyCode::RControl2
-						{
-							print!("^C\ntest@nullex: {} $ ", *CWD.lock());
-							line.clear();
-						} else if key == KeyCode::ArrowUp {
-							uparrow_completion(&mut line);
-						} else if key == KeyCode::ArrowDown {
-							downarrow_completion(&mut line);
-						} else {
-							//serial_println!("unhandled key {:?}", key);
-						}
+		if let Ok(Some(key_event)) = keyboard.add_byte(scancode)
+			&& let Some(key) = keyboard.process_keyevent(key_event)
+		{
+			match key {
+				pc_keyboard::DecodedKey::RawKey(key) => {
+					if key == KeyCode::LControl
+						|| key == KeyCode::RControl
+						|| key == KeyCode::RControl2
+					{
+						print!("^C\ntest@nullex: {} $ ", *CWD.lock());
+						line.clear();
+					} else if key == KeyCode::ArrowUp {
+						uparrow_completion(&mut line);
+					} else if key == KeyCode::ArrowDown {
+						downarrow_completion(&mut line);
+					} else {
+						//serial_println!("unhandled key {:?}", key);
 					}
-					pc_keyboard::DecodedKey::Unicode(c) => {
-						// backspace
-						if c as u8 == 8 {
-							if !line.is_empty() {
-								line.pop();
-								console_backspace();
-							}
-							continue;
-						// escape: clear screen
-						} else if c as u8 == 27 {
-							WRITER.lock().clear_everything();
-							print!("test@nullex: {} $ ", *CWD.lock());
-							continue;
-
-						// tab: handle tab completion
-						} else if c as u8 == 9 {
-							if line.is_empty() || line.trim().is_empty() {
-								line.push_str("    ");
-								print!("    ");
-							} else {
-								tab_completion(&mut line);
-							}
-							continue;
+				}
+				pc_keyboard::DecodedKey::Unicode(c) => {
+					// backspace
+					if c as u8 == 8 {
+						if !line.is_empty() {
+							line.pop();
+							console_backspace();
 						}
+						continue;
+					// escape: clear screen
+					} else if c as u8 == 27 {
+						WRITER.lock().clear_everything();
+						print!("test@nullex: {} $ ", *CWD.lock());
+						continue;
 
-						print!("{}", c);
-						if c == '\n' && !line.is_empty() {
-							let command_line = line.clone();
-							line.clear();
-							// yield to ensure that any temporary locks
-							// are released before processing the command.
-							yield_now().await;
-							crate::task::keyboard::commands::run_command(&command_line);
-							print!("test@nullex: {} $ ", *CWD.lock());
+					// tab: handle tab completion
+					} else if c as u8 == 9 {
+						if line.is_empty() || line.trim().is_empty() {
+							line.push_str("    ");
+							print!("    ");
 						} else {
-							line.push(c);
+							tab_completion(&mut line);
 						}
+						continue;
+					}
+
+					print!("{}", c);
+					if c == '\n' && !line.is_empty() {
+						let command_line = line.clone();
+						line.clear();
+						// yield to ensure that any temporary locks
+						// are released before processing the command.
+						yield_now().await;
+						crate::task::keyboard::commands::run_command(&command_line);
+						print!("test@nullex: {} $ ", *CWD.lock());
+					} else {
+						line.push(c);
 					}
 				}
 			}

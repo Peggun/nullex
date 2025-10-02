@@ -5,13 +5,13 @@ Syscall module for the kernel.
 */
 
 use alloc::{string::ToString, sync::Arc};
-use core::{future, sync::atomic::AtomicBool};
+use core::sync::atomic::AtomicBool;
 
 use conquer_once::doc::OnceCell;
 use futures::task::AtomicWaker;
 
 use crate::{
-	apic::apic::sleep,
+	apic::sleep,
 	fs,
 	println,
 	serial_println,
@@ -38,7 +38,16 @@ pub const SYS_KILL: u32 = 10;
 pub const SYS_SLEEP: u32 = 11;
 
 // System call handler function
-pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _arg5: u64) -> i32 {
+/// # Safety
+/// make sure valid args!!!
+pub unsafe fn syscall(
+	syscall_id: u32,
+	arg1: u64,
+	arg2: u64,
+	arg3: u64,
+	_arg4: u64,
+	_arg5: u64
+) -> i32 {
 	match syscall_id {
 		SYS_PRINT => {
 			let ptr = arg1 as *const u8;
@@ -67,13 +76,13 @@ pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _ar
 			let fd = arg1 as u32;
 			let buf_ptr = arg2 as *mut u8;
 			let len = arg3 as usize;
-			sys_read(fd, buf_ptr, len)
+			unsafe { sys_read(fd, buf_ptr, len) }
 		}
 		SYS_WRITE => {
 			let fd = arg1 as u32;
 			let buf_ptr = arg2 as *const u8;
 			let len = arg3 as usize;
-			sys_write(fd, buf_ptr, len)
+			unsafe { sys_write(fd, buf_ptr, len) }
 		}
 		SYS_EXEC => {
 			let path_ptr = arg1 as *const u8;
@@ -81,10 +90,7 @@ pub fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _ar
 			let path = unsafe { core::str::from_raw_parts(path_ptr, path_len) };
 			sys_exec(path)
 		}
-		SYS_KILL => {
-			let pid = arg1 as u64;
-			sys_kill(pid)
-		}
+		SYS_KILL => sys_kill(arg1),
 		_ => {
 			serial_println!("Invalid syscall ID: {}", syscall_id);
 			-1 // error code for unhandled syscall
@@ -190,7 +196,9 @@ pub fn sys_close(fd: u32) -> i32 {
 	}
 }
 
-pub fn sys_read(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
+/// # Safety
+/// valid ptr pls
+pub unsafe fn sys_read(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
 			serial_println!("sys_read: No current process guard");
@@ -224,7 +232,9 @@ pub fn sys_read(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
 	}
 }
 
-pub fn sys_write(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
+/// # Safety
+/// valid ptr pls
+pub unsafe fn sys_write(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
 			serial_println!("sys_write: No current process guard");
@@ -234,15 +244,14 @@ pub fn sys_write(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
 		if let Some(open_file) = process.open_files.get(&fd) {
 			let path = &open_file.path;
 			let buf = core::slice::from_raw_parts(buf_ptr, len);
-			let result = fs::with_fs(|fs| {
+			fs::with_fs(|fs| {
 				if fs.write_file(path, buf, false).is_ok() {
 					len as i32 // number of bytes written
 				} else {
 					serial_println!("sys_write: Write failed: {}", path);
 					-1 // write failed
 				}
-			});
-			result
+			})
 		} else {
 			serial_println!("sys_write: Invalid file descriptor: {}", fd);
 			-1 // invalid fd
