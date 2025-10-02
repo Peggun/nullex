@@ -9,7 +9,7 @@ extern crate alloc;
 use core::panic::PanicInfo;
 
 use bootloader::{BootInfo, entry_point};
-use nullex::{allocator::HEAP_SIZE, apic::apic, println};
+use nullex::{allocator::HEAP_SIZE, apic, println};
 
 entry_point!(main);
 
@@ -60,7 +60,7 @@ fn main(boot_info: &'static BootInfo) -> ! {
 
 	let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 	let mut mapper = unsafe { memory::init(phys_mem_offset) };
-	let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
+	let mut frame_allocator = BootInfoFrameAllocator::init(&boot_info.memory_map);
 
 	// Setup APIC Timer
 	unsafe { apic::enable_apic() };
@@ -74,7 +74,9 @@ fn main(boot_info: &'static BootInfo) -> ! {
 	}
 
 	test_main();
-	loop {}
+	loop {
+		x86_64::instructions::hlt();
+	}
 }
 
 #[panic_handler]
