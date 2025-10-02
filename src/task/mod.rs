@@ -36,6 +36,7 @@ pub struct OpenFile {
 	pub offset: usize // current read offset
 }
 
+#[expect(clippy::type_complexity)]
 pub struct ProcessState {
 	pub id: ProcessId,
 	pub is_child: bool,

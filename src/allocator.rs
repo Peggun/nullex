@@ -13,7 +13,6 @@ pub mod fixed_size_block;
 pub mod linked_list;
 
 use x86_64::{
-	VirtAddr,
 	structures::paging::{
 		FrameAllocator,
 		Mapper,
@@ -47,8 +46,11 @@ pub fn init_heap(
 	println!("[Info] Initializing Heap...");
 
 	// Basic sanity checks
-	assert!(HEAP_SIZE > 0, "HEAP_SIZE must be > 0");
-	assert!(HEAP_START % 4096 == 0, "HEAP_START must be page-aligned");
+	#[expect(clippy::assertions_on_constants)]
+	{
+		assert!(HEAP_SIZE > 0, "HEAP_SIZE must be > 0");
+	}
+	assert!(HEAP_START.is_multiple_of(4096), "HEAP_START must be page-aligned");
 
 	// Use u64 for address math to match VirtAddr
 	let heap_start_u64 = HEAP_START as u64;

@@ -6,8 +6,6 @@ Memory module for the kernel.
 
 use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
 use x86_64::{
-	PhysAddr,
-	VirtAddr,
 	structures::paging::{
 		FrameAllocator,
 		Mapper,
@@ -16,8 +14,8 @@ use x86_64::{
 		PageTable,
 		PageTableFlags,
 		PhysFrame,
-		Size4KiB
-	}
+		Size4KiB, Translate
+	}, PhysAddr, VirtAddr
 };
 
 use crate::println;
@@ -56,7 +54,7 @@ pub struct BootInfoFrameAllocator {
 
 impl BootInfoFrameAllocator {
 	/// Create a FrameAllocator from the passed memory map.
-	pub unsafe fn init(memory_map: &'static MemoryMap) -> Self {
+	pub fn init(memory_map: &'static MemoryMap) -> Self {
 		BootInfoFrameAllocator {
 			memory_map,
 			next: 0
@@ -89,43 +87,16 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
 
 /// Translates the given virtual address to the mapped physical address, or
 /// `None` if the address is not mapped.
+/// # Safety
+/// We need all memory mapped at `physical_memory_offset`.
 pub unsafe fn translate_addr(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
-	translate_addr_inner(addr, physical_memory_offset)
+	unsafe { translate_addr_inner(addr, physical_memory_offset) }
 }
 
 /// function that is called by `translate_addr`.
-fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
-	use x86_64::{registers::control::Cr3, structures::paging::page_table::FrameError};
-
-	// read the active level 4 frame from the CR3 register
-	let (level_4_table_frame, _) = Cr3::read();
-
-	let table_indexes = [
-		addr.p4_index(),
-		addr.p3_index(),
-		addr.p2_index(),
-		addr.p1_index()
-	];
-	let mut frame = level_4_table_frame;
-
-	// traverse the multi-level page table
-	for &index in &table_indexes {
-		// convert the frame into a page table reference
-		let virt = physical_memory_offset + frame.start_address().as_u64();
-		let table_ptr: *const PageTable = virt.as_ptr();
-		let table = unsafe { &*table_ptr };
-
-		// read the page table entry and update `frame`
-		let entry = &table[index];
-		frame = match entry.frame() {
-			Ok(frame) => frame,
-			Err(FrameError::FrameNotPresent) => return None,
-			Err(FrameError::HugeFrame) => panic!("huge pages not supported")
-		};
-	}
-
-	// calculate the physical address by adding the page offset
-	Some(frame.start_address() + u64::from(addr.page_offset()))
+unsafe fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
+	let level_4_table = unsafe { active_level_4_table(physical_memory_offset) };
+	unsafe { OffsetPageTable::new(level_4_table, physical_memory_offset) }.translate_addr(addr)
 }
 
 /// Returns a mutable reference to the active level 4 table.
@@ -159,6 +130,8 @@ pub fn create_example_mapping(
 	map_to_result.expect("map_to failed").flush();
 }
 
+/// # Safety
+/// We need all memory mapped at `physical_memory_offset`.
 pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
 	let level_4_table = unsafe { active_level_4_table(physical_memory_offset) };
 	unsafe { OffsetPageTable::new(level_4_table, physical_memory_offset) }

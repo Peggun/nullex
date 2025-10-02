@@ -15,8 +15,8 @@ pub static mut START_TIME: f32 = 0.0;
 
 pub fn initialize_constants() {
 	unsafe {
-		START_TICK = apic::apic::now();
-		START_TIME = apic::apic::to_ms(START_TICK);
+		START_TICK = apic::now();
+		START_TIME = apic::to_ms(START_TICK);
 	}
 }
 

@@ -20,6 +20,8 @@ pub struct AtaDisk {
 }
 
 impl AtaDisk {
+	/// # Safety
+	/// TODO: why is this unsafe?
 	pub unsafe fn new() -> Self {
 		AtaDisk {
 			data_port: Port::new(0x1F0),

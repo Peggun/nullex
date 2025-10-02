@@ -15,7 +15,7 @@ pub fn port_byte_in(port: u16) -> u8 {
 			out("al") result, // Output operand: al register's value is written to 'result'
 		);
 	}
-	return result;
+	result
 }
 
 pub fn port_byte_out(port: u16, data: u8) {
@@ -47,5 +47,5 @@ pub fn port_word_in(port: u16) -> u16 {
 			out("ax") result, // Output operand: ax register's value is written to 'result' (u16)
 		);
 	}
-	return result;
+	result
 }

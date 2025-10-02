@@ -21,9 +21,9 @@ use crate::task::{Process, ProcessId, ProcessState, executor::EXECUTOR};
 /// 
 /// // Create a process using spawn_process.
 /// let _process1_pid = spawn_process(
-/// 	  |state| Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>,
-/// 	  false
-/// 	);
+///     |state| Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>,
+///     false
+/// );
 /// ```
 ///
 /// The ProcessId of the newly spawned process.

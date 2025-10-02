@@ -24,7 +24,7 @@ extern crate genfs;
 extern crate libc;
 extern crate spin;
 
-#[cfg(any(test))]
+#[cfg(test)]
 extern crate core;
 
 pub mod allocator;
@@ -152,6 +152,7 @@ pub fn setup_system_files(mut fs: FileSystem) {
 	fs.create_dir("/proc", Permission::read()).unwrap();
 
 	fs.create_file("test.nx", Permission::all()).unwrap();
+
 	fs.write_file(
 		"test.nx",
 		b"// simple test
@@ -162,7 +163,7 @@ func main() {
 	print(num);
 }",
 		false
-	);
+	).unwrap();
 
 	fs::init_fs(fs);
 }

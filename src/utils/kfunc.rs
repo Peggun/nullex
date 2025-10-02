@@ -8,7 +8,7 @@ use lazy_static::lazy_static;
 use spin::Mutex;
 
 use crate::{
-	apic::{TICK_COUNT, apic::to_hrt},
+	apic::TICK_COUNT,
 	serial_println,
 	utils::cpu_utils::get_cpu_clock
 };

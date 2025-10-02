@@ -7,19 +7,17 @@ Command handling and definitions module for the kernel.
 extern crate alloc;
 
 use alloc::{
-	boxed::Box,
 	collections::BTreeMap,
 	string::{String, ToString},
 	vec::Vec
 };
-use core::pin::Pin;
 
 use lazy_static::lazy_static;
 use spin::Mutex;
 
 // TODO: fix nulx::nulx::nulx() pathnames
 use crate::{
-	apic::{TICK_COUNT, apic::to_hrt},
+	apic::{TICK_COUNT, to_hrt},
 	constants::SYSLOG_SINK,
 	fs::{self, ramfs::Permission, resolve_path},
 	print,
@@ -30,7 +28,6 @@ use crate::{
 	task::{ProcessId, executor::EXECUTOR},
 	utils::{
 		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
-		process::spawn_process
 	},
 	vga_buffer::WRITER
 };
@@ -275,10 +272,8 @@ pub fn touch(args: &[&str]) {
 	for file in args {
 		let path = resolve_path(file);
 		fs::with_fs(|fs| {
-			if fs.read_file(&path).is_err() {
-				if let Err(_) = fs.create_file(&path, Permission::all()) {
-					println!("touch: cannot create file '{}'", file);
-				}
+			if fs.read_file(&path).is_err() && fs.create_file(&path, Permission::all()).is_err() {
+				println!("touch: cannot create file '{}'", file);
 			}
 		});
 	}
@@ -292,7 +287,7 @@ pub fn mkdir(args: &[&str]) {
 	for dir in args {
 		let path = resolve_path(dir);
 		fs::with_fs(|fs| {
-			if let Err(_) = fs.create_dir(&path, Permission::all()) {
+			if fs.create_dir(&path, Permission::all()).is_err() {
 				println!("mkdir: cannot create directory '{}'", dir);
 			}
 		});
@@ -324,7 +319,7 @@ pub fn rmdir(args: &[&str]) {
 		println!("rmdir: missing operand");
 		return;
 	}
-	let recursive = args.iter().any(|&arg| arg == "-r");
+	let recursive = args.contains(&"-r");
 	let dirs: Vec<&str> = args.iter().filter(|&&arg| arg != "-r").cloned().collect();
 	if dirs.is_empty() {
 		println!("rmdir: missing operand");
@@ -353,7 +348,7 @@ pub fn write_file(args: &[&str]) {
 	let path = resolve_path(args[0]);
 	let content = args[1..].join(" ");
 	fs::with_fs(|fs| {
-		if let Err(_) = fs.write_file(&path, content.as_bytes(), false) {
+		if fs.write_file(&path, content.as_bytes(), false).is_err() {
 			println!("write: failed to write to '{}'", args[0]);
 		}
 	});

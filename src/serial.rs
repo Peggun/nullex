@@ -29,7 +29,7 @@ static SERIAL_WAKER: AtomicWaker = AtomicWaker::new();
 
 pub(crate) fn add_byte(byte: u8) {
 	if let Ok(queue) = SERIAL_SCANCODE_QUEUE.try_get() {
-		if let Err(_) = queue.push(byte) {
+		if queue.push(byte).is_err() {
 			println!(
 				"WARNING: scancode queue full; dropping keyboard input {}",
 				byte
@@ -58,6 +58,12 @@ impl SerialScancodeStream {
 	}
 }
 
+impl Default for SerialScancodeStream {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Stream for SerialScancodeStream {
 	type Item = u8;
 
@@ -73,7 +79,7 @@ impl Stream for SerialScancodeStream {
 			return Poll::Ready(Some(scancode));
 		}
 
-		SERIAL_WAKER.register(&cx.waker());
+		SERIAL_WAKER.register(cx.waker());
 
 		match queue.pop() {
 			Some(c) => {

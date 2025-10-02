@@ -12,9 +12,8 @@ Main entry code for the kernel.
 
 extern crate alloc;
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::boxed::Box;
 use core::{
-	arch::asm,
 	future::Future,
 	pin::Pin,
 	sync::atomic::Ordering,
@@ -24,24 +23,20 @@ use core::{
 use bootloader::{BootInfo, entry_point};
 use nullex::{
 	allocator,
-	apic::{self, TICKS_PER_MS, apic::sleep},
+	apic,
 	constants::{SYSLOG_SINK, initialize_constants},
 	fs::ramfs::FileSystem,
 	interrupts::{PICS, init_idt},
 	memory::{self, BootInfoFrameAllocator},
 	println,
-	serial::{init_serial_input, serial_consumer_loop},
 	serial_println,
 	setup_system_files,
-	syscall::syscall,
 	task::{
 		Process,
-		ProcessState,
 		executor::{self, CURRENT_PROCESS, EXECUTOR},
 		keyboard
 	},
 	utils::{
-		kfunc::init_serial_commands,
 		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
 		process::spawn_process
 	},
@@ -60,7 +55,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 
 	let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 	let mut mapper = unsafe { memory::init(phys_mem_offset) };
-	let mut frame_allocator = unsafe { BootInfoFrameAllocator::init(&boot_info.memory_map) };
+	let mut frame_allocator = BootInfoFrameAllocator::init(&boot_info.memory_map);
 
 	unsafe {
 		PICS.lock().write_masks(0b11111101, 0b11111111);
@@ -73,9 +68,9 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 		Err(e) => panic!("Heap initialization failed: {:?}", e)
 	}
 
-	unsafe { apic::apic::enable_apic() };
+	unsafe { apic::enable_apic() };
 	memory::map_apic(&mut mapper, &mut frame_allocator);
-	unsafe { apic::apic::init_timer() };
+	unsafe { apic::init_timer() };
 	initialize_constants();
 
 	let fs = FileSystem::new();
@@ -135,7 +130,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 						.waker_cache
 						.entry(pid)
 						.or_insert_with(|| {
-							executor::ProcessWaker::new(pid, process_queue.clone(), process_state)
+							executor::ProcessWaker::new_waker(pid, process_queue.clone(), process_state)
 						})
 						.clone()
 				};

@@ -1,7 +1,7 @@
 use alloc::string::String;
 
 use super::{levels::LogLevel, traits::log_formatter::LogFormatter};
-use crate::{apic::apic, constants::START_TIME};
+use crate::{apic, constants::START_TIME};
 
 pub struct DefaultFormatter {
 	pub show_level: bool,
