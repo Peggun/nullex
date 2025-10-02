@@ -12,15 +12,13 @@ pub mod bump;
 pub mod fixed_size_block;
 pub mod linked_list;
 
-use x86_64::{
-	structures::paging::{
-		FrameAllocator,
-		Mapper,
-		Page,
-		PageTableFlags,
-		Size4KiB,
-		mapper::MapToError
-	}
+use x86_64::structures::paging::{
+	FrameAllocator,
+	Mapper,
+	Page,
+	PageTableFlags,
+	Size4KiB,
+	mapper::MapToError
 };
 
 use crate::println;
@@ -50,7 +48,10 @@ pub fn init_heap(
 	{
 		assert!(HEAP_SIZE > 0, "HEAP_SIZE must be > 0");
 	}
-	assert!(HEAP_START.is_multiple_of(4096), "HEAP_START must be page-aligned");
+	assert!(
+		HEAP_START.is_multiple_of(4096),
+		"HEAP_START must be page-aligned"
+	);
 
 	// Use u64 for address math to match VirtAddr
 	let heap_start_u64 = HEAP_START as u64;

@@ -6,6 +6,8 @@ Memory module for the kernel.
 
 use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
 use x86_64::{
+	PhysAddr,
+	VirtAddr,
 	structures::paging::{
 		FrameAllocator,
 		Mapper,
@@ -14,8 +16,9 @@ use x86_64::{
 		PageTable,
 		PageTableFlags,
 		PhysFrame,
-		Size4KiB, Translate
-	}, PhysAddr, VirtAddr
+		Size4KiB,
+		Translate
+	}
 };
 
 use crate::println;
@@ -94,7 +97,10 @@ pub unsafe fn translate_addr(addr: VirtAddr, physical_memory_offset: VirtAddr) -
 }
 
 /// function that is called by `translate_addr`.
-unsafe fn translate_addr_inner(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
+unsafe fn translate_addr_inner(
+	addr: VirtAddr,
+	physical_memory_offset: VirtAddr
+) -> Option<PhysAddr> {
 	let level_4_table = unsafe { active_level_4_table(physical_memory_offset) };
 	unsafe { OffsetPageTable::new(level_4_table, physical_memory_offset) }.translate_addr(addr)
 }

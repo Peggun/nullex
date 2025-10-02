@@ -163,7 +163,8 @@ func main() {
 	print(num);
 }",
 		false
-	).unwrap();
+	)
+	.unwrap();
 
 	fs::init_fs(fs);
 }

@@ -26,9 +26,7 @@ use crate::{
 	serial_println,
 	syscall,
 	task::{ProcessId, executor::EXECUTOR},
-	utils::{
-		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
-	},
+	utils::logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
 	vga_buffer::WRITER
 };
 

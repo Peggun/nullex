@@ -66,9 +66,9 @@ impl FixedSizeBlockAllocator {
 }
 
 impl Default for FixedSizeBlockAllocator {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {

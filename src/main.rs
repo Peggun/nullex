@@ -130,7 +130,11 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 						.waker_cache
 						.entry(pid)
 						.or_insert_with(|| {
-							executor::ProcessWaker::new_waker(pid, process_queue.clone(), process_state)
+							executor::ProcessWaker::new_waker(
+								pid,
+								process_queue.clone(),
+								process_state
+							)
 						})
 						.clone()
 				};

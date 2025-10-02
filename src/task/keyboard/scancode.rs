@@ -81,9 +81,9 @@ impl ScancodeStream {
 }
 
 impl Default for ScancodeStream {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 impl Stream for ScancodeStream {
@@ -131,7 +131,8 @@ pub async fn print_keypresses() -> i32 {
 	print!("test@nullex: {} $ ", *CWD.lock());
 	while let Some(scancode) = scancodes.next().await {
 		if let Ok(Some(key_event)) = keyboard.add_byte(scancode)
-		&& let Some(key) = keyboard.process_keyevent(key_event) {
+			&& let Some(key) = keyboard.process_keyevent(key_event)
+		{
 			match key {
 				pc_keyboard::DecodedKey::RawKey(key) => {
 					if key == KeyCode::LControl

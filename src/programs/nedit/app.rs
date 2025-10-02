@@ -243,257 +243,238 @@ pub async fn nedit_main(state: Arc<ProcessState>, path: String) -> i32 {
 			// print keypress for now
 			// damn i gotta fix this.
 			while let Some(queue) = state.scancode_queue.get().iter().next() {
-				if let Some(c) = queue.pop() && let Ok(Some(key_event)) = keyboard.add_byte(c) {
-    							// handle control state
-    							if key_event.code == KeyCode::LControl
-    								|| key_event.code == KeyCode::RControl
-    								|| key_event.code == KeyCode::RControl2
-    							{
-    								if key_event.state == KeyState::Down {
-    									CTRL_PRESSED = true;
-    								} else if key_event.state == KeyState::Up {
-    									CTRL_PRESSED = false;
-    								}
-    							}
+				if let Some(c) = queue.pop()
+					&& let Ok(Some(key_event)) = keyboard.add_byte(c)
+				{
+					// handle control state
+					if key_event.code == KeyCode::LControl
+						|| key_event.code == KeyCode::RControl
+						|| key_event.code == KeyCode::RControl2
+					{
+						if key_event.state == KeyState::Down {
+							CTRL_PRESSED = true;
+						} else if key_event.state == KeyState::Up {
+							CTRL_PRESSED = false;
+						}
+					}
 
-    							// arrow key movement: ensure we clamp columns and handle line-ends
-    							if key_event.state == KeyState::Down
-    								&& (key_event.code == KeyCode::ArrowDown
-    									|| key_event.code == KeyCode::ArrowLeft
-    									|| key_event.code == KeyCode::ArrowRight
-    									|| key_event.code == KeyCode::ArrowUp)
-    							{
-    								let mut writer = WRITER.lock();
-    								let mut cur_row = writer.current_row;
-    								let mut cur_col = writer.column_position;
-    								let rows = total_rows(&fc);
+					// arrow key movement: ensure we clamp columns and handle line-ends
+					if key_event.state == KeyState::Down
+						&& (key_event.code == KeyCode::ArrowDown
+							|| key_event.code == KeyCode::ArrowLeft
+							|| key_event.code == KeyCode::ArrowRight
+							|| key_event.code == KeyCode::ArrowUp)
+					{
+						let mut writer = WRITER.lock();
+						let mut cur_row = writer.current_row;
+						let mut cur_col = writer.column_position;
+						let rows = total_rows(&fc);
 
-    								match key_event.code {
-    									KeyCode::ArrowDown => {
-    										if cur_row + 1 < rows {
-    											cur_row += 1;
-    											// clamp column to length of target line
-    											cur_col = clamp_col_for_row(&fc, cur_row, cur_col);
-    										}
-    									}
-    									KeyCode::ArrowUp => {
-    										if cur_row > 0 {
-    											cur_row -= 1;
-    											cur_col = clamp_col_for_row(&fc, cur_row, cur_col);
-    										}
-    									}
-    									KeyCode::ArrowLeft => {
-    										if cur_col > 0 {
-    											cur_col -= 1;
-    										} else if cur_row > 0 {
-    											// move to end of previous line
-    											cur_row -= 1;
-    											cur_col = line_length(&fc, cur_row);
-    										}
-    									}
-    									KeyCode::ArrowRight => {
-    										let line_len = line_length(&fc, cur_row);
-    										if cur_col < line_len {
-    											cur_col += 1;
-    										} else if cur_row + 1 < rows {
-    											// move to start of next line
-    											cur_row += 1;
-    											cur_col = 0;
-    										}
-    									}
-    									_ => {}
-    								}
+						match key_event.code {
+							KeyCode::ArrowDown => {
+								if cur_row + 1 < rows {
+									cur_row += 1;
+									// clamp column to length of target line
+									cur_col = clamp_col_for_row(&fc, cur_row, cur_col);
+								}
+							}
+							KeyCode::ArrowUp => {
+								if cur_row > 0 {
+									cur_row -= 1;
+									cur_col = clamp_col_for_row(&fc, cur_row, cur_col);
+								}
+							}
+							KeyCode::ArrowLeft => {
+								if cur_col > 0 {
+									cur_col -= 1;
+								} else if cur_row > 0 {
+									// move to end of previous line
+									cur_row -= 1;
+									cur_col = line_length(&fc, cur_row);
+								}
+							}
+							KeyCode::ArrowRight => {
+								let line_len = line_length(&fc, cur_row);
+								if cur_col < line_len {
+									cur_col += 1;
+								} else if cur_row + 1 < rows {
+									// move to start of next line
+									cur_row += 1;
+									cur_col = 0;
+								}
+							}
+							_ => {}
+						}
 
-    								writer.current_row = cur_row;
-    								writer.column_position = cur_col;
-    								writer.update_cursor();
-    								drop(writer);
-    							}
+						writer.current_row = cur_row;
+						writer.column_position = cur_col;
+						writer.update_cursor();
+						drop(writer);
+					}
 
-    							if let Some(key) = keyboard.process_keyevent(key_event.clone()) && let pc_keyboard::DecodedKey::Unicode(ch) = key {
-            										// handle special control-like keys by comparing to known
-            										// constants
-            										if ch as u8 == KEYBOARD_BACKSPACE {
-            											// delete char before cursor
-            											let (cur_row, cur_col) = {
-            												let writer = WRITER.lock();
-            												(writer.current_row, writer.column_position)
-            											};
-            											let idx =
-            												byte_index_from_row_col(&fc, cur_row, cur_col);
-            											if idx == 0 {
-            												// nothing to delete
-            												continue;
-            											}
-            											if let Some(prev_idx) = prev_char_start(&fc, idx) {
-            												fc.replace_range(prev_idx..idx, "");
-            												// redraw entire buffer and restore cursor
-            												let (new_r, new_c) =
-            													row_col_from_byte_index(&fc, prev_idx);
-            												{
-            													let mut writer = WRITER.lock();
-            													writer.clear_everything();
-            													// ensure printing starts at top-left
-            													writer.current_row = 0;
-            													writer.column_position = 0;
-            												}
-            												// release lock before printing to avoid deadlock
-            												print!("{}", fc);
-            												{
-            													let mut writer = WRITER.lock();
-            													writer.current_row = new_r;
-            													// clamp just in case
-            													writer.column_position =
-            														clamp_col_for_row(&fc, new_r, new_c);
-            													writer.update_cursor();
-            												}
-            												if !MADE_CHANGES
-            													&& !KEYBOARD_RAW_KEYS.contains(&(ch as u8))
-            												{
-            													MADE_CHANGES = true;
-            												}
-            											}
-            											continue;
-            										} else if ch as u8 == KEYBOARD_TAB {
-            											// insert 4 spaces at cursor
-            											let (cur_row, cur_col) = {
-            												let writer = WRITER.lock();
-            												(writer.current_row, writer.column_position)
-            											};
-            											let idx =
-            												byte_index_from_row_col(&fc, cur_row, cur_col);
-            											fc.insert_str(idx, "    ");
-            											let (new_r, new_c) =
-            												row_col_from_byte_index(&fc, idx + 4); // moved 4 columns
-            											{
-            												let mut writer = WRITER.lock();
-            												writer.clear_everything();
-            												writer.current_row = 0;
-            												writer.column_position = 0;
-            											}
-            											print!("{}", fc);
-            											{
-            												let mut writer = WRITER.lock();
-            												writer.current_row = new_r;
-            												writer.column_position =
-            													clamp_col_for_row(&fc, new_r, new_c);
-            												writer.update_cursor();
-            											}
-            											if !MADE_CHANGES {
-            												MADE_CHANGES = true;
-            											}
-            											continue;
-            										} else if ch as u8 == KEYBOARD_ENTER {
-            											// insert newline at cursor position and move cursor to
-            											// beginning of next line
-            											let (cur_row, cur_col) = {
-            												let writer = WRITER.lock();
-            												(writer.current_row, writer.column_position)
-            											};
-            											let idx =
-            												byte_index_from_row_col(&fc, cur_row, cur_col);
-            											fc.insert(idx, '\n');
-            											// redraw and set cursor to next line col 0
-            											{
-            												let mut writer = WRITER.lock();
-            												writer.clear_everything();
-            												writer.current_row = 0;
-            												writer.column_position = 0;
-            											}
-            											print!("{}", fc);
-            											{
-            												let mut writer = WRITER.lock();
-            												// compute new cursor position based on byte index
-            												// after the inserted newline
-            												let (new_r, new_c) = row_col_from_byte_index(
-            													&fc,
-            													idx + '\n'.len_utf8()
-            												);
-            												writer.current_row = new_r;
-            												writer.column_position =
-            													clamp_col_for_row(&fc, new_r, new_c);
-            												writer.update_cursor();
-            											}
-            											if !MADE_CHANGES {
-            												MADE_CHANGES = true;
-            											}
-            											continue;
-            										}
+					if let Some(key) = keyboard.process_keyevent(key_event.clone())
+						&& let pc_keyboard::DecodedKey::Unicode(ch) = key
+					{
+						// handle special control-like keys by comparing to known
+						// constants
+						if ch as u8 == KEYBOARD_BACKSPACE {
+							// delete char before cursor
+							let (cur_row, cur_col) = {
+								let writer = WRITER.lock();
+								(writer.current_row, writer.column_position)
+							};
+							let idx = byte_index_from_row_col(&fc, cur_row, cur_col);
+							if idx == 0 {
+								// nothing to delete
+								continue;
+							}
+							if let Some(prev_idx) = prev_char_start(&fc, idx) {
+								fc.replace_range(prev_idx..idx, "");
+								// redraw entire buffer and restore cursor
+								let (new_r, new_c) = row_col_from_byte_index(&fc, prev_idx);
+								{
+									let mut writer = WRITER.lock();
+									writer.clear_everything();
+									// ensure printing starts at top-left
+									writer.current_row = 0;
+									writer.column_position = 0;
+								}
+								// release lock before printing to avoid deadlock
+								print!("{}", fc);
+								{
+									let mut writer = WRITER.lock();
+									writer.current_row = new_r;
+									// clamp just in case
+									writer.column_position = clamp_col_for_row(&fc, new_r, new_c);
+									writer.update_cursor();
+								}
+								if !MADE_CHANGES && !KEYBOARD_RAW_KEYS.contains(&(ch as u8)) {
+									MADE_CHANGES = true;
+								}
+							}
+							continue;
+						} else if ch as u8 == KEYBOARD_TAB {
+							// insert 4 spaces at cursor
+							let (cur_row, cur_col) = {
+								let writer = WRITER.lock();
+								(writer.current_row, writer.column_position)
+							};
+							let idx = byte_index_from_row_col(&fc, cur_row, cur_col);
+							fc.insert_str(idx, "    ");
+							let (new_r, new_c) = row_col_from_byte_index(&fc, idx + 4); // moved 4 columns
+							{
+								let mut writer = WRITER.lock();
+								writer.clear_everything();
+								writer.current_row = 0;
+								writer.column_position = 0;
+							}
+							print!("{}", fc);
+							{
+								let mut writer = WRITER.lock();
+								writer.current_row = new_r;
+								writer.column_position = clamp_col_for_row(&fc, new_r, new_c);
+								writer.update_cursor();
+							}
+							if !MADE_CHANGES {
+								MADE_CHANGES = true;
+							}
+							continue;
+						} else if ch as u8 == KEYBOARD_ENTER {
+							// insert newline at cursor position and move cursor to
+							// beginning of next line
+							let (cur_row, cur_col) = {
+								let writer = WRITER.lock();
+								(writer.current_row, writer.column_position)
+							};
+							let idx = byte_index_from_row_col(&fc, cur_row, cur_col);
+							fc.insert(idx, '\n');
+							// redraw and set cursor to next line col 0
+							{
+								let mut writer = WRITER.lock();
+								writer.clear_everything();
+								writer.current_row = 0;
+								writer.column_position = 0;
+							}
+							print!("{}", fc);
+							{
+								let mut writer = WRITER.lock();
+								// compute new cursor position based on byte index
+								// after the inserted newline
+								let (new_r, new_c) =
+									row_col_from_byte_index(&fc, idx + '\n'.len_utf8());
+								writer.current_row = new_r;
+								writer.column_position = clamp_col_for_row(&fc, new_r, new_c);
+								writer.update_cursor();
+							}
+							if !MADE_CHANGES {
+								MADE_CHANGES = true;
+							}
+							continue;
+						}
 
-            										if CTRL_PRESSED {
-            											if ch.to_lowercase().to_string() == "q" {
-            												clear(&[""]);
-            												println!(
-            													"Would you like to save your changes?\n     Y     N     Esc (go back)"
-            												);
+						if CTRL_PRESSED {
+							if ch.to_lowercase().to_string() == "q" {
+								clear(&[""]);
+								println!(
+									"Would you like to save your changes?\n     Y     N     Esc (go back)"
+								);
 
-            												if MADE_CHANGES {
-            													ASKING_TO_SAVE = true;
-            													continue;
-            												}
+								if MADE_CHANGES {
+									ASKING_TO_SAVE = true;
+									continue;
+								}
 
-            												// return 0, for quitting the app
-            												return quit()
-            											}
+								// return 0, for quitting the app
+								return quit()
+							}
 
-            											print!("^{}", ch.to_uppercase());
-            											continue;
-            										}
+							print!("^{}", ch.to_uppercase());
+							continue;
+						}
 
-            										if ASKING_TO_SAVE
-            											&& ch.to_lowercase().to_string() == "y"
-            										{
-            											serial_println!("y was pressed. saving...");
+						if ASKING_TO_SAVE && ch.to_lowercase().to_string() == "y" {
+							serial_println!("y was pressed. saving...");
 
-            											fs::with_fs(|fs| {
-            												fs.write_file(&path, fc.as_bytes(), true)
-            											}).unwrap();
+							fs::with_fs(|fs| fs.write_file(&path, fc.as_bytes(), true)).unwrap();
 
-            											return quit();
-            										} else if ASKING_TO_SAVE
-            											&& ch.to_lowercase().to_string() == "n"
-            										{
-            											serial_println!("n was pressed. exiting...");
-            											ASKING_TO_SAVE = false;
-            											return quit()
-            										} else if ASKING_TO_SAVE
-            											&& ch as u8 == KEYBOARD_ESCAPE
-            										{
-            											clear(&[""]);
-            											println!("{}", fc);
-            											ASKING_TO_SAVE = false;
-            											continue
-            										}
+							return quit();
+						} else if ASKING_TO_SAVE && ch.to_lowercase().to_string() == "n" {
+							serial_println!("n was pressed. exiting...");
+							ASKING_TO_SAVE = false;
+							return quit()
+						} else if ASKING_TO_SAVE && ch as u8 == KEYBOARD_ESCAPE {
+							clear(&[""]);
+							println!("{}", fc);
+							ASKING_TO_SAVE = false;
+							continue
+						}
 
-            										let (cur_row, cur_col) = {
-            											let writer = WRITER.lock();
-            											(writer.current_row, writer.column_position)
-            										};
-            										let idx = byte_index_from_row_col(&fc, cur_row, cur_col);
-            										fc.insert(idx, ch);
-            										let (new_r, new_c) =
-            											row_col_from_byte_index(&fc, idx + ch.len_utf8());
-            										{
-            											let mut writer = WRITER.lock();
-            											writer.clear_everything();
-            											writer.current_row = 0;
-            											writer.column_position = 0;
-            										}
-            										print!("{}", fc);
-            										{
-            											let mut writer = WRITER.lock();
-            											writer.current_row = new_r;
-            											writer.column_position =
-            												clamp_col_for_row(&fc, new_r, new_c);
-            											writer.update_cursor();
-            										}
+						let (cur_row, cur_col) = {
+							let writer = WRITER.lock();
+							(writer.current_row, writer.column_position)
+						};
+						let idx = byte_index_from_row_col(&fc, cur_row, cur_col);
+						fc.insert(idx, ch);
+						let (new_r, new_c) = row_col_from_byte_index(&fc, idx + ch.len_utf8());
+						{
+							let mut writer = WRITER.lock();
+							writer.clear_everything();
+							writer.current_row = 0;
+							writer.column_position = 0;
+						}
+						print!("{}", fc);
+						{
+							let mut writer = WRITER.lock();
+							writer.current_row = new_r;
+							writer.column_position = clamp_col_for_row(&fc, new_r, new_c);
+							writer.update_cursor();
+						}
 
-            										if !MADE_CHANGES && !KEYBOARD_RAW_KEYS.contains(&(ch as u8))
-            										{
-            											MADE_CHANGES = true;
-            										}
-    						}
-    					}
+						if !MADE_CHANGES && !KEYBOARD_RAW_KEYS.contains(&(ch as u8)) {
+							MADE_CHANGES = true;
+						}
+					}
+				}
 			}
 		}
 	}

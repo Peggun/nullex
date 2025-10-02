@@ -84,9 +84,9 @@ impl Executor {
 }
 
 impl Default for Executor {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 pub struct ProcessWaker {
@@ -98,7 +98,9 @@ pub struct ProcessWaker {
 impl ProcessWaker {
 	pub fn wake_process(&self) {
 		// use self.state directly no need to lock the process
-		if !self.state.queued.swap(true, Ordering::AcqRel) && self.process_queue.push(self.pid).is_err() {
+		if !self.state.queued.swap(true, Ordering::AcqRel)
+			&& self.process_queue.push(self.pid).is_err()
+		{
 			serial_println!(
 				"Warning: process_queue full, skipping wake for process {}",
 				self.pid.0

@@ -40,7 +40,14 @@ pub const SYS_SLEEP: u32 = 11;
 // System call handler function
 /// # Safety
 /// make sure valid args!!!
-pub unsafe fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u64, _arg5: u64) -> i32 {
+pub unsafe fn syscall(
+	syscall_id: u32,
+	arg1: u64,
+	arg2: u64,
+	arg3: u64,
+	_arg4: u64,
+	_arg5: u64
+) -> i32 {
 	match syscall_id {
 		SYS_PRINT => {
 			let ptr = arg1 as *const u8;
@@ -83,9 +90,7 @@ pub unsafe fn syscall(syscall_id: u32, arg1: u64, arg2: u64, arg3: u64, _arg4: u
 			let path = unsafe { core::str::from_raw_parts(path_ptr, path_len) };
 			sys_exec(path)
 		}
-		SYS_KILL => {
-			sys_kill(arg1)
-		}
+		SYS_KILL => sys_kill(arg1),
 		_ => {
 			serial_println!("Invalid syscall ID: {}", syscall_id);
 			-1 // error code for unhandled syscall

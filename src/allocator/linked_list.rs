@@ -135,9 +135,9 @@ impl LinkedListAllocator {
 }
 
 impl Default for LinkedListAllocator {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 unsafe impl GlobalAlloc for Locked<LinkedListAllocator> {

@@ -340,9 +340,10 @@ impl FileSystem {
 		let keys: Vec<String> = dir.entries.keys().cloned().collect();
 		for key in keys {
 			if let Some(entry) = dir.entries.get_mut(&key)
-				&& let Entry::Directory(ref mut subdir) = *entry {
-					Self::recursive_remove(subdir);
-				}
+				&& let Entry::Directory(ref mut subdir) = *entry
+			{
+				Self::recursive_remove(subdir);
+			}
 		}
 		// clear all entries from the directory.
 		dir.entries.clear();
@@ -369,7 +370,7 @@ impl FileSystem {
 }
 
 impl Default for FileSystem {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }

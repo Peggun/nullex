@@ -346,9 +346,9 @@ impl Writer {
 }
 
 impl Default for Writer {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 pub fn console_backspace() {

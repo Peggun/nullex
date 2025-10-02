@@ -59,9 +59,9 @@ impl SerialScancodeStream {
 }
 
 impl Default for SerialScancodeStream {
-    fn default() -> Self {
-        Self::new()
-    }
+	fn default() -> Self {
+		Self::new()
+	}
 }
 
 impl Stream for SerialScancodeStream {
