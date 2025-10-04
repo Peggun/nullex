@@ -24,14 +24,10 @@ use pc_keyboard::{HandleControl, KeyCode, Keyboard, ScancodeSet1, layouts};
 use spin::Mutex;
 
 use crate::{
-	fs,
-	print,
-	println,
-	task::{
+	fs, print, print_colours, println, task::{
 		keyboard::commands::{CMD_HISTORY, CMD_HISTORY_INDEX},
 		yield_now
-	},
-	vga_buffer::{WRITER, console_backspace}
+	}, vga_buffer::{console_backspace, WRITER}
 };
 
 lazy_static! {
@@ -128,7 +124,11 @@ pub async fn print_keypresses() -> i32 {
 
 	let mut line = String::new();
 
-	print!("test@nullex: {} $ ", *CWD.lock());
+	//print!("test@nullex: {} $ ", *CWD.lock());
+	print_colours!(
+		("test", Color::Green),
+		(&format!("@nullex: {} $ ", *CWD.lock()), Color::White)
+	);
 	while let Some(scancode) = scancodes.next().await {
 		if let Ok(Some(key_event)) = keyboard.add_byte(scancode)
 			&& let Some(key) = keyboard.process_keyevent(key_event)

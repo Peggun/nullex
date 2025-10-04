@@ -85,7 +85,7 @@ fn kernel_main(boot_info: &'static BootInfo) -> ! {
 	SYSLOG_SINK.log("Initialized Main Kernel Successfully\n", LogLevel::Info);
 
 	WRITER.lock().clear_everything();
-	WRITER.lock().set_colors(Color16::White, Color16::Black);
+	// WRITER.lock().set_colors(Color16::White, Color16::Black);
 
 	crate::keyboard::commands::init_commands();
 	// init_serial_input();

@@ -24,27 +24,16 @@ use crate::{
 	println,
 	serial_println,
 	task::{
-		ProcessState,
 		keyboard::{
-			KEYBOARD_BACKSPACE,
-			KEYBOARD_ENTER,
-			KEYBOARD_ESCAPE,
-			KEYBOARD_RAW_KEYS,
-			KEYBOARD_TAB,
-			commands::clear
-		}
+			commands::clear, KEYBOARD_BACKSPACE, KEYBOARD_ENTER, KEYBOARD_ESCAPE, KEYBOARD_RAW_KEYS, KEYBOARD_TAB
+		}, ProcessState
 	},
 	utils::process::spawn_process,
-	vga_buffer::{BufferEntry, WRITER}
+	vga_buffer::{Buffer, BufferEntry, WRITER}
 };
 
 lazy_static! {
-	pub static ref PREV_BUFFER: Mutex<[[BufferEntry; 80]; 25]> = Mutex::new(
-		[[BufferEntry {
-			character: 0,
-			colour_code: 0
-		}; 80]; 25]
-	);
+	pub static ref PREV_BUFFER: Mutex<Buffer> = Mutex::new(Buffer::blank());
 	pub static ref PREV_CUR_POS: Mutex<(usize, usize)> = Mutex::new((0, 0));
 }
 
@@ -109,7 +98,7 @@ pub async fn nedit_main(state: Arc<ProcessState>, path: String) -> i32 {
 		);
 
 		let snapshot = {
-			let writer = WRITER.lock();
+			let mut writer = WRITER.lock();
 			writer.copy_vga_buffer()
 		};
 
@@ -124,8 +113,6 @@ pub async fn nedit_main(state: Arc<ProcessState>, path: String) -> i32 {
 			*prev = snapshot;
 			*prev_cur_pos = cur_pos_snapshot;
 		}
-
-		serial_println!("prev_buffer[0][0]: {:#?}", snapshot[0][0]);
 
 		{
 			let mut writer = WRITER.lock();

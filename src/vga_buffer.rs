@@ -3,379 +3,354 @@
 /*
 VGA Buffer module for the kernel.
 
-Most of this code comes via https://github.com/ash-hashtag/samanthi-os
-So thanks.
+I have revamped it from phil-opp's blog as there was a bug where you
+couldnt change the vga font colour.
 */
 
-use core::{
-	fmt::{self, Write},
-	ops::Deref
-};
-
+use core::{array::from_fn, fmt};
 use lazy_static::lazy_static;
 use spin::Mutex;
-use vga::{
-	colors::{Color16, DEFAULT_PALETTE, TextModeColor},
-	fonts::TEXT_8X16_FONT,
-	vga::VGA,
-	writers::{ScreenCharacter, Text80x25, TextWriter}
-};
 use volatile::Volatile;
-use x86_64::instructions::{interrupts, port::Port};
-
-use crate::serial_println;
+use x86_64::instructions::port::Port;
 
 lazy_static! {
-	pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer::new());
+    /// A global `Writer` instance that can be used for printing to the VGA text buffer.
+    ///
+    /// Used by the `print!` and `println!` macros.
+    pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
+        column_position: 0,
+        current_row: 0,
+        // Make the font colour white on black by default:
+        color_code: ColorCode::new(Color::White, Color::Black),
+        buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+    });
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct BufferEntry {
-	pub character: u8,
-	pub colour_code: u8
-}
-
-impl Deref for BufferEntry {
-	type Target = u8;
-
-	fn deref(&self) -> &Self::Target {
-		&self.character
-	}
-}
-
-impl BufferEntry {
-	pub fn character(&self) -> u8 {
-		self.character
-	}
-
-	pub fn colour_code(&self) -> u8 {
-		self.colour_code
-	}
-
-	pub fn foreground(&self) -> Color {
-		Color::from_u8(self.colour_code & 0x0F).unwrap()
-	}
-
-	pub fn background(&self) -> Color {
-		Color::from_u8(self.colour_code >> 4).unwrap()
-	}
-}
-
-#[derive(Clone, Copy)]
+/// The standard color palette in VGA text mode.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Color {
-	Black = 0,
-	Blue = 1,
-	Green = 2,
-	Cyan = 3,
-	Red = 4,
-	Magenta = 5,
-	Brown = 6,
-	LightGray = 7,
-	DarkGray = 8,
-	LightBlue = 9,
-	LightGreen = 10,
-	LightCyan = 11,
-	LightRed = 12,
-	Pink = 13,
-	Yellow = 14,
-	White = 15
+    Black = 0,
+    Blue = 1,
+    Green = 2,
+    Cyan = 3,
+    Red = 4,
+    Magenta = 5,
+    Brown = 6,
+    LightGray = 7,
+    DarkGray = 8,
+    LightBlue = 9,
+    LightGreen = 10,
+    LightCyan = 11,
+    LightRed = 12,
+    Pink = 13,
+    Yellow = 14,
+    White = 15,
 }
 
-impl Color {
-	pub fn from_string(s: &str) -> Option<Color> {
-		let color = match s {
-			"red" => Self::Red,
-			"blue" => Self::Blue,
-			"green" => Self::Green,
-			"cyan" => Self::Cyan,
-			"brown" => Self::Brown,
-			"magenta" => Self::Magenta,
-			"pink" => Self::Pink,
-			"yellow" => Self::Yellow,
-			"white" => Self::White,
-			"black" => Self::Black,
-			_ => {
-				return None;
-			}
-		};
-		Some(color)
-	}
-
-	pub fn from_u8(n: u8) -> Option<Color> {
-		let color = match n {
-			0x0 => Self::Black,
-			0x1 => Self::Blue,
-			0x2 => Self::Green,
-			0x3 => Self::Cyan,
-			0x4 => Self::Red,
-			0x5 => Self::Magenta,
-			0x6 => Self::Brown,
-			0x7 => Self::LightGray,
-			0x8 => Self::DarkGray,
-			0x9 => Self::LightBlue,
-			0x10 => Self::LightGreen,
-			0x11 => Self::LightCyan,
-			0x12 => Self::LightRed,
-			0x13 => Self::Pink,
-			0x14 => Self::Yellow,
-			0x15 => Self::White,
-			_ => return None
-		};
-		Some(color)
-	}
-}
-
-#[derive(Clone, Copy)]
+/// A combination of a foreground and a background color.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct ColorCode(u8);
+struct ColorCode(u8);
 
 impl ColorCode {
-	pub fn new(foreground: Color, background: Color) -> Self {
-		Self((background as u8) << 4 | (foreground as u8))
-	}
+    /// Create a new `ColorCode` with the given foreground and background colors.
+    fn new(foreground: Color, background: Color) -> ColorCode {
+        ColorCode((background as u8) << 4 | (foreground as u8))
+    }
 }
 
-#[derive(Clone, Copy)]
+/// A screen character in the VGA text buffer, consisting of an ASCII character and a `ColorCode`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(C)]
-pub struct ScreenChar {
-	ascii_character: u8,
-	color_code: ColorCode
+struct ScreenChar {
+    ascii_character: u8,
+    color_code: ColorCode,
+}
+
+impl ScreenChar {
+    pub fn blank() -> Self {
+        ScreenChar {
+            ascii_character: b' ',
+            color_code: ColorCode::new(Color::White, Color::Black),
+        }
+    }
 }
 
 const BUFFER_HEIGHT: usize = 25;
 const BUFFER_WIDTH: usize = 80;
 
+/// A structure representing the VGA text buffer.
+#[derive(Clone)]
 #[repr(transparent)]
 pub struct Buffer {
-	pub chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT]
+    pub chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT],
 }
 
+impl Buffer {
+    pub fn blank() -> Self {
+        let chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT] =
+            from_fn(|_| from_fn(|_| Volatile::new(ScreenChar::blank())));
+
+        Buffer { chars }
+    }
+}
+
+/// A writer type that allows writing ASCII bytes and strings to an underlying `Buffer`.
+///
+/// Wraps lines at `BUFFER_WIDTH`. Supports newline characters and implements the
+/// `core::fmt::Write` trait.
 pub struct Writer {
-	pub column_position: usize,
-	pub color_code: ColorCode,
-	//buffer: &'static mut Buffer,
-	pub text: Text80x25,
-	color: TextModeColor,
-	pub current_row: usize
+    pub column_position: usize,
+    pub current_row: usize,
+    pub color_code: ColorCode,
+    pub buffer: &'static mut Buffer,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BufferEntry {
+    pub character: u8,
+    pub colour_code: u8,
 }
 
 impl Writer {
-	pub fn set_colors(&mut self, fg: Color16, bg: Color16) {
-		self.color = TextModeColor::new(fg, bg);
-	}
+	pub fn set_color(&mut self, fg: Color, bg: Color) {
+        self.color_code = ColorCode::new(fg, bg);
+    }
 
-	pub fn new() -> Self {
-		let text = Text80x25::new();
-		text.set_mode();
-		// Initialize VGA settings for correct palette and font
-		{
-			let mut vga = VGA.lock();
-			vga.set_video_mode(vga::vga::VideoMode::Mode80x25);
-			vga.color_palette_registers.load_palette(&DEFAULT_PALETTE);
-			vga.load_font(&TEXT_8X16_FONT);
-		}
-		Self {
-			color: TextModeColor::new(Color16::White, Color16::Black), // White text on black
-			color_code: ColorCode::new(Color::White, Color::Black),
-			text,
-			column_position: 0,
-			current_row: 0 // Start at top row
-		}
-	}
+    /// Writes an ASCII byte to the buffer.
+    ///
+    /// Wraps lines at `BUFFER_WIDTH`. Supports the `\n` newline character.
+    pub fn write_byte(&mut self, byte: u8) {
+        match byte {
+            b'\n' => {
+                self.new_line();
+            }
+            byte => {
+                if self.column_position >= BUFFER_WIDTH {
+                    self.new_line();
+                }
 
-	pub fn update_cursor(&mut self) {
-		let position = self.current_row * BUFFER_WIDTH + self.column_position;
-		let mut port_3d4 = Port::<u8>::new(0x3D4);
-		let mut port_3d5 = Port::<u8>::new(0x3D5);
-		unsafe {
-			port_3d4.write(0x0F);
-			port_3d5.write((position & 0xFF) as u8);
-			port_3d4.write(0x0E);
-			port_3d5.write(((position >> 8) & 0xFF) as u8);
-		}
-	}
+                // write at the current row (top → down)
+                let row = self.current_row;
+                let col = self.column_position;
 
-	pub fn write_string(&mut self, s: &str) {
-		for byte in s.bytes() {
-			match byte {
-				// Printable ASCII bytes or newline
-				0x20..=0x7e | b'\n' => self.write_byte(byte),
-				b'\t' => {
-					for _ in 0..4 {
-						self.write_byte(b' ');
-					}
-				}
-				_ => {
-					self.write_byte(0xfe);
-					serial_println!("unknown key pressed {}", byte);
-				}
-			};
-		}
-	}
+                let color_code = self.color_code;
+                self.buffer.chars[row][col].write(ScreenChar {
+                    ascii_character: byte,
+                    color_code,
+                });
 
-	/// Sets the cursor to a specific coordinate.
-	pub fn set_cursor(&mut self, row: usize, col: usize) {
-		self.current_row = row;
-		self.column_position = col;
-		self.update_cursor();
-	}
+                // advance column & update hardware cursor immediately
+                self.column_position += 1;
+                self.update_cursor();
+            }
+        }
+    }
 
-	pub fn write_byte(&mut self, byte: u8) {
-		match byte {
-			b'\n' => self.new_line(),
-			byte => {
-				if self.column_position >= BUFFER_WIDTH {
-					self.new_line();
-				}
+    /// Writes the given ASCII string to the buffer.
+    ///
+    /// Wraps lines at `BUFFER_WIDTH`. Supports the `\n` newline character. Does **not**
+    /// support strings with non-ASCII characters, since they can't be printed in the VGA text
+    /// mode.
+    fn write_string(&mut self, s: &str) {
+        for byte in s.bytes() {
+            match byte {
+                // printable ASCII byte or newline
+                0x20..=0x7e | b'\n' => self.write_byte(byte),
+                // not part of printable ASCII range
+                _ => self.write_byte(0xfe),
+            }
+        }
+    }
 
-				// Write to current_row instead of the bottom row
-				self.text.write_character(
-					self.column_position,
-					self.current_row,
-					ScreenCharacter::new(byte, self.color)
-				);
-				self.column_position += 1;
-				self.update_cursor();
-			}
-		}
-	}
+    /// Shifts lines up when the buffer is full and moves to the next line.
+    fn new_line(&mut self) {
+        self.current_row += 1;
 
-	pub fn new_line(&mut self) {
-		self.current_row += 1;
-		if self.current_row >= BUFFER_HEIGHT {
-			// Scroll all lines up by one row
-			for row in 1..BUFFER_HEIGHT {
-				for col in 0..BUFFER_WIDTH {
-					let character = self.text.read_character(col, row);
-					self.text.write_character(col, row - 1, character);
-				}
-			}
-			// Clear the bottom row and reset current_row
-			self.clear_row(BUFFER_HEIGHT - 1);
-			self.current_row = BUFFER_HEIGHT - 1;
-		}
-		self.column_position = 0;
-		self.update_cursor();
-	}
+        if self.current_row >= BUFFER_HEIGHT {
+            // scroll up
+            for row in 1..BUFFER_HEIGHT {
+                for col in 0..BUFFER_WIDTH {
+                    let character = self.buffer.chars[row][col].read();
+                    self.buffer.chars[row - 1][col].write(character);
+                }
+            }
+            // clear last line
+            self.clear_row(BUFFER_HEIGHT - 1);
+            self.current_row = BUFFER_HEIGHT - 1;
+        }
 
-	fn clear_row(&mut self, row: usize) {
-		let blank = ScreenCharacter::new(b' ', self.color);
-		for col in 0..BUFFER_WIDTH {
-			self.text.write_character(col, row, blank);
-		}
-	}
+        self.column_position = 0;
+        self.update_cursor();
+    }
 
-	pub fn backspace(&mut self) {
-		let blank = ScreenCharacter::new(b' ', self.color);
+    /// Clears a row by overwriting it with blank characters.
+    fn clear_row(&mut self, row: usize) {
+        let blank = ScreenChar {
+            ascii_character: b' ',
+            color_code: self.color_code,
+        };
+        for col in 0..BUFFER_WIDTH {
+            self.buffer.chars[row][col].write(blank);
+        }
+    }
 
-		if self.column_position == 0 {
-			if self.current_row == 0 {
-				return; // already at top-left, can't backspace
-			}
-			self.current_row -= 1;
-			self.column_position = BUFFER_WIDTH - 1;
-		} else {
-			self.column_position -= 1;
-		}
+    pub fn clear_everything(&mut self) {
+        let blank = ScreenChar {
+            ascii_character: b' ',
+            color_code: self.color_code,
+        };
+        for row in 0..BUFFER_HEIGHT {
+            for col in 0..BUFFER_WIDTH {
+                self.buffer.chars[row][col].write(blank);
+            }
+        }
+        // reset cursor to top-left after clearing
+        self.current_row = 0;
+        self.column_position = 0;
+        self.update_cursor();
+    }
 
-		// Clear the character at the new position
-		self.text
-			.write_character(self.column_position, self.current_row, blank);
-		self.update_cursor();
-	}
+    pub fn update_cursor(&self) {
+        // hardware cursor position = row * width + col
+        let position = (self.current_row * BUFFER_WIDTH) + self.column_position;
 
-	pub fn clear_everything(&mut self) {
-		self.text.set_mode();
-		// {
-		//     let mut vga = VGA.lock();
-		//     vga.set_video_mode(vga::vga::VideoMode::Mode80x25);
-		//     vga.color_palette_registers.load_palette(&DEFAULT_PALETTE);
+        let mut port_3d4 = Port::<u8>::new(0x3D4);
+        let mut port_3d5 = Port::<u8>::new(0x3D5);
+        unsafe {
+            port_3d4.write(0x0F);
+            port_3d5.write((position & 0xFF) as u8);
+            port_3d4.write(0x0E);
+            port_3d5.write(((position >> 8) & 0xFF) as u8);
+        }
+    }
 
-		//     vga.load_font(&TEXT_8X16_FONT);
-		// }
-		self.text.clear_screen();
-		self.column_position = 0;
-		self.current_row = 0;
-		self.update_cursor();
-	}
+    pub fn copy_vga_buffer(&self) -> Buffer {
+        self.buffer.clone()
+    }
 
-	pub fn copy_vga_buffer(&self) -> [[BufferEntry; BUFFER_WIDTH]; BUFFER_HEIGHT] {
-		let mut buffer = [[BufferEntry {
-			character: 0,
-			colour_code: 0
-		}; BUFFER_WIDTH]; BUFFER_HEIGHT];
-		let vga_buffer_ptr = 0xb8000 as *const u16;
+    pub fn restore_vga_buffer(&mut self, prev: &Buffer) {
+        for y in 0..BUFFER_HEIGHT {
+            for x in 0..BUFFER_WIDTH {
+                let ch = prev.chars[y][x].read();
+                self.buffer.chars[y][x].write(ch);
+            }
+        }
+    }
 
-		unsafe {
-			#[expect(clippy::needless_range_loop)]
-			for row in 0..BUFFER_HEIGHT {
-				for col in 0..BUFFER_WIDTH {
-					let offset = row * BUFFER_WIDTH + col;
-					let vga_entry = core::ptr::read_volatile(vga_buffer_ptr.add(offset));
-					buffer[row][col] = BufferEntry {
-						character: (vga_entry & 0xFF) as u8,
-						colour_code: (vga_entry >> 8) as u8
-					};
-				}
-			}
-		}
-		buffer
-	}
+    pub fn copy_cursor_position(&self) -> (usize, usize) {
+        (self.current_row, self.column_position)
+    }
 
-	pub fn restore_vga_buffer(&self, buffer: &[[BufferEntry; BUFFER_WIDTH]; BUFFER_HEIGHT]) {
-		let vga_buffer_ptr = 0xb8000 as *mut u16;
+    pub fn backspace(&mut self) {
+        let blank = ScreenChar {
+            ascii_character: b' ',
+            color_code: self.color_code,
+        };
 
-		unsafe {
-			#[expect(clippy::needless_range_loop)]
-			for row in 0..BUFFER_HEIGHT {
-				for col in 0..BUFFER_WIDTH {
-					let offset = row * BUFFER_WIDTH + col;
-					let entry = buffer[row][col];
-					let vga_entry: u16 =
-						((entry.colour_code as u16) << 8) | (entry.character as u16);
-					core::ptr::write_volatile(vga_buffer_ptr.add(offset), vga_entry);
-				}
-			}
-		}
-	}
+        if self.column_position == 0 {
+            if self.current_row == 0 {
+                return;
+            }
+            // move up a row and to end of the previous line
+            self.current_row -= 1;
+            self.column_position = BUFFER_WIDTH - 1;
+        } else {
+            self.column_position -= 1;
+        }
 
-	pub fn copy_cursor_position(&mut self) -> (usize, usize) {
-		(self.current_row, self.column_position)
-	}
-}
+        // write blank at the new cursor position and update the cursor
+        self.buffer.chars[self.current_row][self.column_position].write(blank);
+        self.update_cursor();
+    }
 
-impl Default for Writer {
-	fn default() -> Self {
-		Self::new()
-	}
+	/// Run a closure with a temporary color, restoring the previous color afterwards.
+	pub fn with_color<F: FnOnce(&mut Self)>(&mut self, fg: Color, bg: Color, f: F) {
+        let prev = self.color_code;
+        self.color_code = ColorCode::new(fg, bg);
+        f(self);
+        self.color_code = prev;
+    }
+
+    /// Write a whole string with the given color, then restore the previous color.
+    pub fn write_with_color(&mut self, s: &str, fg: Color, bg: Color) {
+        self.with_color(fg, bg, |w| w.write_string(s));
+    }
+
+    /// Write a sequence of segments, each segment is a tuple: (&str, fg_color, bg_color).
+    /// Example: write_segments(&[("test", Color::Green, Color::Black), ("@nullex", Color::White, Color::Black)]);
+    pub fn write_segments(&mut self, segments: &[(&str, Color, Color)]) {
+        for (text, fg, bg) in segments {
+            self.write_with_color(text, *fg, *bg);
+        }
+    }
 }
 
 pub fn console_backspace() {
-	WRITER.lock().backspace();
+    WRITER.lock().backspace();
 }
 
 impl fmt::Write for Writer {
-	fn write_str(&mut self, s: &str) -> fmt::Result {
-		self.write_string(s);
-		Ok(())
-	}
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.write_string(s);
+        Ok(())
+    }
 }
 
+/// Like the `print!` macro in the standard library, but prints to the VGA text buffer.
 #[macro_export]
 macro_rules! print {
-    ($($arg:tt)*) => ($crate::vga_buffer::_print(core::format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::vga_buffer::_print(format_args!($($arg)*)));
 }
 
+/// Like the `println!` macro in the standard library, but prints to the VGA text buffer.
 #[macro_export]
 macro_rules! println {
     () => ($crate::print!("\n"));
-    ($($arg:tt)*) => ($crate::print!("{}\n", core::format_args!($($arg)*)));
+    ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
+}
+
+/// Prints the given formatted string to the VGA text buffer through the global `WRITER` instance.
+#[doc(hidden)]
+pub fn _print(args: fmt::Arguments) {
+    use core::fmt::Write;
+    WRITER.lock().write_fmt(args).unwrap();
 }
 
 #[doc(hidden)]
-pub fn _print(args: fmt::Arguments) {
-	interrupts::without_interrupts(|| {
-		WRITER.lock().write_fmt(args).unwrap();
-	})
+pub fn _print_segments(segments: &[(&str, Color, Color)]) {
+    let mut w = WRITER.lock();
+    w.write_segments(segments);
+}
+
+/// Print multiple colored segments. Each segment is a tuple:
+///   ("text", Color::SomeColor)                      -> background defaults to Color::Black
+///   ("text", Color::SomeColor, Color::OtherColor)  -> explicit background
+///
+/// Examples:
+///   print_colours!( ("test", Color::Green), ("@nullex", Color::White) );
+///   print_colours!( ("ok: ", Color::Green), ("42\n", Color::White, Color::Blue) );
+#[macro_export]
+macro_rules! print_colours {
+    // main entry: one-or-more segments (each segment: (text, fg [, bg]))
+    ( $( ($text:expr, $fg:expr $(, $bg:expr)? ) ),+ $(,)? ) => {
+        {
+            // bring helper into scope
+            use $crate::vga_buffer::{_print_segments, Color};
+
+            // build a literal slice of segments. Color::black is default background.
+            let segments: &[(&str, Color, Color)] = &[
+                $(
+                    ($text, $fg, $crate::print_colours!(@bg_or $($bg)?)),
+                )+
+            ];
+
+            _print_segments(segments);
+        }
+    };
+
+    (@bg_or $bg:expr) => { $bg };
+    (@bg_or) => { $crate::vga_buffer::Color::Black };
 }
