@@ -7,7 +7,6 @@ Memory module for the kernel.
 use bootloader::bootinfo::{MemoryMap, MemoryRegionType};
 use x86_64::{
 	PhysAddr,
-	VirtAddr,
 	structures::paging::{
 		FrameAllocator,
 		Mapper,
@@ -21,7 +20,7 @@ use x86_64::{
 	}
 };
 
-use crate::println;
+use crate::{arch::x86_64::addr::VirtAddr, println};
 
 pub fn map_apic(
 	mapper: &mut impl Mapper<Size4KiB>,
@@ -30,7 +29,8 @@ pub fn map_apic(
 	println!("[Info] Mapping APIC Timer...");
 
 	let apic_phys_start = 0xFEE00000;
-	let apic_page = Page::containing_address(VirtAddr::new(apic_phys_start));
+	let va = VirtAddr::new(apic_phys_start);
+	let apic_page = Page::containing_address(va.to_x86_64());
 	let apic_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
 
 	unsafe {
@@ -101,8 +101,12 @@ unsafe fn translate_addr_inner(
 	addr: VirtAddr,
 	physical_memory_offset: VirtAddr
 ) -> Option<PhysAddr> {
+	let phys_mem_off = physical_memory_offset.to_x86_64();
+	let addr = addr.to_x86_64();
+
 	let level_4_table = unsafe { active_level_4_table(physical_memory_offset) };
-	unsafe { OffsetPageTable::new(level_4_table, physical_memory_offset) }.translate_addr(addr)
+
+	unsafe { OffsetPageTable::new(level_4_table, phys_mem_off) }.translate_addr(addr)
 }
 
 /// Returns a mutable reference to the active level 4 table.
@@ -139,6 +143,8 @@ pub fn create_example_mapping(
 /// # Safety
 /// We need all memory mapped at `physical_memory_offset`.
 pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
+	let phys_mem_off = physical_memory_offset.to_x86_64();
+
 	let level_4_table = unsafe { active_level_4_table(physical_memory_offset) };
-	unsafe { OffsetPageTable::new(level_4_table, physical_memory_offset) }
+	unsafe { OffsetPageTable::new(level_4_table, phys_mem_off) }
 }

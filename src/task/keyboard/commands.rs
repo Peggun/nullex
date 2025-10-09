@@ -4,8 +4,6 @@
 Command handling and definitions module for the kernel.
 */
 
-extern crate alloc;
-
 use alloc::{
 	collections::BTreeMap,
 	string::{String, ToString},
@@ -190,6 +188,12 @@ pub fn init_commands() {
 		func: nedit_app,
 		help: "Edit any files within Nullex",
 		cmd_type: CommandType::Application
+	});
+	register_command(Command {
+		name: "uptime",
+		func: uptime,
+		help: "System uptime.",
+		cmd_type: CommandType::Generic
 	});
 	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
 }

@@ -22,34 +22,18 @@ use core::{
 
 use bootloader::{BootInfo, entry_point};
 use nullex::{
-	allocator,
-	apic,
-	constants::{SYSLOG_SINK, initialize_constants},
-	fs::ramfs::FileSystem,
-	interrupts::{PICS, init_idt},
-	memory::{self, BootInfoFrameAllocator},
-	println,
-	serial_println,
-	setup_system_files,
-	task::{
-		Process,
-		executor::{self, CURRENT_PROCESS, EXECUTOR},
-		keyboard
-	},
-	utils::{
+	allocator, apic, arch::x86_64::addr::VirtAddr, constants::{initialize_constants, SYSLOG_SINK}, fs::ramfs::FileSystem, interrupts::{init_idt, PICS}, memory::{self, BootInfoFrameAllocator}, println, serial, serial_println, setup_system_files, task::{
+		executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard, Process
+	}, utils::{
 		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
 		process::spawn_process
-	},
-	vga_buffer::WRITER
+	}, vga_buffer::WRITER
 };
-use vga::colors::Color16;
 
 entry_point!(kernel_main);
 
 #[unsafe(no_mangle)]
 fn kernel_main(boot_info: &'static BootInfo) -> ! {
-	use x86_64::VirtAddr;
-
 	println!("[Info] Starting Kernel Init...");
 	init_idt();
 

@@ -9,7 +9,7 @@ extern crate alloc;
 use core::panic::PanicInfo;
 
 use bootloader::{BootInfo, entry_point};
-use nullex::{allocator::HEAP_SIZE, apic, println};
+use nullex::{allocator::HEAP_SIZE, apic, arch::x86_64::addr::VirtAddr, println};
 
 entry_point!(main);
 
@@ -56,7 +56,6 @@ fn main(boot_info: &'static BootInfo) -> ! {
 		allocator,
 		memory::{self, BootInfoFrameAllocator}
 	};
-	use x86_64::VirtAddr;
 
 	let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
 	let mut mapper = unsafe { memory::init(phys_mem_offset) };

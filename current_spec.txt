@@ -1,0 +1,5 @@
+CURRENT OPERATION: Phase out crates.
+DESCRIPTION: Look, crates are extremely helpful. However, I've noticed that I havent really learnt anything and I have been dependant on these crates and the use of AI. Like to be honest, I dont know if i have functions to do what
+             I want, and i dont actually know what the acronyms means and what my code and kernel actually do. I'm starting a restart. I'm going to push myself to the absolute limit. To become a absolute beast in operating system
+             programming, like Linus (hopefully). Kernel progress will slow down significantly, but its for my own learning, and experience. Hopefully, some people will be joining me, but this will mainly be for me. Eventually, 
+             this kernel will be (almost) dependency free, mainly for the ones that provide already made wrappers for stuff like reading ports, and vga all sort. So yeah. Thanks.

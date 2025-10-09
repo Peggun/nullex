@@ -63,7 +63,7 @@ pub const DIVIDE_BY_16: u32 = 0x3;
 
 /// Write a 32-bit value to a Local APIC register.
 /// # Safety
-/// dont fuck everything up bro :D
+/// Volatile register write.
 pub unsafe fn write_register(offset: usize, value: u32) {
 	let reg = (APIC_BASE + offset) as *mut u32;
 	unsafe { write_volatile(reg, value) };
@@ -71,7 +71,7 @@ pub unsafe fn write_register(offset: usize, value: u32) {
 
 /// Read a 32-bit value from a Local APIC register.
 /// # Safety
-/// dont fuck everything up bro :D
+/// Read register volatile.
 pub unsafe fn read_register(offset: usize) -> u32 {
 	let reg = (APIC_BASE + offset) as *const u32;
 	unsafe { read_volatile(reg) }
@@ -86,7 +86,7 @@ pub unsafe fn read_register(offset: usize) -> u32 {
 // is 0.6 seconds kernel time.
 // fuck knows why. which is why i'll come back to it.
 /// # Safety
-/// idfk maybe dont call it twice or sth
+/// Reads / Writes to registers volatile.
 pub unsafe fn init_timer() {
 	println!("[Info] Initializing APIC Timer...");
 	unsafe {
@@ -108,7 +108,7 @@ pub unsafe fn init_timer() {
 
 /// signal end of interrupt to the local apic.
 /// # Safety
-/// maybe dont call it when its not true and dont call it twice
+/// Volatile register writes.
 pub unsafe fn send_eoi() {
 	unsafe { write_register(EOI, 0) };
 }
@@ -118,7 +118,7 @@ use x86_64::registers::model_specific::Msr;
 use crate::{pit::pit_sleep, println, task::yield_now};
 
 /// # Safety
-/// idfk maybe dont call it when its enabled or sth
+/// Unsafe volatile reads.
 pub unsafe fn enable_apic() {
 	println!("[Info] Enabling APIC Timer...");
 	let mut msr = Msr::new(0x1B);

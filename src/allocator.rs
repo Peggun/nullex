@@ -47,11 +47,11 @@ pub fn init_heap(
 	#[expect(clippy::assertions_on_constants)]
 	{
 		assert!(HEAP_SIZE > 0, "HEAP_SIZE must be > 0");
+		assert!(
+			HEAP_START.is_multiple_of(4096),
+			"HEAP_START must be page-aligned"
+		);
 	}
-	assert!(
-		HEAP_START.is_multiple_of(4096),
-		"HEAP_START must be page-aligned"
-	);
 
 	// Use u64 for address math to match VirtAddr
 	let heap_start_u64 = HEAP_START as u64;

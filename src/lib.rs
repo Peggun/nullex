@@ -20,7 +20,6 @@ Kernel module for the kernel.
 #[macro_use]
 extern crate alloc;
 extern crate bitflags;
-extern crate genfs;
 extern crate libc;
 extern crate spin;
 
@@ -45,12 +44,20 @@ pub mod task;
 pub mod utils;
 pub mod vga_buffer;
 
+pub mod arch;
+
 use core::panic::PanicInfo;
 
 #[cfg(test)]
 use bootloader::{BootInfo, entry_point};
+use spin::mutex::Mutex;
 
-use crate::fs::ramfs::{FileSystem, Permission};
+use crate::{arch::x86_64::addr::VirtAddr, fs::ramfs::{FileSystem, Permission}};
+use lazy_static::lazy_static;
+
+lazy_static! {
+	pub static ref PHYS_MEM_OFFSET: Mutex<VirtAddr> = Mutex::new(VirtAddr::new(0x0));
+}
 
 #[cfg(test)]
 entry_point!(test_kernel_main);

@@ -1,6 +1,8 @@
 # Nullex Kernel
 Small, modular hobby kernel written in Rust — designed to be easy to extend and learn from.
 
+Please read [current_spec.txt](https://github.com/Peggun/nullex/blob/master/current_spec.txt) to understand what is going on.
+
 ## Getting Started
 
 ### Prerequisites
