@@ -38,6 +38,8 @@ make run
 ### Contributing
 Contributions are welcome! Please check out our [CONTRIBUTING.md](https://github.com/Peggun/nullex/blob/master/CONTRIBUTING.md) for details on our code of conduct, and the process for submitting pull requests.
 
+However, just a quick side note. Unfortunately, if you are wanting to develop the UEFI program, you have to be on Linux, as MSYS2 doesnt support the libraries that are needed for the development process.
+
 ### License
 This project is licensed under the MIT License – see the [LICENSE](https://github.com/Peggun/nullex/blob/master/LICENSE) file for details.
 

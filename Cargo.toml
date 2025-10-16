@@ -3,6 +3,9 @@ name = "nullex"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["staticlib"]
+
 [dependencies]
 volatile = "0.2.6"
 bootloader = { version = "0.9", features = ["map_physical_memory"] }
@@ -12,7 +15,6 @@ pic8259 = "0.10.1"
 pc-keyboard = "0.7.0"
 linked_list_allocator = "0.10.2"
 spin = "0.9.8"
-bitflags = "2.8.0"
 hashbrown = { version = "0.15.2", features = ["inline-more"] }
 crossbeam = { version = "0.8.4", default-features = false, features = ["alloc"] }
 futures = { version = "0.3", default-features = false }
@@ -21,7 +23,8 @@ raw-cpuid = "11.6.0"
 
 logos = { version = "0.15.1", default-features = false, features = ["export_derive", "logos-derive"]}
 chumsky = { version = "0.11.1", default-features = false }
-libc = { version = "0.2.175", default-features = false }
+bitflags = "2.9.4"
+libc = "0.2.177"
 
 [dependencies.lazy_static]
 version = "1.0"
@@ -51,19 +54,3 @@ features = ["libm"]
 
 #[profile.release]
 #panic = "abort"
-
-[package.metadata.bootimage]
-test-args = [
-    "-device", "isa-debug-exit,iobase=0xf4,iosize=0x04", "-serial", "stdio",
-    "-display", "none"
-]
-test-success-exit-code = 33         # (0x10 << 1) | 1
-test-timeout = 300          # (in seconds)  
-
-[[test]]
-name = "should_panic"
-harness = false
-
-[[test]]
-name = "stack_overflow"
-harness = false

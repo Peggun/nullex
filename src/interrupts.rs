@@ -4,7 +4,7 @@
 Interrupt handling module for the kernel.
 */
 
-use core::{arch::asm, sync::atomic::Ordering};
+use core::{arch::asm, mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};
 
 use lazy_static::lazy_static;
 use pic8259::ChainedPics;
@@ -28,36 +28,38 @@ pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 // We'll keep the PIC for devices such as the keyboard.
 pub static PICS: spin::Mutex<ChainedPics> =
 	spin::Mutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
+	
+static mut IDT_STORAGE: MaybeUninit<InterruptDescriptorTable> = MaybeUninit::uninit();
+static IDT_INITED: AtomicBool = AtomicBool::new(false);
 
-lazy_static! {
-	static ref IDT: InterruptDescriptorTable = {
-		let mut idt = InterruptDescriptorTable::new();
-
-		// Standard exception handlers.
-		idt.breakpoint.set_handler_fn(breakpoint_handler);
-		idt.page_fault.set_handler_fn(page_fault_handler);
-		unsafe {
-			idt.double_fault
-				.set_handler_fn(double_fault_handler)
-				.set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
-
-			// For the timer, switch from the PIC timer handler to the APIC timer handler.
-			idt[InterruptIndex::Timer.as_usize()].set_handler_fn(apic_timer_handler);
-
-			// Leave the keyboard handler using PIC (for example).
-			idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
-
-			idt[InterruptIndex::Serial.as_usize()].set_handler_fn(serial_input_interrupt_handler);
-
-			idt[0x80].set_handler_fn(syscall_handler);
-		}
-		idt
-	};
-}
-
-/// Loads the Interrupt Descriptor Table.
+/// Initialises the IDT Table
+/// Revamped as the lazy_static! made the kernel boot loop.
 pub fn init_idt() {
-	IDT.load();
+    x86_64::instructions::interrupts::disable();
+
+    let mut local_idt = InterruptDescriptorTable::new();
+
+    local_idt.breakpoint.set_handler_fn(breakpoint_handler);
+    local_idt.page_fault.set_handler_fn(page_fault_handler);
+	local_idt.double_fault.set_handler_fn(double_fault_handler);
+	local_idt[InterruptIndex::Timer.as_usize()].set_handler_fn(apic_timer_handler);
+    local_idt[InterruptIndex::Keyboard.as_usize()].set_handler_fn(keyboard_interrupt_handler);
+    local_idt[InterruptIndex::Serial.as_usize()].set_handler_fn(serial_input_interrupt_handler);
+    local_idt[0x80].set_handler_fn(syscall_handler);
+
+    unsafe {
+		let storage_ptr: *mut MaybeUninit<InterruptDescriptorTable> = core::ptr::addr_of_mut!(IDT_STORAGE);
+
+		let idt_ptr = storage_ptr as *mut InterruptDescriptorTable;
+
+		// write the idt directly to memory
+		core::ptr::write(idt_ptr, local_idt);
+		let idt_ref: &InterruptDescriptorTable = &*idt_ptr;
+
+		idt_ref.load();
+	}
+    IDT_INITED.store(true, core::sync::atomic::Ordering::SeqCst);
+    x86_64::instructions::interrupts::enable();
 }
 
 /// Breakpoint exception handler.

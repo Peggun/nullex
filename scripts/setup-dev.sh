@@ -19,7 +19,7 @@ fi
 install_on_apt() {
   echo "-- Detected apt (Debian/Ubuntu). Installing build-essential, llvm, qemu, python..."
   $SUDO_PREFIX apt update
-  $SUDO_PREFIX apt install -y build-essential curl git ca-certificates \
+  $SUDO_PREFIX apt install -y build-essential curl git ca-certificates uuid-dev nasm acpica-tools ovmf dosfstools parted \
       qemu-system-x86 qemu-utils clang python3
   $SUDO_PREFIX bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
   echo "-- apt installs finished"
@@ -28,7 +28,7 @@ install_on_apt() {
 install_on_pacman() {
   echo "-- Detected pacman (Arch). Installing base-devel group, llvm, qemu, python..."
   $SUDO_PREFIX pacman -Sy --noconfirm
-  $SUDO_PREFIX pacman -S --needed --noconfirm base-devel qemu llvm clang curl git python
+  $SUDO_PREFIX pacman -S --needed --noconfirm base-devel qemu llvm clang curl git python ovmf libuuid nasm acpica ovmf dosfstools parted
   echo "-- pacman installs finished"
 }
 
@@ -39,12 +39,12 @@ install_on_dnf() {
     echo "-- dnf groupinstall completed"
   else
     echo "-- dnf groupinstall failed/unsupported: falling back to core packages"
-    $SUDO_PREFIX dnf -y install make automake gcc gcc-c++ kernel-devel
+    $SUDO_PREFIX dnf -y install make automake gcc gcc-c++ kernel-devel 
   fi
 
   # install qemu/kvm and llvm/clang and python
   $SUDO_PREFIX dnf -y install qemu-kvm qemu-img qemu-system-x86 llvm clang curl git || \
-    $SUDO_PREFIX dnf -y install qemu qemu-img llvm clang curl git python3
+    $SUDO_PREFIX dnf -y install qemu qemu-img llvm clang curl git python3 libuuid-devel nasm acpica-tools edk2-ovmf dosfstools parted
   echo "-- dnf installs finished"
 }
 
@@ -160,6 +160,26 @@ else
   echo "cargo not found — rustup may not have finished; make sure ~/.cargo/bin is on your PATH and re-run 'cargo install bootimage'"
 fi
 
+echo "-- Installing EDK II"
+cd ~
+
+mkdir edk2 && cd edk2
+export WORKSPACE=$PWD
+
+git clone https://github.com/tianocore/edk2.git -b"stable/202508"
+git clone https://github.com/tianocore/edk2-platforms.git
+git clone https://github.com/tianocore/edk2-non-osi.git
+cd edk2 && git submodule update --init
+cd ../edk2-platforms && git submodule update --init && cd ..
+
+export EDK_TOOLS_PATH="$PWD/BaseTools"
+export PACKAGES_PATH="~/nullex:$PWD/edk2:$PWD/edk2-platforms:$PWD/edk2-non-osi"
+
+. edk2/edksetup.sh
+make -C edk2/BaseTools
+
+sed -i '211i uefi/NullexUefi.inf' ~/edk2/edk2/MdeModulePkg/MdeModulePkg.dsc
+
 # --- final: quick summary of installed versions ---
 echo
 echo "=== Setup summary ==="
@@ -198,6 +218,8 @@ if command -v rustup >/dev/null 2>&1; then
   echo "Installed rustup components for nightly:"
   rustup component list --toolchain nightly --installed || true
 fi
+
+
 
 echo
 echo "Local PATH additions attempted:"

@@ -1,45 +1,71 @@
-// https://github.com/StephanvanSchaik/simple-bits/blob/main/src/lib.rs
+
 // im not very good with bitwise ops. this helped alot.
-
-use core::ops::Range;
-
-use crate::println;
-
 pub trait BitsExt {
-    fn extract_bit(self, index: usize) -> bool;
-    fn extract_bits(self, range: Range<usize>) -> Self;
-    fn replace_bit(self, index: usize, value: bool) -> Self;
-    fn replace_bits(self, range: Range<usize>, value: Self) -> Self;
+    const LENGTH: usize;
+
+    fn get_bit(&self, index: usize) -> bool;
+    fn get_bits(&self, from: usize, to: usize) -> Self;
+    fn set_bit(&self, index: usize, value: bool) -> Self;
+    fn set_bits(&self, from: usize, to: usize, value: usize) -> Self;
 }
 
 macro_rules! bits_ext_impl_for {
     ($t:ident) => {
         impl BitsExt for $t {
-            fn extract_bit(self, index: usize) -> bool {
-                (self >> index) & 1 == 1
+
+            // https://stackoverflow.com/questions/47981/how-to-set-clear-and-toggle-a-single-bit
+            // https://stackoverflow.com/questions/22662807/c-most-efficient-way-to-set-all-bits-in-a-range-within-a-variable
+
+            const LENGTH: usize = core::mem::size_of::<Self>() as usize * 8;
+
+            fn get_bit(&self, index: usize) -> bool {
+                if index < Self::LENGTH {
+                    return (*self & (1 << index)) != 0;
+                }
+                false
             }
 
-            fn extract_bits(self, range: Range<usize>) -> Self {
-                (self >> range.start) & ((1 << range.len()) - 1)
+            fn get_bits(&self, from: usize, to: usize) -> Self {
+                if from >= Self::LENGTH || to > Self::LENGTH || from >= to {
+                    return 0;
+                }
+
+                let width = to - from;
+                if width == 0 {
+                    return 0;
+                }
+
+                let mask: Self = (!0 as Self) >> (Self::LENGTH - width);
+
+                (*self >> from) & mask
             }
 
-            fn replace_bit(self, index: usize, value: bool) -> Self {
-                (self & !(1 << index)) | ((value as Self) << index)
+            fn set_bit(&self, index: usize, val: bool) -> Self {
+                let x: Self = if val == true { 1 } else { 0 };
+
+                if index < Self::LENGTH {
+                    return (*self & !(1 << index)) | (x << index);  
+                }
+                0
             }
 
-            // had to change this.
-            fn replace_bits(self, range: Range<usize>, value: Self) -> Self {
-                let len = range.len();
-                let mask: u64 = if len >= 64 {
-                    !0u64
-                } else {
-                    (1u64 << len) - 1u64
-                };
+            fn set_bits(&self, from: usize, to: usize, value: usize) -> Self {
+                if from >= Self::LENGTH || to > Self::LENGTH || from >= to {
+                    return 0;
+                }
 
-                (self & !(mask << range.start) as Self) | ((value & mask as Self) << range.start)
+                let width = to - from;
+                if width == 0 {
+                    return 0;
+                }
+
+                let mask: Self = (!0 as Self) >> (Self::LENGTH >> width);
+
+                let val_trunc = (value as Self) & mask;
+                ((*self & !(mask << from)) | (val_trunc << from))
             }
         }
-    };
+    }
 }
 
 bits_ext_impl_for!(u8);
