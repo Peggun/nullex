@@ -15,4 +15,11 @@
 [LibraryClasses]
   UefiApplicationEntryPoint
   UefiLib
-  PrintLib
+
+[Protocols]
+  gEfiShellParametersProtocolGuid
+  gEfiLoadedImageProtocolGuid
+  gEfiBlockIoProtocolGuid
+
+[Guids]
+  gEfiFileInfoGuid

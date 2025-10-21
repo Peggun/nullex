@@ -6,7 +6,8 @@
                 "${workspaceFolder}/**",
                 "~/edk2/edk2/MdePkg/Include",
                 "~/edk2/edk2/MdePkg/Include/X64",
-                "~/edk2/edk2/MdePkg/Include/IndustryStandard"
+                "~/edk2/edk2/MdePkg/Include/IndustryStandard",
+                "~/edk2/edk2/MdeModulePkg/Include/Library/**"
             ],
             "defines": [
                 "_DEBUG",
@@ -26,7 +27,8 @@
                 "${workspaceFolder}/**",
                 "~/edk2/edk2/MdePkg/Include",
                 "~/edk2/edk2/MdePkg/Include/X64",
-                "~/edk2/edk2/UefiPayloadPkg/**"
+                "~/edk2/edk2/UefiPayloadPkg/**",
+                "~/edk2/edk2/MdeModulePkg/Include/Library/**"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/clang",

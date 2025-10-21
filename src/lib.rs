@@ -122,16 +122,27 @@ func main() {
 	fs::init_fs(fs);
 }
 
+#[repr(C)]
+#[derive(Debug)]
+pub struct BootInfo {
+	memory_map: *const u8,
+    memory_map_size: usize,
+    descriptor_size: usize,
+    descriptor_version: u32,
+    physical_memory_offset: u64,
+    kernel_entry_phys: u64,
+}
 
 #[unsafe(no_mangle)]
-fn kernel_main() -> ! {
+fn kernel_main(boot_info: *const BootInfo) -> ! {
 	WRITER.lock().clear_everything();
 	println!("[Info] Starting Kernel Init...");
 
+	println!("{:#?}", boot_info);
 
-	// // let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-	// // let mut mapper = unsafe { memory::init(phys_mem_offset) };
-	// // let mut frame_allocator = BootInfoFrameAllocator::init(&boot_info.memory_map);
+	// let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
+	// let mut mapper = unsafe { memory::init(phys_mem_offset) };
+	// let mut frame_allocator = BootInfoFrameAllocator::init(&boot_info.memory_map);
 
 	unsafe {
 		PICS.lock().write_masks(0b11111101, 0b11111111);
