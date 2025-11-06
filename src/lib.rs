@@ -47,18 +47,14 @@ use lazy_static::lazy_static;
 
 use alloc::boxed::Box;
 use core::{
-	future::Future,
-	pin::Pin,
-	sync::atomic::Ordering,
-	task::{Context, Poll}
+	arch::asm, future::Future, pin::Pin, sync::atomic::Ordering, task::{Context, Poll}
 };
 
 use crate::{
-	apic::write_register, constants::{initialize_constants, SYSLOG_SINK}, fs::ramfs::{FileSystem, Permission}, interrupts::{init_idt, PICS}, task::{
-		executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard, Process
+	apic::write_register, constants::{SYSLOG_SINK, initialize_constants}, fs::ramfs::{FileSystem, Permission}, interrupts::{PICS, init_idt}, memory::BootInfoFrameAllocator, task::{
+		Process, executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard
 	}, utils::{
-		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
-		process::spawn_process
+		crash::backtrace_current, logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, multiboot2::parse_multiboot2, process::spawn_process
 	}, vga_buffer::WRITER
 };
 
@@ -123,26 +119,24 @@ func main() {
 }
 
 #[repr(C)]
-#[derive(Debug)]
-pub struct BootInfo {
-	memory_map: *const u8,
-    memory_map_size: usize,
-    descriptor_size: usize,
-    descriptor_version: u32,
-    physical_memory_offset: u64,
-    kernel_entry_phys: u64,
+pub struct MultibootBootInfo {
+	pub flags: usize,
+	pub mem_lower: usize,
+	pub mem_upper: usize
 }
 
 #[unsafe(no_mangle)]
-fn kernel_main(boot_info: *const BootInfo) -> ! {
+pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	WRITER.lock().clear_everything();
 	println!("[Info] Starting Kernel Init...");
 
-	println!("{:#?}", boot_info);
+	let boot_info = unsafe { parse_multiboot2(mbi_addr) };
 
-	// let phys_mem_offset = VirtAddr::new(boot_info.physical_memory_offset);
-	// let mut mapper = unsafe { memory::init(phys_mem_offset) };
-	// let mut frame_allocator = BootInfoFrameAllocator::init(&boot_info.memory_map);
+
+	let pmo = PHYS_MEM_OFFSET.lock();
+	let mut mapper = unsafe { memory::init(*pmo) };
+	let memory_map_static: &'static _ = unsafe { core::mem::transmute(&boot_info.memory_map) };
+	let mut frame_allocator = BootInfoFrameAllocator::init(memory_map_static);
 
 	unsafe {
 		PICS.lock().write_masks(0b11111101, 0b11111111);
@@ -150,14 +144,14 @@ fn kernel_main(boot_info: *const BootInfo) -> ! {
 
 	crate::init();
 
-	// // match allocator::init_heap(&mut mapper, &mut frame_allocator) {
-	// // 	Ok(()) => println!("Heap initialized successfully"),
-	// // 	Err(e) => panic!("Heap initialization failed: {:?}", e)
-	// // }
+	match allocator::init_heap(&mut mapper, &mut frame_allocator) {
+		Ok(()) => println!("Heap initialized successfully"),
+	  	Err(e) => panic!("Heap initialization failed: {:?}", e)
+	}
 
-	// // unsafe { apic::enable_apic() };
-	// // memory::map_apic(&mut mapper, &mut frame_allocator);
-	// // unsafe { apic::init_timer() };
+	unsafe { apic::enable_apic() };
+	memory::map_apic(&mut mapper, &mut frame_allocator, *pmo);
+	unsafe { apic::init_timer() };
 	initialize_constants();
 
 	let fs = FileSystem::new();
@@ -169,12 +163,19 @@ fn kernel_main(boot_info: *const BootInfo) -> ! {
 
 	println!("[Info] Done.");
 
-	SYSLOG_SINK.log("Initialized Main Kernel Successfully\n", LogLevel::Info);
+	//SYSLOG_SINK.log("Initialized Main Kernel Successfully\n", LogLevel::Info);
 
 	WRITER.lock().clear_everything();
 	// WRITER.lock().set_colors(Color16::White, Color16::Black);
 
-	crate::keyboard::commands::init_commands();
+	// Run init_commands in its own process so it doesn't run on the boot/kernel stack.
+	let _cmds_pid = spawn_process(
+		|_state| Box::pin(async move {
+			crate::keyboard::commands::init_commands();
+			0
+		}) as Pin<Box<dyn Future<Output = i32>>>,
+		false
+	);
 	// init_serial_input();
 	// init_serial_commands();
 

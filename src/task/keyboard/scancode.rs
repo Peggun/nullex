@@ -139,7 +139,7 @@ pub async fn print_keypresses() -> i32 {
 						|| key == KeyCode::RControl
 						|| key == KeyCode::RControl2
 					{
-						print!("^C\ntest@nullex: {} $ ", *CWD.lock());
+						print_colours!(("^C", Color::White), ("test", Color::Green), (&format!("@nullex: {} $ ", *CWD.lock()), Color::White));
 						line.clear();
 					} else if key == KeyCode::ArrowUp {
 						uparrow_completion(&mut line);
@@ -160,7 +160,10 @@ pub async fn print_keypresses() -> i32 {
 					// escape: clear screen
 					} else if c as u8 == 27 {
 						WRITER.lock().clear_everything();
-						print!("test@nullex: {} $ ", *CWD.lock());
+						print_colours!(
+							("test", Color::Green),
+							(&format!("@nullex: {} $ ", *CWD.lock()), Color::White)
+						);
 						continue;
 
 					// tab: handle tab completion
@@ -182,7 +185,10 @@ pub async fn print_keypresses() -> i32 {
 						// are released before processing the command.
 						yield_now().await;
 						crate::task::keyboard::commands::run_command(&command_line);
-						print!("test@nullex: {} $ ", *CWD.lock());
+						print_colours!(
+							("test", Color::Green),
+							(&format!("@nullex: {} $ ", *CWD.lock()), Color::White)
+						);
 					} else {
 						line.push(c);
 					}

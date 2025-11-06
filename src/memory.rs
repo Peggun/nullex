@@ -21,32 +21,37 @@ use x86_64::{
 	}
 };
 
-use crate::println;
+use crate::{println, serial_println, utils::multiboot2::{__link_phys_base, _end}};
 
 pub fn map_apic(
-	mapper: &mut impl Mapper<Size4KiB>,
-	frame_allocator: &mut impl FrameAllocator<Size4KiB>
+    mapper: &mut impl Mapper<Size4KiB>,
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+    physical_memory_offset: VirtAddr,
 ) {
-	println!("[Info] Mapping APIC Timer...");
+    println!("[Info] Mapping APIC Timer...");
 
-	let apic_phys_start = 0xFEE00000;
-	let apic_page = Page::containing_address(VirtAddr::new(apic_phys_start));
-	let apic_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+    const APIC_PHYS_START: u64 = 0xFEE0_0000u64;
+    let apic_phys = PhysAddr::new(APIC_PHYS_START);
+    let apic_frame = PhysFrame::containing_address(apic_phys);
 
-	unsafe {
-		mapper
-			.map_to(
-				apic_page,
-				PhysFrame::containing_address(PhysAddr::new(apic_phys_start)),
-				apic_flags,
-				frame_allocator
-			)
-			.unwrap()
-			.flush();
-	}
+    // compute the virtual address we actually use to access physical memory
+    let apic_virt = VirtAddr::new(physical_memory_offset.as_u64() + APIC_PHYS_START);
+    let apic_page = Page::containing_address(apic_virt);
 
-	println!("[Info] Done.");
+    let apic_flags = PageTableFlags::PRESENT
+        | PageTableFlags::WRITABLE
+        | PageTableFlags::NO_CACHE;
+
+    unsafe {
+        mapper
+            .map_to(apic_page, apic_frame, apic_flags, frame_allocator)
+            .unwrap()
+            .flush();
+    }
+
+    println!("[Info] Done.");
 }
+
 
 /// A FrameAllocator that returns usable frames from the bootloader's memory
 /// map.
@@ -66,16 +71,21 @@ impl BootInfoFrameAllocator {
 
 	/// Returns an iterator over the usable frames specified in the memory map.
 	fn usable_frames(&self) -> impl Iterator<Item = PhysFrame> {
-		// get usable regions from memory map
-		let regions = self.memory_map.iter();
-		let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
-		// map each region to its address range
-		let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
-		// transform to an iterator of frame start addresses
-		let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096));
-		// create `PhysFrame` types from the start addresses
-		frame_addresses.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
-	}
+        let regions = self.memory_map.iter();
+        let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
+
+        // kernel bounds (physical addresses)
+        let kernel_start = unsafe { &__link_phys_base as *const _ as u64 };
+        let kernel_end   = unsafe { &_end as *const _ as u64 };
+
+        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
+
+        let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096));
+
+        frame_addresses
+            .filter(move |addr| (addr < &kernel_start) || (addr >= &kernel_end))
+            .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+    }
 }
 
 pub struct EmptyFrameAllocator;

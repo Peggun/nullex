@@ -16,8 +16,10 @@ You can build the project through running
 ```sh
 make build
 ```
-Which will build everything and output a .bin file within:
-target/x86_64-unknown-none/debug/bootimage-nullex.bin
+Which will build everything and output a `.bin` and `.iso` file within:
+`build/os-x86_64.iso`
+and
+`build/kernel-x86_64.bin`
 
 #### Testing
 To run the test suite (which isnt really used currently) you can run:
@@ -28,17 +30,11 @@ cargo test
 #### Running
 Run the QEMU Emulator:
 ```bash
-cargo run -- -drive format=raw,file=ext2test.img,index=1,media=disk,if=ide -serial mon:stdio
-```
-or (recommended)
-```bash
 make run
 ```
 
 ### Contributing
-Contributions are welcome! Please check out our [CONTRIBUTING.md](https://github.com/Peggun/nullex/blob/master/CONTRIBUTING.md) for details on our code of conduct, and the process for submitting pull requests.
-
-However, just a quick side note. Unfortunately, if you are wanting to develop the UEFI program, you have to be on Linux, as MSYS2 doesnt support the libraries that are needed for the development process.
+Contributions are welcome! Please check out the [CONTRIBUTING.md](https://github.com/Peggun/nullex/blob/master/CONTRIBUTING.md) for details on the code of conduct, and the process for submitting pull requests.
 
 ### License
 This project is licensed under the MIT License – see the [LICENSE](https://github.com/Peggun/nullex/blob/master/LICENSE) file for details.

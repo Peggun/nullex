@@ -1,71 +1,60 @@
-/* linker-identity.ld */
 ENTRY(start)
 
-OUTPUT_FORMAT("elf64-x86-64")
-OUTPUT_ARCH(i386:x86-64)
+SECTIONS
+{
+    . = 0x1000;
+    .multiboot_header : {
+        KEEP(*(.multiboot_header))
+    }
 
-SECTIONS {
-  /* Link / load at 1 MiB (common for kernels and GRUB) */
-  . = 1M;
+    PROVIDE(__link_phys_base = 0x00100000);
+    . = __link_phys_base;
 
-  /* Put multiboot header first in the image */
-  .multiboot_header :
-  {
-    KEEP(*(.multiboot_header))
-  }
+    PROVIDE(__text_addr = .);
 
-  .rodata : ALIGN(4K)
-  {
-    *(.rodata .rodata.*)
-    . = ALIGN(4K);
-  }
+    .rodata : ALIGN(0x1000) {
+        *(.rodata .rodata.*)
+        . = ALIGN(0x1000);
+    }
 
-  .text : ALIGN(4K)
-  {
-    *(.text .text.*)
-    . = ALIGN(4K);
-  }
+    .text : ALIGN(0x1000) {
+        *(.text .text.*)
+        . = ALIGN(0x1000);
+    }
 
-  .data : ALIGN(4K)
-  {
-    *(.data .data.*)
-    . = ALIGN(4K);
-  }
+    .got : ALIGN(0x1000) {
+        *(.got)
+        . = ALIGN(0x1000);
+    }
 
-  .bss : ALIGN(4K)
-  {
-    __bss_start = .;
-    *(.bss .bss.*)
-    *(COMMON)
-    . = ALIGN(4K);
-    __bss_end = .;
-  }
+    .got.plt : ALIGN(0x1000) {
+        *(.got.plt)
+        . = ALIGN(0x1000);
+    }
 
-  .got :
-  {
-    *(.got)
-    . = ALIGN(4K);
-  }
+    .data.rel.ro : ALIGN(0x1000) {
+        *(.data.rel.ro.local*) *(.data.rel.ro .data.rel.ro.*)
+        . = ALIGN(0x1000);
+    }
 
-  .got.plt :
-  {
-    *(.got.plt)
-    . = ALIGN(4K);
-  }
+    .gcc_except_table : ALIGN(0x1000) {
+        *(.gcc_except_table)
+        . = ALIGN(0x1000);
+    }
 
-  .data.rel.ro : ALIGN(4K)
-  {
-    *(.data.rel.ro.local*) *(.data.rel.ro .data.rel.ro.*)
-    . = ALIGN(4K);
-  }
+    .data : ALIGN(0x1000) {
+        *(.data .data.*)
+        . = ALIGN(0x1000);
+    }
 
-  .gcc_except_table : ALIGN(4K)
-  {
-    *(.gcc_except_table)
-    . = ALIGN(4K);
-  }
+    .bss (NOLOAD) : ALIGN(0x1000) {
+        _bss = .;
+        *(.bss .bss.*)
+        *(COMMON)
+        _ebss = .;
+        . = ALIGN(0x1000);
+    }
 
-  /* exported helper symbols */
-  _kernel_start = 1M;
-  _kernel_end = .;
+    /* Final end symbol */
+    PROVIDE(_end = .);
 }

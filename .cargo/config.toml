@@ -5,6 +5,10 @@ bindeps = true
 
 [build]
 target = "x86_64-unknown-none.json"
+rustflags = [
+  "-C", "force-frame-pointers=yes",
+  "-C", "debuginfo=2",
+]
 
 [env]
 AS = "x86_64-elf-as"

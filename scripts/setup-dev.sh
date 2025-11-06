@@ -160,26 +160,6 @@ else
   echo "cargo not found — rustup may not have finished; make sure ~/.cargo/bin is on your PATH and re-run 'cargo install bootimage'"
 fi
 
-echo "-- Installing EDK II"
-cd ~
-
-mkdir edk2 && cd edk2
-export WORKSPACE=$PWD
-
-git clone https://github.com/tianocore/edk2.git -b"stable/202508"
-git clone https://github.com/tianocore/edk2-platforms.git
-git clone https://github.com/tianocore/edk2-non-osi.git
-cd edk2 && git submodule update --init
-cd ../edk2-platforms && git submodule update --init && cd ..
-
-export EDK_TOOLS_PATH="$PWD/BaseTools"
-export PACKAGES_PATH="~/nullex:$PWD/edk2:$PWD/edk2-platforms:$PWD/edk2-non-osi"
-
-. edk2/edksetup.sh
-make -C edk2/BaseTools
-
-sed -i '211i uefi/NullexUefi.inf' ~/edk2/edk2/MdeModulePkg/MdeModulePkg.dsc
-
 # --- final: quick summary of installed versions ---
 echo
 echo "=== Setup summary ==="

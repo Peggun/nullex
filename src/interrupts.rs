@@ -19,7 +19,7 @@ use crate::{
 	serial::add_byte,
 	serial_println,
 	syscall::syscall,
-	task::executor::CURRENT_PROCESS
+	task::executor::CURRENT_PROCESS, utils::crash::backtrace_current
 };
 
 pub const PIC_1_OFFSET: u8 = 32;

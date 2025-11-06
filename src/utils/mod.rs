@@ -4,3 +4,6 @@ pub mod logger;
 pub mod process;
 pub mod math;
 pub mod bits;
+pub mod multiboot2;
+pub mod elf;
+pub mod crash;

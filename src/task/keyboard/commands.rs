@@ -177,6 +177,8 @@ pub fn init_commands() {
 		help: "Kill a process",
 		cmd_type: CommandType::Generic
 	});
+
+	// to be removed.
 	register_command(Command {
 		name: "nulx",
 		func: run, // nulx_run
@@ -189,6 +191,7 @@ pub fn init_commands() {
 		help: "Edit any files within Nullex",
 		cmd_type: CommandType::Application
 	});
+	
 	register_command(Command {
 		name: "uptime",
 		func: uptime,

@@ -100,3 +100,4 @@ pub unsafe fn get_cpu_clock() -> u32 {
 
 	result
 }
+
