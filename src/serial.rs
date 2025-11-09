@@ -5,24 +5,161 @@ Serial Interface module for the kernel.
 */
 
 use alloc::string::String;
-use core::{arch::asm, task::Poll};
+use bitflags::bitflags;
+use core::{arch::asm, fmt, hint::spin_loop, task::Poll};
 
 use conquer_once::spin::OnceCell;
 use crossbeam_queue::ArrayQueue;
 use futures::{Stream, StreamExt, task::AtomicWaker};
 use lazy_static::lazy_static;
 use spin::Mutex;
-use uart_16550::SerialPort;
 use x86_64::instructions::interrupts;
 
 use crate::{
-	println,
-	serial_print,
-	serial_println,
-	serial_raw_print,
-	task::yield_now,
-	utils::kfunc::run_serial_command
+	common::ports::{inb, outb}, println, serial_print, serial_println, serial_raw_print, task::yield_now, utils::kfunc::run_serial_command
 };
+
+#[derive(Debug)]
+pub struct SerialPort(u16);
+
+impl SerialPort {
+    fn port_base(&self) -> u16 {
+        self.0
+    }
+
+    fn port_data(&self) -> u16 {
+        self.port_base()
+    }
+
+	fn port_int_en(&self) -> u16 {
+        self.port_base() + 1
+    }
+
+    fn port_fifo_ctrl(&self) -> u16 {
+        self.port_base() + 2
+    }
+
+    fn port_line_ctrl(&self) -> u16 {
+        self.port_base() + 3
+    }
+
+	fn port_modem_ctrl(&self) -> u16 {
+        self.port_base() + 4
+    }
+
+
+    fn port_line_sts(&self) -> u16 {
+        self.port_base() + 5
+    }
+
+    pub unsafe fn new(base: u16) -> Self {
+        Self(base)
+    }
+
+    pub fn init(&mut self) {
+        unsafe {
+            outb(self.port_int_en(), 0x00);
+
+            outb(self.port_line_ctrl(), 0x80);
+
+            outb(self.port_data(), 0x03);
+            outb(self.port_int_en(), 0x00);
+
+            outb(self.port_line_ctrl(), 0x03);
+
+            outb(self.port_fifo_ctrl(), 0xc7);
+
+            outb(self.port_modem_ctrl(), 0x0b);
+
+            outb(self.port_int_en(), 0x01);
+        }
+    }
+
+    fn line_sts(&mut self) -> LineStatusFlags {
+        unsafe { LineStatusFlags::from_bits_truncate(inb(self.port_line_sts())) }
+    }
+
+    pub fn send(&mut self, data: u8) {
+        match data {
+            8 | 0x7F => {
+                self.send_raw(8);
+                self.send_raw(b' ');
+                self.send_raw(8);
+            }
+            0x0A => {
+                self.send_raw(0x0D);
+                self.send_raw(0x0A);
+            }
+            data => {
+                self.send_raw(data);
+            }
+        }
+    }
+
+    pub fn send_raw(&mut self, data: u8) {
+        loop {
+			if let Ok(ok) = self.try_send_raw(data) {
+				break ok;
+			}
+
+			spin_loop();
+		}
+    }
+
+    pub fn try_send_raw(&mut self, data: u8) -> Result<(), SerialPortError> {
+        if self.line_sts().contains(LineStatusFlags::OUTPUT_EMPTY) {
+            unsafe {
+                outb(self.port_data(), data);
+            }
+            Ok(())
+        } else {
+            Err(SerialPortError::SerialPortError)
+        }
+    }
+
+    pub fn receive(&mut self) -> u8 {
+		loop {
+			if let Ok(ok) = self.try_receive() {
+				break ok;
+			}
+
+			spin_loop();
+		}
+    }
+
+	
+    pub fn try_receive(&mut self) -> Result<u8, SerialPortError> {
+        if self.line_sts().contains(LineStatusFlags::INPUT_FULL) {
+            let data = unsafe { inb(self.port_data()) };
+            Ok(data)
+        } else {
+            Err(SerialPortError::SerialPortError)
+        }
+    }
+}
+
+impl fmt::Write for SerialPort {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        for byte in s.bytes() {
+            self.send(byte);
+        }
+        Ok(())
+    }
+}
+
+// https://git.berlin.ccc.de/vinzenz/redox/src/commit/9040789987a987299ac222372c28ddb7382afb53/arch/x86_64/src/device/serial.rs
+bitflags! {
+	pub struct LineStatusFlags: u8 {
+		const INPUT_FULL = 1;
+		const OUTPUT_EMPTY = 1 << 5;
+	}
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum SerialPortError {
+	#[error("Serial Port Error.")]
+	SerialPortError,
+}
 
 static SERIAL_SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
 static SERIAL_WAKER: AtomicWaker = AtomicWaker::new();
@@ -174,7 +311,7 @@ pub fn _send_raw_serial(bytes: &[u8]) {
 	interrupts::without_interrupts(|| {
 		let mut serial = SERIAL1.lock();
 		for &b in bytes {
-			serial.send_raw(b);
+			serial.send(b);
 		}
 	})
 }

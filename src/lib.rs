@@ -47,11 +47,11 @@ use lazy_static::lazy_static;
 
 use alloc::boxed::Box;
 use core::{
-	arch::asm, future::Future, pin::Pin, sync::atomic::Ordering, task::{Context, Poll}
+	arch::asm, future::Future, hint::spin_loop, pin::Pin, sync::atomic::Ordering, task::{Context, Poll}
 };
 
 use crate::{
-	apic::write_register, constants::{SYSLOG_SINK, initialize_constants}, fs::ramfs::{FileSystem, Permission}, interrupts::{PICS, init_idt}, memory::BootInfoFrameAllocator, task::{
+	apic::write_register, common::ports::{inb, outb}, constants::{SYSLOG_SINK, initialize_constants}, fs::ramfs::{FileSystem, Permission}, interrupts::{PICS, init_idt}, memory::BootInfoFrameAllocator, task::{
 		Process, executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard
 	}, utils::{
 		crash::backtrace_current, logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, multiboot2::parse_multiboot2, process::spawn_process
@@ -61,6 +61,18 @@ use crate::{
 
 lazy_static! {
 	pub static ref PHYS_MEM_OFFSET: Mutex<VirtAddr> = Mutex::new(VirtAddr::new(0x0));
+}
+
+pub fn raw_serial_test() {
+    unsafe {
+        for &b in b"HELLO\r\n" {
+            // wait for Transmitter Holding Register Empty (LSR bit 5)
+            while (inb(0x3F8 + 5) & 0x20) == 0 {
+                spin_loop();
+            }
+            outb(0x3F8, b);
+        }
+    }
 }
 
 pub fn init() {
@@ -143,6 +155,7 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	}
 
 	crate::init();
+
 
 	match allocator::init_heap(&mut mapper, &mut frame_allocator) {
 		Ok(()) => println!("Heap initialized successfully"),

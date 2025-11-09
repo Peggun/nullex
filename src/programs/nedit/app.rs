@@ -43,7 +43,7 @@ pub static mut MADE_CHANGES: bool = false;
 
 pub fn nedit_app(args: &[&str]) {
 
-	println!("code is depreciated. a kernel doesnt actually need these. when a package manager becomes available for nullex, i will happily add this to the repo.");
+	println!("code is deprecated. a kernel doesnt actually need these. when a package manager becomes available for nullex, i will happily add this to the repo.");
 	return;
 
 	if args.is_empty() {
