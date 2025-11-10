@@ -18,7 +18,6 @@ Kernel module for the kernel.
 
 #[macro_use]
 extern crate alloc;
-extern crate spin;
 extern crate libc;
 extern crate core;
 
@@ -40,7 +39,6 @@ pub mod task;
 pub mod utils;
 pub mod vga_buffer;
 
-use spin::mutex::Mutex;
 use x86_64::VirtAddr;
 
 use lazy_static::lazy_static;
@@ -54,13 +52,13 @@ use crate::{
 	apic::write_register, common::ports::{inb, outb}, constants::{SYSLOG_SINK, initialize_constants}, fs::ramfs::{FileSystem, Permission}, interrupts::{PICS, init_idt}, memory::BootInfoFrameAllocator, task::{
 		Process, executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard
 	}, utils::{
-		crash::backtrace_current, logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, multiboot2::parse_multiboot2, process::spawn_process
+		crash::backtrace_current, logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process
 	}, vga_buffer::WRITER
 };
 
 
 lazy_static! {
-	pub static ref PHYS_MEM_OFFSET: Mutex<VirtAddr> = Mutex::new(VirtAddr::new(0x0));
+	pub static ref PHYS_MEM_OFFSET: SpinMutex<VirtAddr> = SpinMutex::new(VirtAddr::new(0x0));
 }
 
 pub fn raw_serial_test() {

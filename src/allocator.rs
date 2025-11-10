@@ -21,7 +21,7 @@ use x86_64::structures::paging::{
 	mapper::MapToError
 };
 
-use crate::println;
+use crate::{println, utils::mutex::{SpinMutex, SpinMutexGuard}};
 
 pub const HEAP_START: usize = 0x_4444_4444_0000;
 pub const HEAP_SIZE: usize = 1024 * 1024;
@@ -126,17 +126,17 @@ pub fn init_heap(
 
 /// A wrapper around spin::Mutex to permit trait implementations.
 pub struct Locked<A> {
-	inner: spin::Mutex<A>
+	inner: SpinMutex<A>
 }
 
 impl<A> Locked<A> {
 	pub const fn new(inner: A) -> Self {
 		Locked {
-			inner: spin::Mutex::new(inner)
+			inner: SpinMutex::new(inner)
 		}
 	}
 
-	pub fn lock(&'_ self) -> spin::MutexGuard<'_, A> {
+	pub fn lock(&'_ self) -> SpinMutexGuard<'_, A> {
 		self.inner.lock()
 	}
 }

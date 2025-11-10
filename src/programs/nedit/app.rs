@@ -16,7 +16,6 @@ use core::{future::Future, pin::Pin};
 use crossbeam_queue::ArrayQueue;
 use lazy_static::lazy_static;
 use pc_keyboard::{HandleControl, KeyCode, KeyState, Keyboard, ScancodeSet1, layouts};
-use spin::mutex::Mutex;
 
 use crate::{
 	fs::{self, resolve_path},
@@ -24,17 +23,17 @@ use crate::{
 	println,
 	serial_println,
 	task::{
-		keyboard::{
-			commands::clear, KEYBOARD_BACKSPACE, KEYBOARD_ENTER, KEYBOARD_ESCAPE, KEYBOARD_RAW_KEYS, KEYBOARD_TAB
-		}, ProcessState
+		ProcessState, keyboard::{
+			KEYBOARD_BACKSPACE, KEYBOARD_ENTER, KEYBOARD_ESCAPE, KEYBOARD_RAW_KEYS, KEYBOARD_TAB, commands::clear
+		}
 	},
-	utils::process::spawn_process,
+	utils::{mutex::SpinMutex, process::spawn_process},
 	vga_buffer::{Buffer, BufferEntry, WRITER}
 };
 
 lazy_static! {
-	pub static ref PREV_BUFFER: Mutex<Buffer> = Mutex::new(Buffer::blank());
-	pub static ref PREV_CUR_POS: Mutex<(usize, usize)> = Mutex::new((0, 0));
+	pub static ref PREV_BUFFER: SpinMutex<Buffer> = SpinMutex::new(Buffer::blank());
+	pub static ref PREV_CUR_POS: SpinMutex<(usize, usize)> = SpinMutex::new((0, 0));
 }
 
 pub static mut CTRL_PRESSED: bool = false;

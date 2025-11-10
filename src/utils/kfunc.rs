@@ -5,9 +5,8 @@ use alloc::{
 };
 
 use lazy_static::lazy_static;
-use spin::Mutex;
 
-use crate::{apic::TICK_COUNT, serial_println, utils::cpu_utils::get_cpu_clock};
+use crate::{apic::TICK_COUNT, serial_println, utils::{cpu_utils::get_cpu_clock, mutex::SpinMutex}};
 
 pub type SerialCmdFn = fn(&[&str]);
 
@@ -19,8 +18,8 @@ pub struct SerialCommand {
 }
 
 lazy_static! {
-	static ref SERIAL_COMMAND_REGISTRY: Mutex<BTreeMap<String, SerialCommand>> =
-		Mutex::new(BTreeMap::new());
+	static ref SERIAL_COMMAND_REGISTRY: SpinMutex<BTreeMap<String, SerialCommand>> =
+		SpinMutex::new(BTreeMap::new());
 }
 
 pub fn register_serial_command(cmd: SerialCommand) {

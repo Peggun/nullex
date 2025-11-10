@@ -21,17 +21,16 @@ use crossbeam::queue::ArrayQueue;
 use futures_util::{Stream, StreamExt, task::AtomicWaker};
 use lazy_static::lazy_static;
 use pc_keyboard::{HandleControl, KeyCode, Keyboard, ScancodeSet1, layouts};
-use spin::Mutex;
 
 use crate::{
 	fs, print, print_colours, println, task::{
 		keyboard::commands::{CMD_HISTORY, CMD_HISTORY_INDEX},
 		yield_now
-	}, vga_buffer::{console_backspace, WRITER}
+	}, utils::mutex::SpinMutex, vga_buffer::{WRITER, console_backspace}
 };
 
 lazy_static! {
-	pub static ref CWD: Mutex<String> = Mutex::new("/".to_string());
+	pub static ref CWD: SpinMutex<String> = SpinMutex::new("/".to_string());
 }
 
 #[derive(Debug, PartialEq)]

@@ -9,15 +9,16 @@ couldnt change the vga font colour.
 
 use core::{array::from_fn, fmt};
 use lazy_static::lazy_static;
-use spin::Mutex;
 use volatile::Volatile;
 use x86_64::instructions::port::Port;
+
+use crate::utils::mutex::SpinMutex;
 
 lazy_static! {
     /// A global `Writer` instance that can be used for printing to the VGA text buffer.
     ///
     /// Used by the `print!` and `println!` macros.
-    pub static ref WRITER: Mutex<Writer> = Mutex::new(Writer {
+    pub static ref WRITER: SpinMutex<Writer> = SpinMutex::new(Writer {
         column_position: 0,
         current_row: 0,
         // Make the font colour white on black by default:

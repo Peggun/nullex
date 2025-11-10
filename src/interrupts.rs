@@ -5,10 +5,7 @@ Interrupt handling module for the kernel.
 */
 
 use core::{arch::asm, mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};
-
-use lazy_static::lazy_static;
 use pic8259::ChainedPics;
-use spin;
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
@@ -19,15 +16,16 @@ use crate::{
 	serial::add_byte,
 	serial_println,
 	syscall::syscall,
-	task::executor::CURRENT_PROCESS, utils::crash::backtrace_current
+	task::executor::CURRENT_PROCESS,
+	utils::mutex::SpinMutex
 };
 
 pub const PIC_1_OFFSET: u8 = 32;
 pub const PIC_2_OFFSET: u8 = PIC_1_OFFSET + 8;
 
 // We'll keep the PIC for devices such as the keyboard.
-pub static PICS: spin::Mutex<ChainedPics> =
-	spin::Mutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
+pub static PICS: SpinMutex<ChainedPics> =
+	SpinMutex::new(unsafe { ChainedPics::new(PIC_1_OFFSET, PIC_2_OFFSET) });
 	
 static mut IDT_STORAGE: MaybeUninit<InterruptDescriptorTable> = MaybeUninit::uninit();
 static IDT_INITED: AtomicBool = AtomicBool::new(false);

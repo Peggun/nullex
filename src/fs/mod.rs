@@ -6,11 +6,9 @@ use alloc::{
 	vec::Vec
 };
 
-use spin::Mutex;
+use crate::{fs::ramfs::FileSystem, utils::mutex::SpinMutex};
 
-use crate::fs::ramfs::FileSystem;
-
-pub static FS: Mutex<Option<FileSystem>> = Mutex::new(None);
+pub static FS: SpinMutex<Option<FileSystem>> = SpinMutex::new(None);
 
 pub fn init_fs(fs: FileSystem) {
 	*FS.lock() = Some(fs);

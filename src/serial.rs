@@ -12,11 +12,10 @@ use conquer_once::spin::OnceCell;
 use crossbeam_queue::ArrayQueue;
 use futures::{Stream, StreamExt, task::AtomicWaker};
 use lazy_static::lazy_static;
-use spin::Mutex;
 use x86_64::instructions::interrupts;
 
 use crate::{
-	common::ports::{inb, outb}, println, serial_print, serial_println, serial_raw_print, task::yield_now, utils::kfunc::run_serial_command
+	common::ports::{inb, outb}, println, serial_print, serial_println, serial_raw_print, task::yield_now, utils::{kfunc::run_serial_command, mutex::SpinMutex}
 };
 
 #[derive(Debug)]
@@ -127,7 +126,7 @@ impl SerialPort {
 		}
     }
 
-	
+
     pub fn try_receive(&mut self) -> Result<u8, SerialPortError> {
         if self.line_sts().contains(LineStatusFlags::INPUT_FULL) {
             let data = unsafe { inb(self.port_data()) };
@@ -229,10 +228,10 @@ impl Stream for SerialScancodeStream {
 }
 
 lazy_static! {
-	pub static ref SERIAL1: Mutex<SerialPort> = {
+	pub static ref SERIAL1: SpinMutex<SerialPort> = {
 		let mut serial_port = unsafe { SerialPort::new(0x3F8) };
 		serial_port.init();
-		Mutex::new(serial_port)
+		SpinMutex::new(serial_port)
 	};
 }
 

@@ -13,12 +13,10 @@ x86_64 = "0.14.2"
 pic8259 = "0.10.1"
 pc-keyboard = "0.7.0"
 linked_list_allocator = "0.10.2"
-spin = "0.9.8"
 hashbrown = { version = "0.15.2", features = ["inline-more"] }
 crossbeam = { version = "0.8.4", default-features = false, features = ["alloc"] }
 futures = { version = "0.3", default-features = false }
 thiserror = { version = "2.0.16", default-features = false }
-raw-cpuid = "11.6.0"
 
 logos = { version = "0.15.1", default-features = false, features = ["export_derive", "logos-derive"]}
 chumsky = { version = "0.11.1", default-features = false }
@@ -42,11 +40,6 @@ default-features = false
 version = "0.3.4"
 default-features = false
 features = ["alloc"]
-
-[dependencies.num-traits]
-version = "0.2.19"
-default-features = false
-features = ["libm"]
 
 #[profile.dev]
 #panic = "abort"

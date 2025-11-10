@@ -11,9 +11,7 @@ use alloc::{
 };
 
 use lazy_static::lazy_static;
-use spin::Mutex;
 
-// TODO: fix nulx::nulx::nulx() pathnames
 use crate::{
 	apic::{TICK_COUNT, to_hrt},
 	constants::SYSLOG_SINK,
@@ -24,13 +22,13 @@ use crate::{
 	serial_println,
 	syscall,
 	task::{ProcessId, executor::EXECUTOR},
-	utils::logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
+	utils::{logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, mutex::SpinMutex},
 	vga_buffer::WRITER
 };
 
 lazy_static! {
-	pub static ref CMD_HISTORY: Mutex<Vec<String>> = Mutex::new(Vec::new());
-	pub static ref CMD_HISTORY_INDEX: Mutex<usize> = Mutex::new(0);
+	pub static ref CMD_HISTORY: SpinMutex<Vec<String>> = SpinMutex::new(Vec::new());
+	pub static ref CMD_HISTORY_INDEX: SpinMutex<usize> = SpinMutex::new(0);
 }
 
 /// A type alias for a command function.
@@ -53,7 +51,7 @@ pub struct Command {
 }
 
 lazy_static! {
-	static ref COMMAND_REGISTRY: Mutex<BTreeMap<String, Command>> = Mutex::new(BTreeMap::new());
+	static ref COMMAND_REGISTRY: SpinMutex<BTreeMap<String, Command>> = SpinMutex::new(BTreeMap::new());
 }
 
 /// Register a command in the global command registry.

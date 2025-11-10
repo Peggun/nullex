@@ -7,3 +7,4 @@ pub mod bits;
 pub mod multiboot2;
 pub mod elf;
 pub mod crash;
+pub mod mutex;

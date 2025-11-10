@@ -7,10 +7,9 @@ use core::{sync::atomic::Ordering, task::Waker};
 
 use crossbeam_queue::ArrayQueue;
 use lazy_static::lazy_static;
-use spin::mutex::SpinMutex;
 
 use super::{Process, ProcessId, ProcessState};
-use crate::{println, serial_println};
+use crate::{println, serial_println, utils::mutex::SpinMutex};
 
 lazy_static! {
 	pub static ref CURRENT_PROCESS: SpinMutex<Option<Arc<ProcessState>>> = SpinMutex::new(None);
@@ -133,5 +132,5 @@ impl Wake for ProcessWaker {
 }
 
 lazy_static! {
-	pub static ref EXECUTOR: spin::Mutex<Executor> = spin::Mutex::new(Executor::new());
+	pub static ref EXECUTOR: SpinMutex<Executor> = SpinMutex::new(Executor::new());
 }
