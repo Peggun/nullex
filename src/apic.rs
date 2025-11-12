@@ -41,8 +41,6 @@ use core::{
 	sync::atomic::Ordering
 };
 
-/// The base address of the Local APIC (xAPIC mode).
-pub const APIC_BASE: usize = 0xFEE00000;
 
 // Register offsets (relative to the APIC base)
 pub const ID: usize = 0x020;
@@ -61,11 +59,19 @@ pub const TIMER_INTERRUPT_VECTOR: u32 = 0x20;
 /// Divide configuration value: here, 0x3 typically means divide by 16.
 pub const DIVIDE_BY_16: u32 = 0x3;
 
+pub fn apic_base() -> usize {
+	*APIC_BASE.lock()
+}
+
+lazy_static! {
+	pub static ref APIC_BASE: SpinMutex<usize> = SpinMutex::new(0);
+}
+
 /// Write a 32-bit value to a Local APIC register.
 /// # Safety
 /// Volatile register write.
 pub unsafe fn write_register(offset: usize, value: u32) {
-	let reg = (APIC_BASE + offset) as *mut u32;
+	let reg = (apic_base() + offset) as *mut u32;
 	unsafe { write_volatile(reg, value) };
 }
 
@@ -73,7 +79,7 @@ pub unsafe fn write_register(offset: usize, value: u32) {
 /// # Safety
 /// Read register volatile.
 pub unsafe fn read_register(offset: usize) -> u32 {
-	let reg = (APIC_BASE + offset) as *const u32;
+	let reg = (apic_base() + offset) as *const u32;
 	unsafe { read_volatile(reg) }
 }
 
@@ -99,7 +105,7 @@ pub unsafe fn init_timer() {
 
 		let ticks_in_10ms = 0xFFFFFFFF - read_register(TIMER_CURRENT_COUNT);
 
-		write_register(LVT_TIMER, 32 | TIMER_PERIODIC);
+		write_register(LVT_TIMER, (APIC_TIMER_VECTOR as u32 | TIMER_PERIODIC).into());
 		write_register(TIMER_DIVIDE, DIVIDE_BY_16);
 		write_register(TIMER_INIT_COUNT, ticks_in_10ms);
 	}
@@ -113,14 +119,20 @@ pub unsafe fn send_eoi() {
 	unsafe { write_register(EOI, 0) };
 }
 
+use lazy_static::lazy_static;
+use x86_64::VirtAddr;
 use x86_64::registers::model_specific::Msr;
 
+use crate::PHYS_MEM_OFFSET;
+use crate::interrupts::APIC_TIMER_VECTOR;
+use crate::utils::mutex::{SpinMutex, SpinMutexGuard};
 use crate::{pit::pit_sleep, println, task::yield_now};
 
 /// # Safety
 /// Unsafe volatile reads.
 pub unsafe fn enable_apic() {
 	println!("[Info] Enabling APIC Timer...");
+	unsafe { write_register(SVR, (1 << 8) | (APIC_TIMER_VECTOR as u32)); }
 	let mut msr = Msr::new(0x1B);
 	let value = unsafe { msr.read() };
 	unsafe { msr.write(value | 0x800) }; // Set the "Enable APIC" bit (bit 11)

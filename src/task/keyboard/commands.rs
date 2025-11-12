@@ -13,17 +13,7 @@ use alloc::{
 use lazy_static::lazy_static;
 
 use crate::{
-	apic::{TICK_COUNT, to_hrt},
-	constants::SYSLOG_SINK,
-	fs::{self, ramfs::Permission, resolve_path},
-	print,
-	println,
-	programs::{nedit::app::nedit_app, nulx::run},
-	serial_println,
-	syscall,
-	task::{ProcessId, executor::EXECUTOR},
-	utils::{logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, mutex::SpinMutex},
-	vga_buffer::WRITER
+	apic::{TICK_COUNT, to_hrt}, constants::SYSLOG_SINK, drivers::keyboard::scancode::CWD, fs::{self, ramfs::Permission, resolve_path}, print, println, programs::{nedit::app::nedit_app, nulx::run}, serial_println, syscall, task::{ProcessId, executor::EXECUTOR}, utils::{logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, mutex::SpinMutex}, vga_buffer::WRITER
 };
 
 lazy_static! {
@@ -259,7 +249,6 @@ pub fn cd(args: &[&str]) {
 
 	fs::with_fs(|fs| {
 		if fs.is_dir(&path) {
-			use crate::task::keyboard::scancode::CWD;
 			*CWD.lock() = path;
 		} else {
 			println!("cd: no such directory: {}", args[0]);

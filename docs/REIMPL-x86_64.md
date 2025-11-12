@@ -1,9 +1,9 @@
 # Nullex Kernel Primitives: A Ground-Up Re-Implementation (x86_64)
 
-
-
 This is a ground-up re-implementation of low-level architectural components, inspired by the functionality of the `x86_64` crate. All code is being developed from first principles using architectural manuals, books, and research, without directly porting or copying existing source code.
 However, each of the names of structs, traits, functions etc will be called the same, just so its easier to implement back into my code. Thanks so much to the `x86_64` crate and their contributors.
+
+# ON HOLD! (for now)
 
 ## Implementation Roadmap
 
@@ -14,7 +14,7 @@ The following checklist tracks the development of the types that are currently u
 ### Memory Management & Paging
 
 * [ ] **Virtual & Physical Addressing**
-    * [X] `VirtAddr` (struct): A wrapper for a `u64` virtual address.
+    * [ ] `VirtAddr` (struct): A wrapper for a `u64` virtual address.
     * [ ] `PhysAddr` (struct): A wrapper for a `u64` physical address.
 * [ ] **Paging Core Structures**
     * [ ] `Page<S>` (struct): Represents a virtual memory page of a given size `S`.

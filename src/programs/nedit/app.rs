@@ -15,20 +15,13 @@ use core::{future::Future, pin::Pin};
 
 use crossbeam_queue::ArrayQueue;
 use lazy_static::lazy_static;
-use pc_keyboard::{HandleControl, KeyCode, KeyState, Keyboard, ScancodeSet1, layouts};
 
 use crate::{
-	fs::{self, resolve_path},
-	print,
-	println,
-	serial_println,
-	task::{
+	drivers::keyboard::{layouts, ps2::Keyboard, scancode::{KeyCode, ScancodeSet1}}, fs::{self, resolve_path}, io::keyboard::decode::{DecodedKey, HandleControl, KeyState}, print, println, serial_println, task::{
 		ProcessState, keyboard::{
 			KEYBOARD_BACKSPACE, KEYBOARD_ENTER, KEYBOARD_ESCAPE, KEYBOARD_RAW_KEYS, KEYBOARD_TAB, commands::clear
 		}
-	},
-	utils::{mutex::SpinMutex, process::spawn_process},
-	vga_buffer::{Buffer, BufferEntry, WRITER}
+	}, utils::{mutex::SpinMutex, process::spawn_process}, vga_buffer::{Buffer, BufferEntry, WRITER}
 };
 
 lazy_static! {
@@ -96,7 +89,7 @@ pub async fn nedit_main(state: Arc<ProcessState>, path: String) -> i32 {
 
 		let mut keyboard = Keyboard::new(
 			ScancodeSet1::new(),
-			layouts::Us104Key,
+			layouts::us104::Us104Key,
 			HandleControl::Ignore
 		);
 
@@ -303,7 +296,7 @@ pub async fn nedit_main(state: Arc<ProcessState>, path: String) -> i32 {
 					}
 
 					if let Some(key) = keyboard.process_keyevent(key_event.clone())
-						&& let pc_keyboard::DecodedKey::Unicode(ch) = key
+						&& let DecodedKey::Unicode(ch) = key
 					{
 						// handle special control-like keys by comparing to known
 						// constants

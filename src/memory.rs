@@ -52,6 +52,35 @@ pub fn map_apic(
     println!("[Info] Done.");
 }
 
+// map_ioapic in memory.rs (patterned after your map_apic)
+pub fn map_ioapic(
+    mapper: &mut impl Mapper<Size4KiB>,
+    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+    physical_memory_offset: VirtAddr,
+) {
+    println!("[Info] Mapping IOAPIC...");
+
+    const IOAPIC_PHYS_START: u64 = 0xFEC0_0000u64;
+    let ioapic_phys = PhysAddr::new(IOAPIC_PHYS_START);
+    let ioapic_frame = PhysFrame::containing_address(ioapic_phys);
+
+    // virtual address that maps to the physical IOAPIC
+    let ioapic_virt = VirtAddr::new(physical_memory_offset.as_u64() + IOAPIC_PHYS_START);
+    let ioapic_page = Page::containing_address(ioapic_virt);
+
+    let ioapic_flags = PageTableFlags::PRESENT
+        | PageTableFlags::WRITABLE
+        | PageTableFlags::NO_CACHE;
+
+    unsafe {
+        mapper
+            .map_to(ioapic_page, ioapic_frame, ioapic_flags, frame_allocator)
+            .unwrap()
+            .flush();
+    }
+
+    println!("[Info] IOAPIC mapped at virt {:#X}", ioapic_virt.as_u64());
+}
 
 /// A FrameAllocator that returns usable frames from the bootloader's memory
 /// map.

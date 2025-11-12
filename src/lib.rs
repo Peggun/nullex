@@ -15,6 +15,7 @@ Kernel module for the kernel.
 #![feature(str_from_raw_parts)]
 #![feature(generic_atomic)]
 #![feature(string_from_utf8_lossy_owned)]
+#![feature(ptr_internals)]
 
 #[macro_use]
 extern crate alloc;
@@ -38,6 +39,9 @@ pub mod syscall;
 pub mod task;
 pub mod utils;
 pub mod vga_buffer;
+pub mod drivers;
+pub mod io;
+pub mod ioapic;
 
 use x86_64::VirtAddr;
 
@@ -49,7 +53,7 @@ use core::{
 };
 
 use crate::{
-	apic::write_register, common::ports::{inb, outb}, constants::{SYSLOG_SINK, initialize_constants}, fs::ramfs::{FileSystem, Permission}, interrupts::{PICS, init_idt}, memory::BootInfoFrameAllocator, task::{
+	apic::{APIC_BASE, write_register}, common::ports::{inb, outb}, constants::{SYSLOG_SINK, initialize_constants}, fs::ramfs::{FileSystem, Permission}, interrupts::init_idt, io::keyboard::line_editor::print_keypresses, memory::BootInfoFrameAllocator, task::{
 		Process, executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard
 	}, utils::{
 		crash::backtrace_current, logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process
@@ -79,7 +83,6 @@ pub fn init() {
 	serial_println!("gdt done");
 	interrupts::init_idt();
 	serial_println!("[Info] Finished IDT Init...");
-	unsafe { interrupts::PICS.lock().initialize() };
 	x86_64::instructions::interrupts::enable();
 	serial_println!("[Info] Done.");
 }
@@ -110,21 +113,6 @@ pub fn setup_system_files(mut fs: FileSystem) {
 	fs.create_dir("/logs", Permission::all()).unwrap();
 	fs.create_dir("/proc", Permission::read()).unwrap();
 
-	fs.create_file("test.nx", Permission::all()).unwrap();
-
-	fs.write_file(
-		"test.nx",
-		b"// simple test
-func main() {
-	set num = 1;
-
-	print(\"Hello, world!\");
-	print(num);
-}",
-		false
-	)
-	.unwrap();
-
 	fs::init_fs(fs);
 }
 
@@ -148,20 +136,47 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	let memory_map_static: &'static _ = unsafe { core::mem::transmute(&boot_info.memory_map) };
 	let mut frame_allocator = BootInfoFrameAllocator::init(memory_map_static);
 
+	// mask legacy PIC IRQs
+	// always need to mask these
+	// double fault if not masked
 	unsafe {
-		PICS.lock().write_masks(0b11111101, 0b11111111);
+		outb(0x21, 0xFF);
+		outb(0xA1, 0xFF);
 	}
 
 	crate::init();
-
 
 	match allocator::init_heap(&mut mapper, &mut frame_allocator) {
 		Ok(()) => println!("Heap initialized successfully"),
 	  	Err(e) => panic!("Heap initialization failed: {:?}", e)
 	}
 
-	unsafe { apic::enable_apic() };
+	// 1) set APIC_BASE to the virtual mapping base (physical offset + APIC phys)
+	{
+		let mut apic_base = APIC_BASE.lock();
+		*apic_base = pmo.as_u64() as usize + 0xFEE0_0000usize;
+	}
+
+	// 2) map the local APIC MMIO into your virtual address space
 	memory::map_apic(&mut mapper, &mut frame_allocator, *pmo);
+
+	// 3) now it's safe to enable the local APIC (writes SVR)
+	unsafe { apic::enable_apic() };
+
+	// 4) initialize the APIC timer (reads/writes APIC registers)
+	unsafe { apic::init_timer() };
+
+	// 5) map the IOAPIC MMIO
+	memory::map_ioapic(&mut mapper, &mut frame_allocator, *pmo);
+
+	// 6) create IoApic using the virtual base and init it
+	let ioapic_virt_base = (*pmo).as_u64() + 0xFEC0_0000u64;
+	let mut ioapic = unsafe { ioapic::IoApic::new(ioapic_virt_base) };
+	let lapic_id = unsafe { (apic::read_register(apic::ID) >> 24) as u8 };
+	unsafe { ioapic.init(32, lapic_id); } // offset 32, dest = local apic id
+
+	// LAPIC id
+
 	unsafe { apic::init_timer() };
 	initialize_constants();
 
@@ -192,7 +207,7 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 
 	// Spawn the keyboard process.
 	let _keyboard_pid = spawn_process(
-		|_state| Box::pin(keyboard::print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>,
+		|_state| Box::pin(print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>,
 		false
 	);
 

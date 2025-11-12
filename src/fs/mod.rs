@@ -6,7 +6,7 @@ use alloc::{
 	vec::Vec
 };
 
-use crate::{fs::ramfs::FileSystem, utils::mutex::SpinMutex};
+use crate::{drivers::keyboard::scancode::CWD, fs::ramfs::FileSystem, utils::mutex::SpinMutex};
 
 pub static FS: SpinMutex<Option<FileSystem>> = SpinMutex::new(None);
 
@@ -29,8 +29,6 @@ pub fn with_fs<R>(f: impl FnOnce(&mut FileSystem) -> R) -> R {
 /// Helper function to resolve a file path relative to the current working
 /// directory.
 pub fn resolve_path(path: &str) -> String {
-	use crate::task::keyboard::scancode::CWD;
-
 	let mut cwd = CWD.lock().clone();
 	let mut result = if path.starts_with('/') {
 		String::new()

@@ -11,11 +11,7 @@ use conquer_once::doc::OnceCell;
 use futures::task::AtomicWaker;
 
 use crate::{
-	apic::sleep,
-	fs,
-	println,
-	serial_println,
-	task::{
+	apic::sleep, fs, println, serial_println, task::{
 		OpenFile,
 		Process,
 		ProcessId,
