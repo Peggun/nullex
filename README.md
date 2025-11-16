@@ -2,6 +2,7 @@
 Small, modular hobby kernel written in Rust — designed to be easy to extend and learn from.
 
 Please read [current_spec.txt](https://github.com/Peggun/nullex/blob/master/current_spec.txt) to understand what is going on.
+This project uses code segments from third party crates. All information can be found [here](https://github.com/Peggun/nullex/blob/master/THIRD_PARTY_LICENSES.md). Please let me know if there is an issue with this, so I can update accordingly.
 
 ## Getting Started
 

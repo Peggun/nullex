@@ -5,6 +5,7 @@ Kernel module for the kernel.
 */
 
 #![no_std]
+#![allow(internal_features)]
 #![cfg_attr(test, no_main)]
 #![feature(custom_test_frameworks)]
 #![reexport_test_harness_main = "test_main"]
@@ -19,7 +20,6 @@ Kernel module for the kernel.
 
 #[macro_use]
 extern crate alloc;
-extern crate libc;
 extern crate core;
 
 pub mod allocator;
@@ -27,54 +27,63 @@ pub mod apic;
 pub mod common;
 pub mod config;
 pub mod constants;
+pub mod drivers;
 pub mod error;
 pub mod fs;
 pub mod gdt;
 pub mod interrupts;
+pub mod io;
+pub mod ioapic;
 pub mod memory;
 pub mod pit;
-pub mod programs;
 pub mod serial;
 pub mod syscall;
 pub mod task;
 pub mod utils;
 pub mod vga_buffer;
-pub mod drivers;
-pub mod io;
-pub mod ioapic;
-
-use x86_64::VirtAddr;
-
-use lazy_static::lazy_static;
 
 use alloc::boxed::Box;
 use core::{
-	arch::asm, future::Future, hint::spin_loop, pin::Pin, sync::atomic::Ordering, task::{Context, Poll}
+	future::Future,
+	hint::spin_loop,
+	pin::Pin,
+	sync::atomic::Ordering,
+	task::{Context, Poll}
 };
+
+use lazy_static::lazy_static;
+use x86_64::VirtAddr;
 
 use crate::{
-	apic::{APIC_BASE, write_register}, common::ports::{inb, outb}, constants::{SYSLOG_SINK, initialize_constants}, fs::ramfs::{FileSystem, Permission}, interrupts::init_idt, io::keyboard::line_editor::print_keypresses, memory::BootInfoFrameAllocator, task::{
-		Process, executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard
-	}, utils::{
-		crash::backtrace_current, logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process
-	}, vga_buffer::WRITER
+	apic::APIC_BASE,
+	common::ports::{inb, outb},
+	constants::initialize_constants,
+	fs::ramfs::{FileSystem, Permission},
+	io::keyboard::line_editor::print_keypresses,
+	memory::BootInfoFrameAllocator,
+	task::{
+		Process,
+		executor::{self, CURRENT_PROCESS, EXECUTOR},
+		keyboard
+	},
+	utils::{multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process},
+	vga_buffer::WRITER
 };
-
 
 lazy_static! {
 	pub static ref PHYS_MEM_OFFSET: SpinMutex<VirtAddr> = SpinMutex::new(VirtAddr::new(0x0));
 }
 
 pub fn raw_serial_test() {
-    unsafe {
-        for &b in b"HELLO\r\n" {
-            // wait for Transmitter Holding Register Empty (LSR bit 5)
-            while (inb(0x3F8 + 5) & 0x20) == 0 {
-                spin_loop();
-            }
-            outb(0x3F8, b);
-        }
-    }
+	unsafe {
+		for &b in b"HELLO\r\n" {
+			// wait for Transmitter Holding Register Empty (LSR bit 5)
+			while (inb(0x3F8 + 5) & 0x20) == 0 {
+				spin_loop();
+			}
+			outb(0x3F8, b);
+		}
+	}
 }
 
 pub fn init() {
@@ -130,7 +139,6 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 
 	let boot_info = unsafe { parse_multiboot2(mbi_addr) };
 
-
 	let pmo = PHYS_MEM_OFFSET.lock();
 	let mut mapper = unsafe { memory::init(*pmo) };
 	let memory_map_static: &'static _ = unsafe { core::mem::transmute(&boot_info.memory_map) };
@@ -148,7 +156,7 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 
 	match allocator::init_heap(&mut mapper, &mut frame_allocator) {
 		Ok(()) => println!("Heap initialized successfully"),
-	  	Err(e) => panic!("Heap initialization failed: {:?}", e)
+		Err(e) => panic!("Heap initialization failed: {:?}", e)
 	}
 
 	// 1) set APIC_BASE to the virtual mapping base (physical offset + APIC phys)
@@ -173,7 +181,9 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	let ioapic_virt_base = (*pmo).as_u64() + 0xFEC0_0000u64;
 	let mut ioapic = unsafe { ioapic::IoApic::new(ioapic_virt_base) };
 	let lapic_id = unsafe { (apic::read_register(apic::ID) >> 24) as u8 };
-	unsafe { ioapic.init(32, lapic_id); } // offset 32, dest = local apic id
+	unsafe {
+		ioapic.init(32, lapic_id);
+	} // offset 32, dest = local apic id
 
 	// LAPIC id
 
@@ -194,12 +204,15 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	WRITER.lock().clear_everything();
 	// WRITER.lock().set_colors(Color16::White, Color16::Black);
 
-	// Run init_commands in its own process so it doesn't run on the boot/kernel stack.
+	// Run init_commands in its own process so it doesn't run on the boot/kernel
+	// stack.
 	let _cmds_pid = spawn_process(
-		|_state| Box::pin(async move {
-			crate::keyboard::commands::init_commands();
-			0
-		}) as Pin<Box<dyn Future<Output = i32>>>,
+		|_state| {
+			Box::pin(async move {
+				crate::keyboard::commands::init_commands();
+				0
+			}) as Pin<Box<dyn Future<Output = i32>>>
+		},
 		false
 	);
 	// init_serial_input();

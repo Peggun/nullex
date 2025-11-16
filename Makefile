@@ -15,7 +15,8 @@ assembly_object_files := $(patsubst src/arch/$(arch)/%.asm, \
 all: $(kernel)
 
 clean:
-	@rm -r build
+	@rm -rf build
+	@cargo clean
 
 run: $(iso)
 	@qemu-system-x86_64 -cdrom $(iso) -serial mon:stdio -net nic

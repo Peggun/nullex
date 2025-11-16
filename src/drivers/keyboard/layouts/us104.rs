@@ -1,14 +1,19 @@
 // code from https://github.com/rust-embedded-community/pc-keyboard
 // license in THIRD_PARTY_LICENSE
 
-
-use crate::{drivers::keyboard::{layout::{KeyboardLayout, PhysicalKeyboard}, scancode::KeyCode}, io::keyboard::decode::{DecodedKey, HandleControl, Modifiers, QUO, SLS}};
+use crate::{
+	drivers::keyboard::{
+		layout::{KeyboardLayout, PhysicalKeyboard},
+		scancode::KeyCode
+	},
+	io::keyboard::decode::{DecodedKey, HandleControl, Modifiers, QUO, SLS}
+};
 
 pub struct Us104Key;
 
 impl KeyboardLayout for Us104Key {
-    #[rustfmt::skip]
-    fn map_keycode(
+	#[rustfmt::skip]
+	fn map_keycode(
         &self,
         keycode: KeyCode,
         modifiers: &Modifiers,
@@ -94,7 +99,7 @@ impl KeyboardLayout for Us104Key {
         }
     }
 
-    fn get_physical(&self) -> PhysicalKeyboard {
-        PhysicalKeyboard::Ansi
-    }
+	fn get_physical(&self) -> PhysicalKeyboard {
+		PhysicalKeyboard::Ansi
+	}
 }

@@ -4,4 +4,4 @@ DESCRIPTION: Look, crates are extremely helpful. However, I've noticed that I ha
              programming, like Linus (hopefully). Kernel progress will slow down significantly, but its for my own learning, and experience. Hopefully, some people will be joining me, but this will mainly be for me. Eventually, 
              this kernel will be (almost) dependency free, mainly for the ones that provide already made wrappers for stuff like reading ports, and vga all sort. So yeah. Thanks.
 
-INSTALLATIONS: mtools,nasm,grub-mkrescue,xorriso,
+TO BE REMEMBERED: Nulx & NEdit commit dates: 12/11/2025

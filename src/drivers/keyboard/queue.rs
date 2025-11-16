@@ -1,14 +1,11 @@
-// code from https://github.com/rust-embedded-community/pc-keyboard
-// license in THIRD_PARTY_LICENSE
-
+// this was my custom code, no `pc-keyboard` code here.
 
 use core::task::Poll;
 
-use conquer_once::spin::OnceCell;
 use crossbeam_queue::ArrayQueue;
 use futures::{Stream, task::AtomicWaker};
 
-use crate::println;
+use crate::{println, utils::oncecell::spin::OnceCell};
 
 pub static SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
 pub static WAKER: AtomicWaker = AtomicWaker::new();

@@ -4,11 +4,24 @@
 Interrupt handling module for the kernel.
 */
 
-use core::{arch::asm, mem::MaybeUninit, sync::atomic::{AtomicBool, Ordering}};
+use core::{
+	arch::asm,
+	mem::MaybeUninit,
+	sync::atomic::{AtomicBool, Ordering}
+};
+
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
-	apic::{TICK_COUNT, send_eoi}, drivers::keyboard::queue::add_scancode, gdt, hlt_loop, println, serial::add_byte, serial_println, syscall::syscall, task::executor::CURRENT_PROCESS, utils::mutex::SpinMutex
+	apic::{TICK_COUNT, send_eoi},
+	drivers::keyboard::queue::add_scancode,
+	gdt,
+	hlt_loop,
+	println,
+	serial::add_byte,
+	serial_println,
+	syscall::syscall,
+	task::executor::CURRENT_PROCESS
 };
 
 pub const APIC_TIMER_VECTOR: u8 = 32;
@@ -28,7 +41,8 @@ pub fn init_idt() {
 		// Exception handlers
 		local_idt.breakpoint.set_handler_fn(breakpoint_handler);
 		local_idt.page_fault.set_handler_fn(page_fault_handler);
-		local_idt.double_fault
+		local_idt
+			.double_fault
 			.set_handler_fn(double_fault_handler)
 			.set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
 
@@ -38,14 +52,12 @@ pub fn init_idt() {
 		local_idt[SERIAL_VECTOR as usize].set_handler_fn(serial_input_interrupt_handler);
 		local_idt[SYSCALL_VECTOR as usize].set_handler_fn(syscall_handler);
 
-		unsafe {
-			let storage_ptr: *mut MaybeUninit<InterruptDescriptorTable> = 
-				core::ptr::addr_of_mut!(IDT_STORAGE);
-			let idt_ptr = storage_ptr as *mut InterruptDescriptorTable;
-			core::ptr::write(idt_ptr, local_idt);
-			let idt_ref: &InterruptDescriptorTable = &*idt_ptr;
-			idt_ref.load();
-		}
+		let storage_ptr: *mut MaybeUninit<InterruptDescriptorTable> =
+			core::ptr::addr_of_mut!(IDT_STORAGE);
+		let idt_ptr = storage_ptr as *mut InterruptDescriptorTable;
+		core::ptr::write(idt_ptr, local_idt);
+		let idt_ref: &InterruptDescriptorTable = &*idt_ptr;
+		idt_ref.load();
 
 		IDT_INITED.store(true, Ordering::SeqCst);
 		x86_64::instructions::interrupts::enable();
@@ -68,45 +80,49 @@ extern "x86-interrupt" fn double_fault_handler(
 
 /// Keyboard interrupt handler.
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    use x86_64::instructions::port::Port;
+	use x86_64::instructions::port::Port;
 
-    let mut port = Port::new(0x60);
-    let scancode: u8 = unsafe { port.read() };
+	let mut port = Port::new(0x60);
+	let scancode: u8 = unsafe { port.read() };
 
-    {
-        let mut lock = CURRENT_PROCESS.lock();
-        if let Some(proc) = lock.as_mut() {
-            if let Ok(queue) = proc.scancode_queue.try_get() {
-                if queue.push(scancode).is_ok() {
-                    proc.waker.wake();
-                }
-            }
-        } else {
-            add_scancode(scancode);
-        }
-    }
+	{
+		let mut lock = CURRENT_PROCESS.lock();
+		if let Some(proc) = lock.as_mut() {
+			if let Ok(queue) = proc.scancode_queue.try_get()
+				&& queue.push(scancode).is_ok()
+			{
+				proc.waker.wake();
+			}
+		} else {
+			add_scancode(scancode);
+		}
+	}
 
-    // Send EOI via APIC instead of PIC
-    unsafe { send_eoi(); }
+	// Send EOI via APIC instead of PIC
+	unsafe {
+		send_eoi();
+	}
 }
 
 extern "x86-interrupt" fn serial_input_interrupt_handler(_stack_frame: InterruptStackFrame) {
-    use x86_64::instructions::port::Port;
-    
-    loop {
-        let mut lsb = Port::<u8>::new(0x3FD);
-        let lsb_data = unsafe { lsb.read() };
-        if (lsb_data & 0x01) == 0 {
-            break;
-        }
+	use x86_64::instructions::port::Port;
 
-        let mut rbr = Port::<u8>::new(0x3F8);
-        let byte = unsafe { rbr.read() };
-        add_byte(byte);
-    }
+	loop {
+		let mut lsb = Port::<u8>::new(0x3FD);
+		let lsb_data = unsafe { lsb.read() };
+		if (lsb_data & 0x01) == 0 {
+			break;
+		}
 
-    // Send EOI via APIC
-    unsafe { send_eoi(); }
+		let mut rbr = Port::<u8>::new(0x3F8);
+		let byte = unsafe { rbr.read() };
+		add_byte(byte);
+	}
+
+	// Send EOI via APIC
+	unsafe {
+		send_eoi();
+	}
 }
 
 /// Page fault handler.
@@ -178,18 +194,18 @@ extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum InterruptVector {
-    Timer = APIC_TIMER_VECTOR,
-    Keyboard = KEYBOARD_VECTOR,
-    Serial = SERIAL_VECTOR,
-    Syscall = SYSCALL_VECTOR,
+	Timer = APIC_TIMER_VECTOR,
+	Keyboard = KEYBOARD_VECTOR,
+	Serial = SERIAL_VECTOR,
+	Syscall = SYSCALL_VECTOR
 }
 
 impl InterruptVector {
-    pub fn as_u8(self) -> u8 {
-        self as u8
-    }
+	pub fn as_u8(self) -> u8 {
+		self as u8
+	}
 
-    pub fn as_usize(self) -> usize {
-        self.as_u8() as usize
-    }
+	pub fn as_usize(self) -> usize {
+		self.as_u8() as usize
+	}
 }

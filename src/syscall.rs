@@ -7,17 +7,21 @@ Syscall module for the kernel.
 use alloc::{string::ToString, sync::Arc};
 use core::sync::atomic::AtomicBool;
 
-use conquer_once::doc::OnceCell;
 use futures::task::AtomicWaker;
 
 use crate::{
-	apic::sleep, fs, println, serial_println, task::{
+	apic::sleep,
+	fs,
+	println,
+	serial_println,
+	task::{
 		OpenFile,
 		Process,
 		ProcessId,
 		ProcessState,
 		executor::{self, CURRENT_PROCESS, EXECUTOR}
-	}
+	},
+	utils::oncecell::spin::OnceCell
 };
 
 // System call IDs

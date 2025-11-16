@@ -1,6 +1,16 @@
-use alloc::{string::{String, ToString}, vec::Vec};
+use alloc::{
+	string::{String, ToString},
+	vec::Vec
+};
 
-use crate::{drivers::keyboard::scancode::CWD, fs, print, println, task::keyboard::commands::{CMD_HISTORY, CMD_HISTORY_INDEX}, vga_buffer::console_backspace};
+use crate::{
+	drivers::keyboard::scancode::CWD,
+	fs,
+	print,
+	println,
+	task::keyboard::commands::{CMD_HISTORY, CMD_HISTORY_INDEX},
+	vga_buffer::console_backspace
+};
 
 #[derive(Debug, PartialEq)]
 pub enum CompletionType {

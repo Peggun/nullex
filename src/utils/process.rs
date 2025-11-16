@@ -1,10 +1,12 @@
 use alloc::{boxed::Box, sync::Arc};
 use core::{future::Future, pin::Pin, sync::atomic::AtomicBool};
 
-use conquer_once::spin::OnceCell;
 use futures::task::AtomicWaker;
 
-use crate::task::{Process, ProcessId, ProcessState, executor::EXECUTOR};
+use crate::{
+	task::{Process, ProcessId, ProcessState, executor::EXECUTOR},
+	utils::oncecell::cell::OnceCell
+};
 
 /// Spawns a process using the provided future function.
 ///

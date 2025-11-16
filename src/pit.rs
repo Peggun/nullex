@@ -15,8 +15,8 @@ pub fn pit_tick() {
 }
 
 pub fn init_pit(freq: u32) {
-	unsafe { 
-		FREQUENCY = freq; 
+	unsafe {
+		FREQUENCY = freq;
 		let pit_freq = 1193181 / freq; // whats this number?
 		outb(0x43, 0x34);
 		outb(0x40, pit_freq as u8);

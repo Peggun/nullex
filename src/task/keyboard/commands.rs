@@ -13,7 +13,20 @@ use alloc::{
 use lazy_static::lazy_static;
 
 use crate::{
-	apic::{TICK_COUNT, to_hrt}, constants::SYSLOG_SINK, drivers::keyboard::scancode::CWD, fs::{self, ramfs::Permission, resolve_path}, print, println, programs::{nedit::app::nedit_app, nulx::run}, serial_println, syscall, task::{ProcessId, executor::EXECUTOR}, utils::{logger::{levels::LogLevel, traits::logger_sink::LoggerSink}, mutex::SpinMutex}, vga_buffer::WRITER
+	apic::{TICK_COUNT, to_hrt},
+	constants::SYSLOG_SINK,
+	drivers::keyboard::scancode::CWD,
+	fs::{self, ramfs::Permission, resolve_path},
+	print,
+	println,
+	serial_println,
+	syscall,
+	task::{ProcessId, executor::EXECUTOR},
+	utils::{
+		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
+		mutex::SpinMutex
+	},
+	vga_buffer::WRITER
 };
 
 lazy_static! {
@@ -41,7 +54,8 @@ pub struct Command {
 }
 
 lazy_static! {
-	static ref COMMAND_REGISTRY: SpinMutex<BTreeMap<String, Command>> = SpinMutex::new(BTreeMap::new());
+	static ref COMMAND_REGISTRY: SpinMutex<BTreeMap<String, Command>> =
+		SpinMutex::new(BTreeMap::new());
 }
 
 /// Register a command in the global command registry.
@@ -166,20 +180,6 @@ pub fn init_commands() {
 		cmd_type: CommandType::Generic
 	});
 
-	// to be removed.
-	register_command(Command {
-		name: "nulx",
-		func: run, // nulx_run
-		help: "Run the nulx programming language",
-		cmd_type: CommandType::Generic
-	});
-	register_command(Command {
-		name: "nedit",
-		func: nedit_app,
-		help: "Edit any files within Nullex",
-		cmd_type: CommandType::Application
-	});
-	
 	register_command(Command {
 		name: "uptime",
 		func: uptime,

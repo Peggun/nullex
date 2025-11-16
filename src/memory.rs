@@ -21,65 +21,65 @@ use x86_64::{
 	}
 };
 
-use crate::{println, serial_println, utils::multiboot2::{__link_phys_base, _end}};
+use crate::{
+	println,
+	utils::multiboot2::{__link_phys_base, _end}
+};
 
 pub fn map_apic(
-    mapper: &mut impl Mapper<Size4KiB>,
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-    physical_memory_offset: VirtAddr,
+	mapper: &mut impl Mapper<Size4KiB>,
+	frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+	physical_memory_offset: VirtAddr
 ) {
-    println!("[Info] Mapping APIC Timer...");
+	println!("[Info] Mapping APIC Timer...");
 
-    const APIC_PHYS_START: u64 = 0xFEE0_0000u64;
-    let apic_phys = PhysAddr::new(APIC_PHYS_START);
-    let apic_frame = PhysFrame::containing_address(apic_phys);
+	const APIC_PHYS_START: u64 = 0xFEE0_0000u64;
+	let apic_phys = PhysAddr::new(APIC_PHYS_START);
+	let apic_frame = PhysFrame::containing_address(apic_phys);
 
-    // compute the virtual address we actually use to access physical memory
-    let apic_virt = VirtAddr::new(physical_memory_offset.as_u64() + APIC_PHYS_START);
-    let apic_page = Page::containing_address(apic_virt);
+	// compute the virtual address we actually use to access physical memory
+	let apic_virt = VirtAddr::new(physical_memory_offset.as_u64() + APIC_PHYS_START);
+	let apic_page = Page::containing_address(apic_virt);
 
-    let apic_flags = PageTableFlags::PRESENT
-        | PageTableFlags::WRITABLE
-        | PageTableFlags::NO_CACHE;
+	let apic_flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
 
-    unsafe {
-        mapper
-            .map_to(apic_page, apic_frame, apic_flags, frame_allocator)
-            .unwrap()
-            .flush();
-    }
+	unsafe {
+		mapper
+			.map_to(apic_page, apic_frame, apic_flags, frame_allocator)
+			.unwrap()
+			.flush();
+	}
 
-    println!("[Info] Done.");
+	println!("[Info] Done.");
 }
 
 // map_ioapic in memory.rs (patterned after your map_apic)
 pub fn map_ioapic(
-    mapper: &mut impl Mapper<Size4KiB>,
-    frame_allocator: &mut impl FrameAllocator<Size4KiB>,
-    physical_memory_offset: VirtAddr,
+	mapper: &mut impl Mapper<Size4KiB>,
+	frame_allocator: &mut impl FrameAllocator<Size4KiB>,
+	physical_memory_offset: VirtAddr
 ) {
-    println!("[Info] Mapping IOAPIC...");
+	println!("[Info] Mapping IOAPIC...");
 
-    const IOAPIC_PHYS_START: u64 = 0xFEC0_0000u64;
-    let ioapic_phys = PhysAddr::new(IOAPIC_PHYS_START);
-    let ioapic_frame = PhysFrame::containing_address(ioapic_phys);
+	const IOAPIC_PHYS_START: u64 = 0xFEC0_0000u64;
+	let ioapic_phys = PhysAddr::new(IOAPIC_PHYS_START);
+	let ioapic_frame = PhysFrame::containing_address(ioapic_phys);
 
-    // virtual address that maps to the physical IOAPIC
-    let ioapic_virt = VirtAddr::new(physical_memory_offset.as_u64() + IOAPIC_PHYS_START);
-    let ioapic_page = Page::containing_address(ioapic_virt);
+	// virtual address that maps to the physical IOAPIC
+	let ioapic_virt = VirtAddr::new(physical_memory_offset.as_u64() + IOAPIC_PHYS_START);
+	let ioapic_page = Page::containing_address(ioapic_virt);
 
-    let ioapic_flags = PageTableFlags::PRESENT
-        | PageTableFlags::WRITABLE
-        | PageTableFlags::NO_CACHE;
+	let ioapic_flags =
+		PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
 
-    unsafe {
-        mapper
-            .map_to(ioapic_page, ioapic_frame, ioapic_flags, frame_allocator)
-            .unwrap()
-            .flush();
-    }
+	unsafe {
+		mapper
+			.map_to(ioapic_page, ioapic_frame, ioapic_flags, frame_allocator)
+			.unwrap()
+			.flush();
+	}
 
-    println!("[Info] IOAPIC mapped at virt {:#X}", ioapic_virt.as_u64());
+	println!("[Info] IOAPIC mapped at virt {:#X}", ioapic_virt.as_u64());
 }
 
 /// A FrameAllocator that returns usable frames from the bootloader's memory
@@ -100,21 +100,21 @@ impl BootInfoFrameAllocator {
 
 	/// Returns an iterator over the usable frames specified in the memory map.
 	fn usable_frames(&self) -> impl Iterator<Item = PhysFrame> {
-        let regions = self.memory_map.iter();
-        let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
+		let regions = self.memory_map.iter();
+		let usable_regions = regions.filter(|r| r.region_type == MemoryRegionType::Usable);
 
-        // kernel bounds (physical addresses)
-        let kernel_start = unsafe { &__link_phys_base as *const _ as u64 };
-        let kernel_end   = unsafe { &_end as *const _ as u64 };
+		// kernel bounds (physical addresses)
+		let kernel_start = unsafe { &__link_phys_base as *const _ as u64 };
+		let kernel_end = unsafe { &_end as *const _ as u64 };
 
-        let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
+		let addr_ranges = usable_regions.map(|r| r.range.start_addr()..r.range.end_addr());
 
-        let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096));
+		let frame_addresses = addr_ranges.flat_map(|r| r.step_by(4096));
 
-        frame_addresses
-            .filter(move |addr| (addr < &kernel_start) || (addr >= &kernel_end))
-            .map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
-    }
+		frame_addresses
+			.filter(move |addr| (addr < &kernel_start) || (addr >= &kernel_end))
+			.map(|addr| PhysFrame::containing_address(PhysAddr::new(addr)))
+	}
 }
 
 pub struct EmptyFrameAllocator;

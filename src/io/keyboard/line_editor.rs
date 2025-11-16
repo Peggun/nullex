@@ -1,11 +1,23 @@
-// code from https://github.com/rust-embedded-community/pc-keyboard
-// license in THIRD_PARTY_LICENSE
-
 use alloc::string::String;
+
 use futures::StreamExt;
 
-use crate::{drivers::keyboard::{layouts, ps2::Keyboard, queue::ScancodeStream, scancode::{KeyCode, ScancodeSet1}}, io::keyboard::{completion::{downarrow_completion, tab_completion, uparrow_completion}, decode::{DecodedKey, HandleControl}}, print, print_colours, println, task::yield_now, vga_buffer::{WRITER, console_backspace}};
-use crate::drivers::keyboard::scancode::CWD;
+use crate::{
+	drivers::keyboard::{
+		layouts,
+		ps2::Keyboard,
+		queue::ScancodeStream,
+		scancode::{CWD, KeyCode, ScancodeSet1}
+	},
+	io::keyboard::{
+		completion::{downarrow_completion, tab_completion, uparrow_completion},
+		decode::{DecodedKey, HandleControl}
+	},
+	print,
+	print_colours,
+	task::yield_now,
+	vga_buffer::{WRITER, console_backspace}
+};
 
 /// The async function that reads scancodes and processes keypresses.
 pub async fn print_keypresses() -> i32 {
@@ -34,7 +46,11 @@ pub async fn print_keypresses() -> i32 {
 						|| key == KeyCode::RControl
 						|| key == KeyCode::RControl2
 					{
-						print_colours!(("^C", Color::White), ("test", Color::Green), (&format!("@nullex: {} $ ", *CWD.lock()), Color::White));
+						print_colours!(
+							("^C", Color::White),
+							("test", Color::Green),
+							(&format!("@nullex: {} $ ", *CWD.lock()), Color::White)
+						);
 						line.clear();
 					} else if key == KeyCode::ArrowUp {
 						uparrow_completion(&mut line);

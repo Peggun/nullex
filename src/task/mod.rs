@@ -12,10 +12,11 @@ use core::{
 	task::{Context, Poll}
 };
 
-use conquer_once::spin::OnceCell;
 use crossbeam_queue::ArrayQueue;
 use futures::task::AtomicWaker;
 use hashbrown::HashMap;
+
+use crate::utils::oncecell::spin::OnceCell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProcessId(u64);

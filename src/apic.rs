@@ -41,7 +41,6 @@ use core::{
 	sync::atomic::Ordering
 };
 
-
 // Register offsets (relative to the APIC base)
 pub const ID: usize = 0x020;
 pub const EOI: usize = 0x0B0;
@@ -105,7 +104,7 @@ pub unsafe fn init_timer() {
 
 		let ticks_in_10ms = 0xFFFFFFFF - read_register(TIMER_CURRENT_COUNT);
 
-		write_register(LVT_TIMER, (APIC_TIMER_VECTOR as u32 | TIMER_PERIODIC).into());
+		write_register(LVT_TIMER, APIC_TIMER_VECTOR as u32 | TIMER_PERIODIC);
 		write_register(TIMER_DIVIDE, DIVIDE_BY_16);
 		write_register(TIMER_INIT_COUNT, ticks_in_10ms);
 	}
@@ -120,19 +119,23 @@ pub unsafe fn send_eoi() {
 }
 
 use lazy_static::lazy_static;
-use x86_64::VirtAddr;
 use x86_64::registers::model_specific::Msr;
 
-use crate::PHYS_MEM_OFFSET;
-use crate::interrupts::APIC_TIMER_VECTOR;
-use crate::utils::mutex::{SpinMutex, SpinMutexGuard};
-use crate::{pit::pit_sleep, println, task::yield_now};
+use crate::{
+	interrupts::APIC_TIMER_VECTOR,
+	pit::pit_sleep,
+	println,
+	task::yield_now,
+	utils::mutex::SpinMutex
+};
 
 /// # Safety
 /// Unsafe volatile reads.
 pub unsafe fn enable_apic() {
 	println!("[Info] Enabling APIC Timer...");
-	unsafe { write_register(SVR, (1 << 8) | (APIC_TIMER_VECTOR as u32)); }
+	unsafe {
+		write_register(SVR, (1 << 8) | (APIC_TIMER_VECTOR as u32));
+	}
 	let mut msr = Msr::new(0x1B);
 	let value = unsafe { msr.read() };
 	unsafe { msr.write(value | 0x800) }; // Set the "Enable APIC" bit (bit 11)
