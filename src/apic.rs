@@ -41,6 +41,17 @@ use core::{
 	sync::atomic::Ordering
 };
 
+use x86_64::registers::model_specific::Msr;
+
+use crate::{
+	interrupts::APIC_TIMER_VECTOR,
+	lazy_static,
+	pit::pit_sleep,
+	println,
+	task::yield_now,
+	utils::mutex::SpinMutex
+};
+
 // Register offsets (relative to the APIC base)
 pub const ID: usize = 0x020;
 pub const EOI: usize = 0x0B0;
@@ -117,17 +128,6 @@ pub unsafe fn init_timer() {
 pub unsafe fn send_eoi() {
 	unsafe { write_register(EOI, 0) };
 }
-
-use lazy_static::lazy_static;
-use x86_64::registers::model_specific::Msr;
-
-use crate::{
-	interrupts::APIC_TIMER_VECTOR,
-	pit::pit_sleep,
-	println,
-	task::yield_now,
-	utils::mutex::SpinMutex
-};
 
 /// # Safety
 /// Unsafe volatile reads.

@@ -51,7 +51,6 @@ use core::{
 	task::{Context, Poll}
 };
 
-use lazy_static::lazy_static;
 use x86_64::VirtAddr;
 
 use crate::{

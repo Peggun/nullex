@@ -10,11 +10,11 @@ use core::{arch::asm, fmt, hint::spin_loop, task::Poll};
 use bitflags::bitflags;
 use crossbeam_queue::ArrayQueue;
 use futures::{Stream, StreamExt, task::AtomicWaker};
-use lazy_static::lazy_static;
 use x86_64::instructions::interrupts;
 
 use crate::{
 	common::ports::{inb, outb},
+	lazy_static,
 	println,
 	serial_print,
 	serial_println,

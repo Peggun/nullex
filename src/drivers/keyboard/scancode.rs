@@ -10,8 +10,6 @@
 
 use alloc::string::{String, ToString};
 
-use lazy_static::lazy_static;
-
 use crate::{
 	drivers::keyboard::error::KeyboardError,
 	io::keyboard::decode::{
@@ -21,6 +19,7 @@ use crate::{
 		KeyEvent,
 		KeyState
 	},
+	lazy_static,
 	utils::mutex::SpinMutex
 };
 

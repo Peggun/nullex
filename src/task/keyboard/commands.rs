@@ -10,13 +10,12 @@ use alloc::{
 	vec::Vec
 };
 
-use lazy_static::lazy_static;
-
 use crate::{
 	apic::{TICK_COUNT, to_hrt},
 	constants::SYSLOG_SINK,
 	drivers::keyboard::scancode::CWD,
 	fs::{self, ramfs::Permission, resolve_path},
+	lazy_static,
 	print,
 	println,
 	serial_println,

@@ -9,10 +9,12 @@ couldnt change the vga font colour.
 
 use core::{array::from_fn, fmt};
 
-use lazy_static::lazy_static;
 use x86_64::instructions::port::Port;
 
-use crate::utils::{mutex::SpinMutex, volatile::Volatile};
+use crate::{
+	lazy_static,
+	utils::{mutex::SpinMutex, volatile::Volatile}
+};
 
 lazy_static! {
 	/// A global `Writer` instance that can be used for printing to the VGA text buffer.

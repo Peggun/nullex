@@ -3,7 +3,6 @@
 GDT (Global Descriptor Table) module for the kernel.
 */
 
-use lazy_static::lazy_static;
 use x86_64::{
 	VirtAddr,
 	structures::{
@@ -11,6 +10,8 @@ use x86_64::{
 		tss::TaskStateSegment
 	}
 };
+
+use crate::lazy_static;
 
 pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
 

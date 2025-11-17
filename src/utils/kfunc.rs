@@ -4,10 +4,9 @@ use alloc::{
 	vec::Vec
 };
 
-use lazy_static::lazy_static;
-
 use crate::{
 	apic::TICK_COUNT,
+	lazy_static,
 	serial_println,
 	utils::{cpu_utils::get_cpu_clock, mutex::SpinMutex}
 };

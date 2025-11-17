@@ -1,15 +1,12 @@
 // executor.rs
 
-extern crate alloc;
-
 use alloc::{collections::BTreeMap, sync::Arc, task::Wake};
 use core::{sync::atomic::Ordering, task::Waker};
 
 use crossbeam_queue::ArrayQueue;
-use lazy_static::lazy_static;
 
 use super::{Process, ProcessId, ProcessState};
-use crate::{println, serial_println, utils::mutex::SpinMutex};
+use crate::{lazy_static, println, serial_println, utils::mutex::SpinMutex};
 
 lazy_static! {
 	pub static ref CURRENT_PROCESS: SpinMutex<Option<Arc<ProcessState>>> = SpinMutex::new(None);

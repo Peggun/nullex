@@ -1,9 +1,8 @@
 use alloc::boxed::Box;
 
-use lazy_static::lazy_static;
-
 use crate::{
 	apic,
+	lazy_static,
 	utils::logger::{
 		format::DefaultFormatter,
 		sinks::{stdout::StdOutSink, syslog::SyslogSink}
