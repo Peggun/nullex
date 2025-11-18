@@ -13,9 +13,7 @@ use core::{
 	ptr::{self, Unique}
 };
 
-use bitflags::bitflags;
-
-use crate::serial_println;
+use crate::{bitflags, serial_println};
 
 #[derive(Debug)]
 pub struct IoApicRegisters {

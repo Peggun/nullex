@@ -10,6 +10,6 @@ pub mod mutex;
 pub mod oncecell;
 pub mod process;
 pub mod volatile;
-#[macro_use]
 pub mod lazy_static;
 pub mod spin;
+pub mod bitflags;

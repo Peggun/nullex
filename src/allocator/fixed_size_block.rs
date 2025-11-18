@@ -7,8 +7,9 @@ Fixed Size Block allocator module for the kernel.
 use core::{
 	alloc::{GlobalAlloc, Layout},
 	mem,
-	ptr::{self, NonNull}
 };
+
+use crate::allocator::linked_list;
 
 use super::Locked;
 
@@ -30,7 +31,7 @@ struct ListNode {
 
 pub struct FixedSizeBlockAllocator {
 	list_heads: [Option<&'static mut ListNode>; BLOCK_SIZES.len()],
-	fallback_allocator: linked_list_allocator::Heap
+	fallback_allocator: linked_list::LinkedListAllocator,
 }
 
 impl FixedSizeBlockAllocator {
@@ -39,7 +40,7 @@ impl FixedSizeBlockAllocator {
 		const EMPTY: Option<&'static mut ListNode> = None;
 		FixedSizeBlockAllocator {
 			list_heads: [EMPTY; BLOCK_SIZES.len()],
-			fallback_allocator: linked_list_allocator::Heap::empty()
+			fallback_allocator: linked_list::LinkedListAllocator::new(),
 		}
 	}
 
@@ -52,16 +53,8 @@ impl FixedSizeBlockAllocator {
 	pub unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
 		unsafe {
 			self.fallback_allocator
-				.init(heap_start as *mut u8, heap_size)
+				.init(heap_start, heap_size)
 		};
-	}
-
-	/// Allocates using the fallback allocator.
-	fn fallback_alloc(&mut self, layout: Layout) -> *mut u8 {
-		match self.fallback_allocator.allocate_first_fit(layout) {
-			Ok(ptr) => ptr.as_ptr(),
-			Err(_) => ptr::null_mut()
-		}
 	}
 }
 
@@ -82,16 +75,11 @@ unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
 						node as *mut ListNode as *mut u8
 					}
 					None => {
-						// no block exists in list => allocate new block
-						let block_size = BLOCK_SIZES[index];
-						// only works if all block sizes are a power of 2
-						let block_align = block_size;
-						let layout = Layout::from_size_align(block_size, block_align).unwrap();
-						allocator.fallback_alloc(layout)
+						panic!("alloc error");
 					}
 				}
 			}
-			None => allocator.fallback_alloc(layout)
+			None => panic!("alloc error"),
 		}
 	}
 
@@ -110,8 +98,7 @@ unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
 				allocator.list_heads[index] = Some(unsafe { &mut *new_node_ptr });
 			}
 			None => {
-				let ptr = NonNull::new(ptr).unwrap();
-				unsafe { allocator.fallback_allocator.deallocate(ptr, layout) };
+				panic!("dealloc error")
 			}
 		}
 	}

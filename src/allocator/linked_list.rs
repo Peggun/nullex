@@ -132,6 +132,8 @@ impl LinkedListAllocator {
 		let size = layout.size().max(mem::size_of::<ListNode>());
 		(size, layout.align())
 	}
+
+	
 }
 
 impl Default for LinkedListAllocator {

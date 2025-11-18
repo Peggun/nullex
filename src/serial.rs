@@ -7,20 +7,12 @@ Serial Interface module for the kernel.
 use alloc::string::String;
 use core::{arch::asm, fmt, hint::spin_loop, task::Poll};
 
-use bitflags::bitflags;
 use crossbeam_queue::ArrayQueue;
 use futures::{Stream, StreamExt, task::AtomicWaker};
 use x86_64::instructions::interrupts;
 
 use crate::{
-	common::ports::{inb, outb},
-	lazy_static,
-	println,
-	serial_print,
-	serial_println,
-	serial_raw_print,
-	task::yield_now,
-	utils::{kfunc::run_serial_command, mutex::SpinMutex, oncecell::spin::OnceCell}
+	bitflags, common::ports::{inb, outb}, lazy_static, println, serial_print, serial_println, serial_raw_print, task::yield_now, utils::{kfunc::run_serial_command, mutex::SpinMutex, oncecell::spin::OnceCell}
 };
 
 #[derive(Debug)]
