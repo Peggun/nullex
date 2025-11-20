@@ -7,7 +7,6 @@ edition = "2024"
 crate-type = ["staticlib"]
 
 [dependencies]
-bootloader = { version = "0.9", features = ["map_physical_memory"] }
 x86_64 = "0.14.2"
 hashbrown = { version = "0.15.2", features = ["inline-more"] }
 futures = { version = "0.3", default-features = false }
