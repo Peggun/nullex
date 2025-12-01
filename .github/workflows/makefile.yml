@@ -1,4 +1,4 @@
-name: Makefile CI
+name: Makefile CI (nightly build-std)
 
 on:
   push:
@@ -8,14 +8,48 @@ on:
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: build
-      run: make build
+      - name: Cache cargo registry & target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
-    - name: test
-      run: make test-ci
+      - name: Install nightly + rust-src (and make it default)
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          components: rust-src
+
+      - name: Add target (ignore if not published)
+        run: |
+          rustup target add x86_64-unknown-none || true
+
+      - name: Show rust info (debug)
+        run: |
+          rustc --version
+          rustup show
+          rustup target list --installed || true
+
+      - name: Build (try Makefile, fallback to cargo +nightly build-std)
+        run: |
+          set -e
+          echo "Running: make build"
+          if make build; then
+            echo "make build succeeded"
+          else
+            echo "make build failed — falling back to explicit cargo +nightly build with -Z build-std"
+            cargo +nightly build --target x86_64-unknown-none -Z build-std=core,compiler_builtins --release
+          fi
+
+      - name: Run tests (your Makefile target)
+        run: make test-ci
