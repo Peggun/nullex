@@ -9,19 +9,7 @@ use crate::{
 	}
 };
 
-pub static mut START_TICK: u32 = 0;
-pub static mut START_TIME: f32 = 0.0;
-
-pub fn initialize_constants() {
-	unsafe {
-		START_TICK = apic::now();
-		START_TIME = apic::to_ms(START_TICK);
-	}
-}
-
 lazy_static! {
-	pub static ref STDOUT_SINK: StdOutSink =
-		StdOutSink::new(Box::new(DefaultFormatter::new(true, true)));
-	pub static ref SYSLOG_SINK: SyslogSink =
-		SyslogSink::new(Box::new(DefaultFormatter::new(true, true)));
+	pub static ref STDOUT_SINK: StdOutSink = StdOutSink::new(Box::new(DefaultFormatter::new(true)));
+	pub static ref SYSLOG_SINK: SyslogSink = SyslogSink::new(Box::new(DefaultFormatter::new(true)));
 }

@@ -6,12 +6,11 @@ Fixed Size Block allocator module for the kernel.
 
 use core::{
 	alloc::{GlobalAlloc, Layout},
-	mem,
+	mem
 };
 
-use crate::allocator::linked_list;
-
 use super::Locked;
+use crate::allocator::linked_list;
 
 /// The block sizes to use.
 /// Must be powers of 2
@@ -31,7 +30,7 @@ struct ListNode {
 
 pub struct FixedSizeBlockAllocator {
 	list_heads: [Option<&'static mut ListNode>; BLOCK_SIZES.len()],
-	fallback_allocator: linked_list::LinkedListAllocator,
+	fallback_allocator: linked_list::LinkedListAllocator
 }
 
 impl FixedSizeBlockAllocator {
@@ -40,7 +39,7 @@ impl FixedSizeBlockAllocator {
 		const EMPTY: Option<&'static mut ListNode> = None;
 		FixedSizeBlockAllocator {
 			list_heads: [EMPTY; BLOCK_SIZES.len()],
-			fallback_allocator: linked_list::LinkedListAllocator::new(),
+			fallback_allocator: linked_list::LinkedListAllocator::new()
 		}
 	}
 
@@ -51,10 +50,7 @@ impl FixedSizeBlockAllocator {
 	/// heap bounds are valid and that the heap is unused. This method must be
 	/// called only once.
 	pub unsafe fn init(&mut self, heap_start: usize, heap_size: usize) {
-		unsafe {
-			self.fallback_allocator
-				.init(heap_start, heap_size)
-		};
+		unsafe { self.fallback_allocator.init(heap_start, heap_size) };
 	}
 }
 
@@ -68,18 +64,16 @@ unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
 	unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
 		let mut allocator = self.lock();
 		match list_index(&layout) {
-			Some(index) => {
-				match allocator.list_heads[index].take() {
-					Some(node) => {
-						allocator.list_heads[index] = node.next.take();
-						node as *mut ListNode as *mut u8
-					}
-					None => {
-						panic!("alloc error");
-					}
+			Some(index) => match allocator.list_heads[index].take() {
+				Some(node) => {
+					allocator.list_heads[index] = node.next.take();
+					node as *mut ListNode as *mut u8
 				}
-			}
-			None => panic!("alloc error"),
+				None => {
+					panic!("alloc error");
+				}
+			},
+			None => panic!("alloc error")
 		}
 	}
 

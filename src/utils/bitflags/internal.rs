@@ -4,17 +4,20 @@
 //   https://github.com/bitflags/bitflags (commit 7cc8595)
 //   Upstream original file: <src/internal.rs>
 // Copyright (c) 2014 The Rust Project Developers
-// Modifications: Removed `std`-feature & external features code. Suited code for kernel paths.
-// See THIRD_PARTY_LICENSES.md for full license texts and upstream details.
+// Modifications: Removed `std`-feature & external features code. Suited code
+// for kernel paths. See THIRD_PARTY_LICENSES.md for full license texts and
+// upstream details.
 
 //! Generate the internal `bitflags`-facing flags type.
 //!
-//! The code generated here is owned by `bitflags`, but still part of its public API.
-//! Changes to the types generated here need to be considered like any other public API change.
+//! The code generated here is owned by `bitflags`, but still part of its public
+//! API. Changes to the types generated here need to be considered like any
+//! other public API change.
 
 /// Declare the `bitflags`-facing bitflags struct.
 ///
-/// This type is part of the `bitflags` crate's public API, but not part of the user's.
+/// This type is part of the `bitflags` crate's public API, but not part of the
+/// user's.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __declare_internal_bitflags {
@@ -32,8 +35,9 @@ macro_rules! __declare_internal_bitflags {
 
 /// Implement functions on the private (bitflags-facing) bitflags type.
 ///
-/// Methods and trait implementations can be freely added here without breaking end-users.
-/// If we want to expose new functionality to `#[derive]`, this is the place to do it.
+/// Methods and trait implementations can be freely added here without breaking
+/// end-users. If we want to expose new functionality to `#[derive]`, this is
+/// the place to do it.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __impl_internal_bitflags {

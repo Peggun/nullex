@@ -14,8 +14,9 @@
 //   https://github.com/bitflags/bitflags (commit 7cc8595)
 //   Upstream original file: <src/lib.rs>
 // Copyright (c) 2014 The Rust Project Developers
-// Modifications: Removed `std`-feature & external features code. Suited code for kernel paths.
-// See THIRD_PARTY_LICENSES.md for full license texts and upstream details.
+// Modifications: Removed `std`-feature & external features code. Suited code
+// for kernel paths. See THIRD_PARTY_LICENSES.md for full license texts and
+// upstream details.
 
 /*!
 Generate types for C-style flags with ergonomic APIs.
@@ -46,11 +47,11 @@ Use the [`bitflags`] macro to generate flags types:
 use bitflags::bitflags;
 
 bitflags! {
-    pub struct Flags: u32 {
-        const A = 0b00000001;
-        const B = 0b00000010;
-        const C = 0b00000100;
-    }
+	pub struct Flags: u32 {
+		const A = 0b00000001;
+		const B = 0b00000010;
+		const C = 0b00000100;
+	}
 }
 ```
 
@@ -66,14 +67,14 @@ an extra unnamed flag as a mask of all bits the external source may ever set. Us
 ```rust
 # use bitflags::bitflags;
 bitflags! {
-    pub struct Flags: u32 {
-        const A = 0b00000001;
-        const B = 0b00000010;
-        const C = 0b00000100;
+	pub struct Flags: u32 {
+		const A = 0b00000001;
+		const B = 0b00000010;
+		const C = 0b00000100;
 
-        // The source may set any bits
-        const _ = !0;
-    }
+		// The source may set any bits
+		const _ = !0;
+	}
 }
 ```
 
@@ -105,11 +106,11 @@ natively support:
 pub struct Flags(u32);
 
 bitflags! {
-    impl Flags: u32 {
-        const A = 0b00000001;
-        const B = 0b00000010;
-        const C = 0b00000100;
-    }
+	impl Flags: u32 {
+		const A = 0b00000001;
+		const B = 0b00000010;
+		const C = 0b00000100;
+	}
 }
 ```
 
@@ -121,21 +122,21 @@ The [`bitflags`] macro supports attributes on generated flags types within the m
 ```rust
 # use bitflags::bitflags;
 bitflags! {
-    // Attributes can be applied to flags types
-    #[repr(transparent)]
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct Flags: u32 {
-        const A = 0b00000001;
-        const B = 0b00000010;
-        const C = 0b00000100;
-    }
+	// Attributes can be applied to flags types
+	#[repr(transparent)]
+	#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+	pub struct Flags: u32 {
+		const A = 0b00000001;
+		const B = 0b00000010;
+		const C = 0b00000100;
+	}
 }
 
 // Impl blocks can be added to flags types
 impl Flags {
-    pub fn as_u64(&self) -> u64 {
-        self.bits() as u64
-    }
+	pub fn as_u64(&self) -> u64 {
+		self.bits() as u64
+	}
 }
 ```
 
@@ -193,12 +194,12 @@ The spec and these docs use consistent terminology to refer to things in the bit
 ```
 # use bitflags::bitflags;
 bitflags! {
-    struct FlagsType: u8 {
+	struct FlagsType: u8 {
 //                    -- Bits type
 //         --------- Flags type
-        const A = 1;
+		const A = 1;
 //            ----- Flag
-    }
+	}
 }
 
 let flag = FlagsType::A;
@@ -213,11 +214,11 @@ In the following flags type:
 ```
 # use bitflags::bitflags;
 bitflags! {
-    struct Flags: u8 {
-        const A = 1;
-        const B = 1 << 1;
-        const C = 1 << 2;
-    }
+	struct Flags: u8 {
+		const A = 1;
+		const B = 1 << 1;
+		const C = 1 << 2;
+	}
 }
 ```
 
@@ -245,10 +246,10 @@ Take the following flags type as an example:
 ```
 # use bitflags::bitflags;
 bitflags! {
-    struct Flags: u8 {
-        const A = 1;
-        const B = 1 | 1 << 1;
-    }
+	struct Flags: u8 {
+		const A = 1;
+		const B = 1 | 1 << 1;
+	}
 }
 ```
 
@@ -270,16 +271,15 @@ mod traits;
 
 #[doc(hidden)]
 pub mod __private {
-    #[allow(unused_imports)]
-    // Easier than conditionally checking any optional external dependencies
-    pub use crate::utils::bitflags::{external::__private::*, traits::__private::*};
+	#[allow(unused_imports)]
+	// Easier than conditionally checking any optional external dependencies
+	pub use crate::utils::bitflags::{external::__private::*, traits::__private::*};
 
-    pub extern crate core;
+	pub extern crate core;
 }
 
 #[allow(unused_imports)]
 pub use external::*;
-
 #[allow(deprecated)]
 pub use traits::BitFlags;
 
@@ -296,10 +296,10 @@ To give you an example, let's say we had a crate that called `bitflags!`:
 
 ```rust
 bitflags! {
-    pub struct MyFlags: u32 {
-        const A = 1;
-        const B = 2;
-    }
+	pub struct MyFlags: u32 {
+		const A = 1;
+		const B = 2;
+	}
 }
 ```
 
@@ -309,15 +309,15 @@ What they'd end up with looks something like this:
 pub struct MyFlags(<MyFlags as PublicFlags>::InternalBitFlags);
 
 const _: () = {
-    #[repr(transparent)]
-    #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct MyInternalBitFlags {
-        bits: u32,
-    }
+	#[repr(transparent)]
+	#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+	pub struct MyInternalBitFlags {
+		bits: u32,
+	}
 
-    impl PublicFlags for MyFlags {
-        type Internal = InternalBitFlags;
-    }
+	impl PublicFlags for MyFlags {
+		type Internal = InternalBitFlags;
+	}
 };
 ```
 
@@ -350,11 +350,11 @@ Generate a flags type using `u8` as the bits type:
 ```
 # use bitflags::bitflags;
 bitflags! {
-    struct Flags: u8 {
-        const A = 1;
-        const B = 1 << 1;
-        const C = 0b0000_0100;
-    }
+	struct Flags: u8 {
+		const A = 1;
+		const B = 1 << 1;
+		const C = 0b0000_0100;
+	}
 }
 ```
 
@@ -364,10 +364,10 @@ are always public:
 ```
 # use bitflags::bitflags;
 bitflags! {
-    pub struct Flags: u8 {
-        // Constants are always `pub`
-        const A = 1;
-    }
+	pub struct Flags: u8 {
+		// Constants are always `pub`
+		const A = 1;
+	}
 }
 ```
 
@@ -376,11 +376,11 @@ Flags may refer to other flags using their [`Flags::bits`] value:
 ```
 # use bitflags::bitflags;
 bitflags! {
-    struct Flags: u8 {
-        const A = 1;
-        const B = 1 << 1;
-        const AB = Flags::A.bits() | Flags::B.bits();
-    }
+	struct Flags: u8 {
+		const A = 1;
+		const B = 1 << 1;
+		const AB = Flags::A.bits() | Flags::B.bits();
+	}
 }
 ```
 
@@ -391,13 +391,13 @@ A single `bitflags` invocation may include zero or more flags type declarations:
 bitflags! {}
 
 bitflags! {
-    struct Flags1: u8 {
-        const A = 1;
-    }
+	struct Flags1: u8 {
+		const A = 1;
+	}
 
-    struct Flags2: u8 {
-        const A = 1;
-    }
+	struct Flags2: u8 {
+		const A = 1;
+	}
 }
 ```
 
@@ -419,11 +419,11 @@ Implement flags methods and traits for a custom flags type using `u8` as its und
 struct Flags(u8);
 
 bitflags! {
-    impl Flags: u8 {
-        const A = 1;
-        const B = 1 << 1;
-        const C = 0b0000_0100;
-    }
+	impl Flags: u8 {
+		const A = 1;
+		const B = 1 << 1;
+		const C = 0b0000_0100;
+	}
 }
 ```
 
@@ -440,12 +440,12 @@ Adding an unnamed flag that makes all bits known:
 ```
 # use bitflags::bitflags;
 bitflags! {
-    struct Flags: u8 {
-        const A = 1;
-        const B = 1 << 1;
+	struct Flags: u8 {
+		const A = 1;
+		const B = 1 << 1;
 
-        const _ = !0;
-    }
+		const _ = !0;
+	}
 }
 ```
 
@@ -454,10 +454,10 @@ Flags types may define multiple unnamed flags:
 ```
 # use bitflags::bitflags;
 bitflags! {
-    struct Flags: u8 {
-        const _ = 1;
-        const _ = 1 << 1;
-    }
+	struct Flags: u8 {
+		const _ = 1;
+		const _ = 1 << 1;
+	}
 }
 ```
 */
@@ -607,8 +607,8 @@ macro_rules! bitflags {
 
 /// Implement functions on bitflags types.
 ///
-/// We need to be careful about adding new methods and trait implementations here because they
-/// could conflict with items added by the end-user.
+/// We need to be careful about adding new methods and trait implementations
+/// here because they could conflict with items added by the end-user.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __impl_bitflags {
@@ -768,10 +768,12 @@ macro_rules! __impl_bitflags {
 
 /// A macro that matches flags values, similar to Rust's `match` statement.
 ///
-/// In a regular `match` statement, the syntax `Flag::A | Flag::B` is interpreted as an or-pattern,
-/// instead of the bitwise-or of `Flag::A` and `Flag::B`. This can be surprising when combined with flags types
-/// because `Flag::A | Flag::B` won't match the pattern `Flag::A | Flag::B`. This macro is an alternative to
-/// `match` for flags values that doesn't have this issue.
+/// In a regular `match` statement, the syntax `Flag::A | Flag::B` is
+/// interpreted as an or-pattern, instead of the bitwise-or of `Flag::A` and
+/// `Flag::B`. This can be surprising when combined with flags types
+/// because `Flag::A | Flag::B` won't match the pattern `Flag::A | Flag::B`.
+/// This macro is an alternative to `match` for flags values that doesn't have
+/// this issue.
 ///
 /// # Syntax
 ///
@@ -784,7 +786,8 @@ macro_rules! __impl_bitflags {
 /// })
 /// ```
 ///
-/// The final `_ => default_result` arm is required, otherwise the macro will fail to compile.
+/// The final `_ => default_result` arm is required, otherwise the macro will
+/// fail to compile.
 ///
 /// # Examples
 ///
@@ -817,9 +820,10 @@ macro_rules! __impl_bitflags {
 ///
 /// # How it works
 ///
-/// The macro expands to a series of `if` statements, **checking equality** between the input expression
-/// and each pattern. This allows for correct matching of bitflag combinations, which is not possible
-/// with a regular match expression due to the way bitflags are implemented.
+/// The macro expands to a series of `if` statements, **checking equality**
+/// between the input expression and each pattern. This allows for correct
+/// matching of bitflag combinations, which is not possible with a regular match
+/// expression due to the way bitflags are implemented.
 ///
 /// Patterns are evaluated in the order they appear in the macro.
 #[macro_export]
@@ -871,16 +875,16 @@ macro_rules! __bitflags_match {
     }
 }
 
-/// A macro that processed the input to `bitflags!` and shuffles attributes around
-/// based on whether or not they're "expression-safe".
+/// A macro that processed the input to `bitflags!` and shuffles attributes
+/// around based on whether or not they're "expression-safe".
 ///
 /// This macro is a token-tree muncher that works on 2 levels:
 ///
-/// For each attribute, we explicitly match on its identifier, like `cfg` to determine
-/// whether or not it should be considered expression-safe.
+/// For each attribute, we explicitly match on its identifier, like `cfg` to
+/// determine whether or not it should be considered expression-safe.
 ///
-/// If you find yourself with an attribute that should be considered expression-safe
-/// and isn't, it can be added here.
+/// If you find yourself with an attribute that should be considered
+/// expression-safe and isn't, it can be added here.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __bitflags_expr_safe_attrs {

@@ -64,8 +64,6 @@ unsafe impl<T: Send, R> Send for Once<T, R> {}
 mod status {
 	use core::sync::atomic::{AtomicU8, Ordering};
 
-	
-
 	// SAFETY: This structure has an invariant, namely that the inner atomic u8 must
 	// *always* have a value for which there exists a valid Status. This means that
 	// users of this API must only be allowed to load and store `Status`es.
@@ -89,9 +87,9 @@ mod status {
 		//
 		// For this to be safe, the inner number must have a valid corresponding enum
 		// variant.
-		unsafe fn new_unchecked(inner: u8) -> Self { unsafe {
-			core::mem::transmute(inner)
-		}}
+		unsafe fn new_unchecked(inner: u8) -> Self {
+			unsafe { core::mem::transmute(inner) }
+		}
 	}
 
 	impl AtomicStatus {
@@ -392,30 +390,36 @@ impl<T, R> Once<T, R> {
 
 	/// Get a reference to the initialized instance. Must only be called once
 	/// COMPLETE.
-	unsafe fn force_get(&self) -> &T { unsafe {
-		// SAFETY:
-		// * `UnsafeCell`/inner deref: data never changes again
-		// * `MaybeUninit`/outer deref: data was initialized
-		&*(*self.data.get()).as_ptr()
-	}}
+	unsafe fn force_get(&self) -> &T {
+		unsafe {
+			// SAFETY:
+			// * `UnsafeCell`/inner deref: data never changes again
+			// * `MaybeUninit`/outer deref: data was initialized
+			&*(*self.data.get()).as_ptr()
+		}
+	}
 
 	/// Get a reference to the initialized instance. Must only be called once
 	/// COMPLETE.
-	unsafe fn force_get_mut(&mut self) -> &mut T { unsafe {
-		// SAFETY:
-		// * `UnsafeCell`/inner deref: data never changes again
-		// * `MaybeUninit`/outer deref: data was initialized
-		&mut *(*self.data.get()).as_mut_ptr()
-	}}
+	unsafe fn force_get_mut(&mut self) -> &mut T {
+		unsafe {
+			// SAFETY:
+			// * `UnsafeCell`/inner deref: data never changes again
+			// * `MaybeUninit`/outer deref: data was initialized
+			&mut *(*self.data.get()).as_mut_ptr()
+		}
+	}
 
 	/// Get a reference to the initialized instance. Must only be called once
 	/// COMPLETE.
-	unsafe fn force_into_inner(self) -> T { unsafe {
-		// SAFETY:
-		// * `UnsafeCell`/inner deref: data never changes again
-		// * `MaybeUninit`/outer deref: data was initialized
-		(*self.data.get()).as_ptr().read()
-	}}
+	unsafe fn force_into_inner(self) -> T {
+		unsafe {
+			// SAFETY:
+			// * `UnsafeCell`/inner deref: data never changes again
+			// * `MaybeUninit`/outer deref: data was initialized
+			(*self.data.get()).as_ptr().read()
+		}
+	}
 
 	/// Returns a reference to the inner value if the [`Once`] has been
 	/// initialized.
@@ -441,14 +445,16 @@ impl<T, R> Once<T, R> {
 	/// for exposing the `Once` to FFI or when the overhead of atomically
 	/// checking initialization is unacceptable and the `Once` has already been
 	/// initialized.
-	pub unsafe fn get_unchecked(&self) -> &T { unsafe {
-		debug_assert_eq!(
-			self.status.load(Ordering::SeqCst),
-			Status::Complete,
-			"Attempted to access an uninitialized Once. If this was run without debug checks, this would be undefined behaviour. This is a serious bug and you must fix it.",
-		);
-		self.force_get()
-	}}
+	pub unsafe fn get_unchecked(&self) -> &T {
+		unsafe {
+			debug_assert_eq!(
+				self.status.load(Ordering::SeqCst),
+				Status::Complete,
+				"Attempted to access an uninitialized Once. If this was run without debug checks, this would be undefined behaviour. This is a serious bug and you must fix it.",
+			);
+			self.force_get()
+		}
+	}
 
 	/// Returns a mutable reference to the inner value if the [`Once`] has been
 	/// initialized.
@@ -474,14 +480,16 @@ impl<T, R> Once<T, R> {
 	/// for exposing the `Once` to FFI or when the overhead of atomically
 	/// checking initialization is unacceptable and the `Once` has already been
 	/// initialized.
-	pub unsafe fn get_mut_unchecked(&mut self) -> &mut T { unsafe {
-		debug_assert_eq!(
-			self.status.load(Ordering::SeqCst),
-			Status::Complete,
-			"Attempted to access an unintialized Once.  If this was to run without debug checks, this would be undefined behavior.  This is a serious bug and you must fix it.",
-		);
-		self.force_get_mut()
-	}}
+	pub unsafe fn get_mut_unchecked(&mut self) -> &mut T {
+		unsafe {
+			debug_assert_eq!(
+				self.status.load(Ordering::SeqCst),
+				Status::Complete,
+				"Attempted to access an unintialized Once.  If this was to run without debug checks, this would be undefined behavior.  This is a serious bug and you must fix it.",
+			);
+			self.force_get_mut()
+		}
+	}
 
 	/// Returns a the inner value if the [`Once`] has been initialized.
 	///
@@ -503,14 +511,16 @@ impl<T, R> Once<T, R> {
 	/// returned, immediately triggering undefined behaviour (even if the
 	/// reference goes unused) This can be useful, if `Once` has already been
 	/// initialized, and you want to bypass an option check.
-	pub unsafe fn into_inner_unchecked(self) -> T { unsafe {
-		debug_assert_eq!(
-			self.status.load(Ordering::SeqCst),
-			Status::Complete,
-			"Attempted to access an unintialized Once.  If this was to run without debug checks, this would be undefined behavior.  This is a serious bug and you must fix it.",
-		);
-		self.force_into_inner()
-	}}
+	pub unsafe fn into_inner_unchecked(self) -> T {
+		unsafe {
+			debug_assert_eq!(
+				self.status.load(Ordering::SeqCst),
+				Status::Complete,
+				"Attempted to access an unintialized Once.  If this was to run without debug checks, this would be undefined behavior.  This is a serious bug and you must fix it.",
+			);
+			self.force_into_inner()
+		}
+	}
 
 	/// Checks whether the value has been initialized.
 	///

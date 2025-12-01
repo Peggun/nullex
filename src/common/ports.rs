@@ -27,7 +27,7 @@ pub unsafe fn inb(port: u16) -> u8 {
 	}
 }
 
-#[inline]
+#[inline(always)]
 pub unsafe fn outw(port: u16, val: u16) {
 	unsafe {
 		asm!(
@@ -39,7 +39,7 @@ pub unsafe fn outw(port: u16, val: u16) {
 	}
 }
 
-#[inline]
+#[inline(always)]
 pub unsafe fn inw(port: u16) -> u16 {
 	unsafe {
 		let mut ret: u16;
@@ -51,4 +51,10 @@ pub unsafe fn inw(port: u16) -> u16 {
 		);
 		ret
 	}
+}
+
+#[inline(always)]
+/// Waits for an I/O operation to complete.
+pub unsafe fn io_wait() {
+	unsafe { outb(0x80, 0) };
 }

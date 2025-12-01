@@ -14,10 +14,23 @@ use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, Pag
 
 use crate::{
 	apic::{TICK_COUNT, send_eoi},
+	common::ports::{inb, outb},
 	drivers::keyboard::queue::add_scancode,
 	gdt,
 	hlt_loop,
 	println,
+	rtc::{
+		CMOS_DATA,
+		CMOS_INDEX,
+		NMI_BIT,
+		PIC_EOI,
+		PIC1_CMD,
+		PIC2_CMD,
+		REG_C,
+		RTC_TICKS,
+		cmos_read,
+		send_rtc_eoi
+	},
 	serial::add_byte,
 	serial_println,
 	syscall::syscall,
@@ -27,6 +40,7 @@ use crate::{
 pub const APIC_TIMER_VECTOR: u8 = 32;
 pub const KEYBOARD_VECTOR: u8 = 33;
 pub const SERIAL_VECTOR: u8 = 36;
+pub const RTC_VECTOR: u8 = 0x70; // irq 8 - 15 is mapped from 0x70 to 0x77;
 pub const SYSCALL_VECTOR: u8 = 0x80;
 
 static mut IDT_STORAGE: MaybeUninit<InterruptDescriptorTable> = MaybeUninit::uninit();
@@ -50,6 +64,7 @@ pub fn init_idt() {
 		local_idt[APIC_TIMER_VECTOR as usize].set_handler_fn(apic_timer_handler);
 		local_idt[KEYBOARD_VECTOR as usize].set_handler_fn(keyboard_interrupt_handler);
 		local_idt[SERIAL_VECTOR as usize].set_handler_fn(serial_input_interrupt_handler);
+		local_idt[RTC_VECTOR as usize].set_handler_fn(rtc_timer_handler);
 		local_idt[SYSCALL_VECTOR as usize].set_handler_fn(syscall_handler);
 
 		let storage_ptr: *mut MaybeUninit<InterruptDescriptorTable> =
@@ -71,10 +86,12 @@ extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame) {
 
 /// Double fault handler.
 extern "x86-interrupt" fn double_fault_handler(
-	_stack_frame: InterruptStackFrame,
-	_error_code: u64
+	stack_frame: InterruptStackFrame,
+	error_code: u64
 ) -> ! {
 	println!("\n\nDOUBLE FAULT");
+	println!("Error Code: {}", error_code);
+	println!("StackFrame: {:#?}", stack_frame);
 	panic!("System halted");
 }
 
@@ -130,13 +147,28 @@ extern "x86-interrupt" fn page_fault_handler(
 	stack_frame: InterruptStackFrame,
 	error_code: PageFaultErrorCode
 ) {
-	use x86_64::registers::control::Cr2;
+	#[cfg(not(feature = "test"))]
+	{
+		use x86_64::registers::control::Cr2;
 
-	println!("EXCEPTION: PAGE FAULT");
-	println!("Accessed Address: {:?}", Cr2::read());
-	println!("Error Code: {:?}", error_code);
-	println!("{:#?}", stack_frame);
-	hlt_loop();
+		println!("EXCEPTION: PAGE FAULT");
+		println!("Accessed Address: {:?}", Cr2::read());
+		println!("Error Code: {:?}", error_code);
+		println!("{:#?}", stack_frame);
+		hlt_loop();
+	}
+	#[cfg(feature = "test")]
+	{
+		use x86_64::registers::control::Cr2;
+
+		use crate::qemu_exit;
+
+		serial_println!("EXCEPTION: PAGE FAULT");
+		serial_println!("Accessed Address: {:?}", Cr2::read());
+		serial_println!("Error Code: {:?}", error_code);
+		serial_println!("{:#?}", stack_frame);
+		qemu_exit(1)
+	}
 }
 
 /// APIC Timer Interrupt Handler.
@@ -146,6 +178,22 @@ extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) 
 	TICK_COUNT.fetch_add(1, Ordering::Relaxed);
 	unsafe {
 		send_eoi();
+	}
+}
+
+extern "x86-interrupt" fn rtc_timer_handler(_stack_frame: InterruptStackFrame) {
+	// ack
+	unsafe {
+		outb(CMOS_INDEX, REG_C | NMI_BIT);
+		let _ = inb(CMOS_DATA);
+	}
+
+	RTC_TICKS.fetch_add(1, Ordering::Relaxed);
+
+	unsafe {
+		outb(PIC2_CMD, PIC_EOI);
+		outb(PIC1_CMD, PIC_EOI);
+		send_rtc_eoi();
 	}
 }
 

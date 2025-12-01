@@ -32,3 +32,25 @@ pub fn pit_sleep(ms: u32) {
 		}
 	}
 }
+
+#[cfg(feature = "test")]
+pub mod tests {
+	use crate::{
+		pit::{init_pit, pit_tick},
+		utils::ktest::TestError
+	};
+
+	pub fn simple_pit_tick_inc() -> Result<(), TestError> {
+		pit_tick();
+		Ok(())
+	}
+	crate::create_test!(simple_pit_tick_inc);
+
+	pub fn test_init_pit_qemu() -> Result<(), TestError> {
+		unsafe {
+			init_pit(1000);
+		}
+		Ok(())
+	}
+	crate::create_test!(test_init_pit_qemu);
+}

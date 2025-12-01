@@ -5,10 +5,8 @@ Kernel module for the kernel.
 */
 
 #![no_std]
+#![no_main]
 #![allow(internal_features)]
-#![cfg_attr(test, no_main)]
-#![feature(custom_test_frameworks)]
-#![reexport_test_harness_main = "test_main"]
 #![feature(abi_x86_interrupt)]
 #![feature(step_trait)]
 #![feature(associated_type_defaults)]
@@ -17,6 +15,8 @@ Kernel module for the kernel.
 #![feature(generic_atomic)]
 #![feature(string_from_utf8_lossy_owned)]
 #![feature(ptr_internals)]
+#![feature(fn_traits)]
+#![feature(macro_metavar_expr_concat)]
 
 #[macro_use]
 extern crate alloc;
@@ -24,6 +24,7 @@ extern crate core;
 
 pub mod allocator;
 pub mod apic;
+pub mod arch;
 pub mod common;
 pub mod config;
 pub mod constants;
@@ -36,15 +37,16 @@ pub mod io;
 pub mod ioapic;
 pub mod memory;
 pub mod pit;
+pub mod rtc;
 pub mod serial;
 pub mod syscall;
 pub mod task;
 pub mod utils;
 pub mod vga_buffer;
-pub mod arch;
 
 use alloc::boxed::Box;
 use core::{
+	arch::asm,
 	future::Future,
 	hint::spin_loop,
 	pin::Pin,
@@ -52,21 +54,30 @@ use core::{
 	task::{Context, Poll}
 };
 
-use x86_64::VirtAddr;
+use x86_64::{
+	VirtAddr,
+	instructions::{hlt, port::Port}
+};
 
 use crate::{
 	apic::APIC_BASE,
 	common::ports::{inb, outb},
-	constants::initialize_constants,
 	fs::ramfs::{FileSystem, Permission},
+	interrupts::APIC_TIMER_VECTOR,
 	io::keyboard::line_editor::print_keypresses,
 	memory::BootInfoFrameAllocator,
+	rtc::dump_rtc_and_pic_state,
 	task::{
 		Process,
 		executor::{self, CURRENT_PROCESS, EXECUTOR},
 		keyboard
 	},
-	utils::{multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process},
+	utils::{
+		ktest::{TestError, run_all_tests},
+		multiboot2::parse_multiboot2,
+		mutex::SpinMutex,
+		process::spawn_process
+	},
 	vga_buffer::WRITER
 };
 
@@ -89,9 +100,9 @@ pub fn raw_serial_test() {
 pub fn init() {
 	serial_println!("[Info] Initializing kernel...");
 	gdt::init();
-	serial_println!("gdt done");
+	serial_println!("[Info] GDT done.");
 	interrupts::init_idt();
-	serial_println!("[Info] Finished IDT Init...");
+	serial_println!("[Info] Finished IDT Init.");
 	x86_64::instructions::interrupts::enable();
 	serial_println!("[Info] Done.");
 }
@@ -134,7 +145,7 @@ pub struct MultibootBootInfo {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
-	WRITER.lock().clear_everything();
+	clear_screen!();
 	println!("[Info] Starting Kernel Init...");
 
 	let boot_info = unsafe { parse_multiboot2(mbi_addr) };
@@ -159,36 +170,55 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 		Err(e) => panic!("Heap initialization failed: {:?}", e)
 	}
 
-	// 1) set APIC_BASE to the virtual mapping base (physical offset + APIC phys)
 	{
 		let mut apic_base = APIC_BASE.lock();
 		*apic_base = pmo.as_u64() as usize + 0xFEE0_0000usize;
 	}
 
-	// 2) map the local APIC MMIO into your virtual address space
+	// apic init
 	memory::map_apic(&mut mapper, &mut frame_allocator, *pmo);
+	unsafe {
+		apic::enable_apic(0xFF); // make sure IDT doesnt use 0xFF
+	}
 
-	// 3) now it's safe to enable the local APIC (writes SVR)
-	unsafe { apic::enable_apic() };
+	match apic::calibrate(1024) {
+		Ok((ticks_per_sec, initial_count)) => {
+			serial_println!("APIC ticks/sec = {}", ticks_per_sec);
+			serial_println!("APIC initial_count for 1000 Hz = {}", initial_count);
 
-	// 4) initialize the APIC timer (reads/writes APIC registers)
-	unsafe { apic::init_timer() };
+			unsafe {
+				apic::mask_timer(true);
+				apic::start_timer_periodic(APIC_TIMER_VECTOR, initial_count);
+				apic::mask_timer(false);
+			}
+		}
+		Err(e) => {
+			serial_println!("APIC calibration failed: {}", e)
+		}
+	}
 
-	// 5) map the IOAPIC MMIO
 	memory::map_ioapic(&mut mapper, &mut frame_allocator, *pmo);
 
-	// 6) create IoApic using the virtual base and init it
+	rtc::init_rtc();
+	dump_rtc_and_pic_state();
+	serial_println!("[Info] RTC Initialized.");
+
 	let ioapic_virt_base = (*pmo).as_u64() + 0xFEC0_0000u64;
 	let mut ioapic = unsafe { ioapic::IoApic::new(ioapic_virt_base) };
-	let lapic_id = unsafe { (apic::read_register(apic::ID) >> 24) as u8 };
+	let lapic_id = unsafe { (apic::read_register(apic::APIC_ID) >> 24) as u8 };
 	unsafe {
-		ioapic.init(32, lapic_id);
-	} // offset 32, dest = local apic id
+		ioapic.init(32, lapic_id); // offset 32, dest = local apic id
+	}
 
-	// LAPIC id
+	// apic init cont.
+	unsafe {
+		apic::mask_timer(true);
+		serial_println!("apic count: {}", apic::read_current_count())
+	}
 
-	unsafe { apic::init_timer() };
-	initialize_constants();
+	// rtc init
+	rtc::init_rtc();
+	dump_rtc_and_pic_state();
 
 	let fs = FileSystem::new();
 
@@ -198,6 +228,15 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	setup_system_files(fs);
 
 	println!("[Info] Done.");
+
+	// run tests after all system components have initialized successfully (usually
+	// always)
+	#[cfg(feature = "test")]
+	{
+		clear_screen!();
+		run_all_tests();
+		loop {}
+	}
 
 	//SYSLOG_SINK.log("Initialized Main Kernel Successfully\n", LogLevel::Info);
 
@@ -282,6 +321,19 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 		} else {
 			EXECUTOR.lock().sleep_if_idle();
 		}
+	}
+}
+
+pub fn qemu_exit(code: u32) -> ! {
+	serial_println!("QEMU exit: guest code = {}", code);
+
+	let mut port = Port::<u32>::new(0xf4);
+	unsafe {
+		port.write(code);
+	}
+
+	loop {
+		hlt();
 	}
 }
 

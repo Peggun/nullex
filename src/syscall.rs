@@ -10,7 +10,6 @@ use core::sync::atomic::AtomicBool;
 use futures::task::AtomicWaker;
 
 use crate::{
-	apic::sleep,
 	fs,
 	println,
 	serial_println,
@@ -276,9 +275,4 @@ pub fn sys_exec(path: &str) -> i32 {
 pub fn sys_kill(pid: u64) -> i32 {
 	EXECUTOR.lock().end_process(ProcessId::new(pid), -2);
 	0 // placeholder: should terminate the specified process
-}
-
-pub async fn sys_sleep(duration: u32) -> i32 {
-	unsafe { sleep(duration).await };
-	0 // placeholder: should sleep the current process
 }

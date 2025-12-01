@@ -150,3 +150,24 @@ impl<A> Locked<A> {
 fn align_up(addr: usize, align: usize) -> usize {
 	(addr + align - 1) & !(align - 1)
 }
+
+#[cfg(feature = "test")]
+pub mod tests {
+	use crate::{TestError, allocator::align_up};
+
+	pub fn test_align_up_already_aligned() -> Result<(), TestError> {
+		let a = 0x1000usize;
+		let aligned = align_up(a, 0x1000);
+		assert_eq!(aligned, 0x1000);
+		Ok(())
+	}
+	crate::create_test!(test_align_up_already_aligned);
+
+	pub fn test_align_up_non_aligned() -> Result<(), TestError> {
+		let a = 0x1001usize;
+		let aligned = align_up(a, 0x1000);
+		assert_eq!(aligned, 0x2000);
+		Ok(())
+	}
+	crate::create_test!(test_align_up_non_aligned);
+}

@@ -74,7 +74,7 @@ pub const TABLE_BASE: u32 = 0x10;
 pub const IRQ_MODE_MASK: u32 = 0x0000_0700;
 
 /// IOAPIC interrupt modes.
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 #[repr(u8)]
 pub enum IrqMode {
 	/// Asserts the INTR signal on all allowed processors.
@@ -352,4 +352,79 @@ impl IoApic {
 			self.regs.set(lo(irq), IrqFlags::MASKED.bits());
 		}
 	}
+}
+
+pub mod prelude {
+	pub use crate::ioapic::*;
+}
+
+#[cfg(feature = "test")]
+pub mod tests {
+	use crate::{PHYS_MEM_OFFSET, ioapic::prelude::*, memory::init, utils::ktest::TestError};
+
+	pub fn test_lo_hi_computation() -> Result<(), TestError> {
+		let l = lo(5);
+		let h = hi(5);
+		assert_eq!(h, l + 1);
+		assert_eq!(l, TABLE_BASE + (2 * 5u32));
+		Ok(())
+	}
+	crate::create_test!(test_lo_hi_computation);
+
+	pub fn test_rte_vector_set_get() -> Result<(), TestError> {
+		let mut e = RedirectionTableEntry::default();
+		e.set_vector(0xAB);
+		assert_eq!(e.vector(), 0xAB);
+		Ok(())
+	}
+	crate::create_test!(test_rte_vector_set_get);
+
+	pub fn test_rte_mode_roundtrip() -> Result<(), TestError> {
+		let mut e = RedirectionTableEntry::default();
+		assert_eq!(e.mode(), IrqMode::Fixed);
+		e.set_mode(IrqMode::NonMaskable);
+		assert_eq!(e.mode(), IrqMode::NonMaskable);
+		Ok(())
+	}
+	crate::create_test!(test_rte_mode_roundtrip);
+
+	pub fn test_flags_and_dest() -> Result<(), TestError> {
+		let mut e = RedirectionTableEntry::default();
+		e.set_flags(IrqFlags::MASKED | IrqFlags::LEVEL_TRIGGERED);
+		let flags = e.flags();
+		assert!(flags.contains(IrqFlags::MASKED));
+		assert!(flags.contains(IrqFlags::LEVEL_TRIGGERED));
+		e.set_dest(0xEE);
+		assert_eq!(e.dest(), 0xEE);
+		Ok(())
+	}
+	crate::create_test!(test_flags_and_dest);
+
+	pub fn test_into_from_raw_roundtrip() -> Result<(), TestError> {
+		let mut a = RedirectionTableEntry::default();
+		a.set_vector(0x12);
+		a.set_mode(IrqMode::External);
+		a.set_flags(IrqFlags::MASKED);
+		a.set_dest(0x42);
+
+		let (lo_raw, hi_raw) = a.into_raw();
+		let b = RedirectionTableEntry::from_raw(lo_raw, hi_raw);
+
+		assert_eq!(b.vector(), 0x12);
+		assert_eq!(b.mode(), IrqMode::External);
+		assert!(b.flags().contains(IrqFlags::MASKED));
+		assert_eq!(b.dest(), 0x42);
+		Ok(())
+	}
+	crate::create_test!(test_into_from_raw_roundtrip);
+
+	pub fn test_invalid_irqmode_tryfrom() -> Result<(), TestError> {
+		let raw = (0b011_u32) << 8;
+		match IrqMode::try_from(raw) {
+			Ok(_) => panic!("expected Err for invalid mode 0b011"),
+			Err(e) => assert_eq!(e, 0b011)
+		}
+		Ok(())
+	}
+	crate::create_test!(test_invalid_irqmode_tryfrom);
 }

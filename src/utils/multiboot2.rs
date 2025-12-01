@@ -3,7 +3,10 @@
 
 use core::{ptr::read_unaligned, u64};
 
-use crate::{arch::x86_64::bootinfo::{FrameRange, MemoryMap, MemoryRegion, MemoryRegionType}, println};
+use crate::{
+	arch::x86_64::bootinfo::{FrameRange, MemoryMap, MemoryRegion, MemoryRegionType},
+	println
+};
 
 pub const MULTIBOOT_SEARCH: u32 = 32768;
 pub const MULTIBOOT_HEADER_ALIGN: u32 = 8;
@@ -500,19 +503,11 @@ pub unsafe fn parse_multiboot2(mbi_addr: usize) -> BootInformation {
 						let len = mmap_entry.len;
 
 						let region_kind = match mmap_entry.r#type {
-							MULTIBOOT_MEMORY_AVAILABLE => {
-								MemoryRegionType::Usable
-							}
-							MULTIBOOT_MEMORY_RESERVED => {
-								MemoryRegionType::Reserved
-							}
-							MULTIBOOT_MEMORY_ACPI_RECLAIMABLE => {
-								MemoryRegionType::AcpiReclaimable
-							}
+							MULTIBOOT_MEMORY_AVAILABLE => MemoryRegionType::Usable,
+							MULTIBOOT_MEMORY_RESERVED => MemoryRegionType::Reserved,
+							MULTIBOOT_MEMORY_ACPI_RECLAIMABLE => MemoryRegionType::AcpiReclaimable,
 							MULTIBOOT_MEMORY_NVS => MemoryRegionType::AcpiNvs,
-							MULTIBOOT_MEMORY_BADRAM => {
-								MemoryRegionType::BadMemory
-							}
+							MULTIBOOT_MEMORY_BADRAM => MemoryRegionType::BadMemory,
 							_ => MemoryRegionType::Reserved
 						};
 

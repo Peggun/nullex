@@ -4,17 +4,19 @@
 //   https://github.com/bitflags/bitflags (commit 7cc8595)
 //   Upstream original file: <src/public.rs>
 // Copyright (c) 2014 The Rust Project Developers
-// Modifications: Removed `std`-feature & external features code. Suited code for kernel paths.
-// See THIRD_PARTY_LICENSES.md for full license texts and upstream details.
+// Modifications: Removed `std`-feature & external features code. Suited code
+// for kernel paths. See THIRD_PARTY_LICENSES.md for full license texts and
+// upstream details.
 
 //! Generate the user-facing flags type.
 //!
-//! The code here belongs to the end-user, so new trait implementations and methods can't be
-//! added without potentially breaking users.
+//! The code here belongs to the end-user, so new trait implementations and
+//! methods can't be added without potentially breaking users.
 
 /// Declare the user-facing bitflags struct.
 ///
-/// This type is guaranteed to be a newtype with a `bitflags`-facing type as its single field.
+/// This type is guaranteed to be a newtype with a `bitflags`-facing type as its
+/// single field.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __declare_public_bitflags {
@@ -29,8 +31,8 @@ macro_rules! __declare_public_bitflags {
 
 /// Implement functions on the public (user-facing) bitflags type.
 ///
-/// We need to be careful about adding new methods and trait implementations here because they
-/// could conflict with items added by the end-user.
+/// We need to be careful about adding new methods and trait implementations
+/// here because they could conflict with items added by the end-user.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __impl_public_bitflags_forward {
@@ -134,8 +136,8 @@ macro_rules! __impl_public_bitflags_forward {
 
 /// Implement functions on the public (user-facing) bitflags type.
 ///
-/// We need to be careful about adding new methods and trait implementations here because they
-/// could conflict with items added by the end-user.
+/// We need to be careful about adding new methods and trait implementations
+/// here because they could conflict with items added by the end-user.
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __impl_public_bitflags {

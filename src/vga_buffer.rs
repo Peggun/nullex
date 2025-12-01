@@ -16,6 +16,11 @@ use crate::{
 	utils::{mutex::SpinMutex, volatile::Volatile}
 };
 
+#[used]
+#[unsafe(link_section = ".kernel_tests")]
+#[unsafe(export_name = "__kernel_test_probe_vga")]
+pub static __KERNEL_TEST_PROBE_VGA: u64 = 0x1122334455667788;
+
 lazy_static! {
 	/// A global `Writer` instance that can be used for printing to the VGA text buffer.
 	///
@@ -369,4 +374,42 @@ macro_rules! print_colours {
 
     (@bg_or $bg:expr) => { $bg };
     (@bg_or) => { $crate::vga_buffer::Color::Black };
+}
+
+#[macro_export]
+macro_rules! clear_screen {
+	() => {
+		use $crate::vga_buffer::WRITER;
+
+		WRITER.lock().clear_everything();
+	};
+}
+
+pub mod prelude {
+	pub use crate::vga_buffer::*;
+}
+
+#[cfg(feature = "test")]
+pub mod tests {
+	use crate::{utils::ktest::TestError, vga_buffer::prelude::*};
+
+	pub fn test_screenchar_blank_and_buffer_blank() -> Result<(), TestError> {
+		let sc = ScreenChar::blank();
+		assert_eq!(sc.ascii_character, b' ');
+		let buf = Buffer::blank();
+		for row in 0..3 {
+			for col in 0..3 {
+				let ch = buf.chars[row][col].read();
+				assert_eq!(ch.ascii_character, b' ');
+			}
+		}
+		Ok(())
+	}
+	crate::create_test!(test_screenchar_blank_and_buffer_blank);
+
+	pub fn test_color_code_creation() -> Result<(), TestError> {
+		let _ = ColorCode::new(Color::LightGreen, Color::Black);
+		Ok(())
+	}
+	crate::create_test!(test_color_code_creation);
 }

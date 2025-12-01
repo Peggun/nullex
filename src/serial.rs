@@ -4,7 +4,7 @@
 Serial Interface module for the kernel.
 */
 
-use alloc::string::String;
+use alloc::{collections::btree_map, string::String};
 use core::{arch::asm, fmt, hint::spin_loop, task::Poll};
 
 use crossbeam_queue::ArrayQueue;
@@ -12,7 +12,15 @@ use futures::{Stream, StreamExt, task::AtomicWaker};
 use x86_64::instructions::interrupts;
 
 use crate::{
-	bitflags, common::ports::{inb, outb}, lazy_static, println, serial_print, serial_println, serial_raw_print, task::yield_now, utils::{kfunc::run_serial_command, mutex::SpinMutex, oncecell::spin::OnceCell}
+	bitflags,
+	common::ports::{inb, outb},
+	lazy_static,
+	println,
+	serial_print,
+	serial_println,
+	serial_raw_print,
+	task::yield_now,
+	utils::{kfunc::run_serial_command, mutex::SpinMutex, oncecell::spin::OnceCell}
 };
 
 #[derive(Debug)]
@@ -330,4 +338,27 @@ macro_rules! serial_raw_print {
 	($bytes:expr) => {
 		$crate::serial::_send_raw_serial($bytes)
 	};
+}
+
+pub mod prelude {
+	pub use crate::serial::*;
+}
+
+pub mod tests {
+	use crate::{serial::prelude::*, utils::ktest::TestError};
+
+	pub fn test_line_status_flag_combinations() -> Result<(), TestError> {
+		let flags = LineStatusFlags::INPUT_FULL | LineStatusFlags::OUTPUT_EMPTY;
+		assert!(flags.contains(LineStatusFlags::INPUT_FULL));
+		assert!(flags.contains(LineStatusFlags::OUTPUT_EMPTY));
+		Ok(())
+	}
+	crate::create_test!(test_line_status_flag_combinations);
+
+	pub fn test_serial_error_debug() -> Result<(), TestError> {
+		let err = SerialPortError::SerialPortError;
+		let _ = format!("{:?}", err);
+		Ok(())
+	}
+	crate::create_test!(test_serial_error_debug);
 }

@@ -4,8 +4,9 @@
 //   https://github.com/bitflags/bitflags (commit 7cc8595)
 //   Upstream original file: <src/external.rs>
 // Copyright (c) 2014 The Rust Project Developers
-// Modifications: Removed `std`-feature & external features code. Suited code for kernel paths.
-// See THIRD_PARTY_LICENSES.md for full license texts and upstream details.
+// Modifications: Removed `std`-feature & external features code. Suited code
+// for kernel paths. See THIRD_PARTY_LICENSES.md for full license texts and
+// upstream details.
 
 //! Conditional trait implementations for external libraries.
 
@@ -27,30 +28,30 @@ Next, define a macro like so:
 #[doc(hidden)]
 #[cfg(feature = "serde")]
 macro_rules! __impl_external_bitflags_my_library {
-    (
-        $InternalBitFlags:ident: $T:ty, $PublicBitFlags:ident {
-            $(
-                $(#[$inner:ident $($args:tt)*])*
-                const $Flag:tt;
-            )*
-        }
-    ) => {
-        // Implementation goes here
-    };
+	(
+		$InternalBitFlags:ident: $T:ty, $PublicBitFlags:ident {
+			$(
+				$(#[$inner:ident $($args:tt)*])*
+				const $Flag:tt;
+			)*
+		}
+	) => {
+		// Implementation goes here
+	};
 }
 
 #[macro_export]
 #[doc(hidden)]
 #[cfg(not(feature = "my_library"))]
 macro_rules! __impl_external_bitflags_my_library {
-    (
-        $InternalBitFlags:ident: $T:ty, $PublicBitFlags:ident {
-            $(
-                $(#[$inner:ident $($args:tt)*])*
-                const $Flag:tt;
-            )*
-        }
-    ) => {};
+	(
+		$InternalBitFlags:ident: $T:ty, $PublicBitFlags:ident {
+			$(
+				$(#[$inner:ident $($args:tt)*])*
+				const $Flag:tt;
+			)*
+		}
+	) => {};
 }
 ```
 
@@ -64,12 +65,12 @@ Now, we add our macro call to the `__impl_external_bitflags` macro body:
 
 ```rust
 __impl_external_bitflags_my_library! {
-    $InternalBitFlags: $T, $PublicBitFlags {
-        $(
-            $(#[$inner $($args)*])*
-            const $Flag;
-        )*
-    }
+	$InternalBitFlags: $T, $PublicBitFlags {
+		$(
+			$(#[$inner $($args)*])*
+			const $Flag;
+		)*
+	}
 }
 ```
 */
@@ -80,7 +81,7 @@ pub(crate) mod __private {}
 #[macro_export]
 #[doc(hidden)]
 macro_rules! __impl_external_bitflags {
-    (
+	(
         $InternalBitFlags:ident: $T:ty, $PublicBitFlags:ident {
             $(
                 $(#[$inner:ident $($args:tt)*])*

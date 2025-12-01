@@ -1,0 +1,10 @@
+{
+  "rust-analyzer.cargo.runBuildScripts": false,
+  "rust-analyzer.cargo.loadOutDirsFromCheck": false,
+  "rust-analyzer.procMacro.enable": false,
+  "rust-analyzer.files.excludeDirs": ["target"],
+  "files.watcherExclude": {
+    "**/target/**": true,
+    "**/node_modules/**": true
+  }
+}

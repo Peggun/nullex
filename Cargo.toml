@@ -13,8 +13,11 @@ futures = { version = "0.3", default-features = false }
 thiserror = { version = "2.0.16", default-features = false }
 crossbeam-queue = { version = "0.3.11", default-features = false, features = ["alloc"] }
 
-#[profile.dev]
-#panic = "abort"
+[profile.dev]
+panic = "abort"
 
-#[profile.release]
-#panic = "abort"
+[profile.release]
+panic = "abort"
+
+[features]
+test = []

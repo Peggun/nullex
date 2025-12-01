@@ -1,15 +1,5 @@
 use core::{arch::asm, sync::atomic::AtomicU32};
 
-use crate::apic;
-
-pub static SYSTEM_UPTIME: AtomicU32 = AtomicU32::new(0);
-
-pub fn update_system_uptime() {
-	let now = apic::now();
-
-	SYSTEM_UPTIME.store(now, core::sync::atomic::Ordering::Relaxed);
-}
-
 // from https://board.flatassembler.net/topic.php?p=240655
 // but translated to x64 with some AI magic, because fuck asm
 /// # Safety

@@ -21,7 +21,9 @@ use x86_64::{
 };
 
 use crate::{
-	arch::x86_64::bootinfo::{MemoryMap, MemoryRegionType}, println, utils::multiboot2::{__link_phys_base, _end}
+	arch::x86_64::bootinfo::{MemoryMap, MemoryRegionType},
+	println,
+	utils::multiboot2::{__link_phys_base, _end}
 };
 
 pub fn map_apic(

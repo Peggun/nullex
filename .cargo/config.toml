@@ -4,18 +4,22 @@ build-std = ["core", "compiler_builtins", "alloc"]
 bindeps = true
 
 [build]
-target = "x86_64-unknown-none.json"
 rustflags = [
   "-C", "force-frame-pointers=yes",
   "-C", "debuginfo=2",
 ]
 
-[env]
-AS = "x86_64-elf-as"
-CC = "x86_64-elf-gcc"
-CC_x86_64_unknown_none = "x86_64-elf-gcc"
-AR = "x86_64-elf-ar"
-LD = "x86_64-elf-ld"
+[target."x86_64-unknown-none.json"]
+rustflags = [
+  "-C", "link-arg=-Wl,--whole-archive",
+  "-C", "link-arg=-lnullex",
+  "-C", "link-arg=-Wl,--no-whole-archive",
+]
 
-[target.'cfg(target_os = "none")']
-runner = "bootimage runner"
+[env]
+# Keep host-side assembler (if you want it), but do NOT set CC globally to the cross compiler.
+# Use target-scoped environment variables so host-builds are unaffected.
+AS = "x86_64-elf-as"
+CC_x86_64_unknown_none = "x86_64-elf-gcc"
+AR_x86_64_unknown_none = "x86_64-elf-ar"
+LD_x86_64_unknown_none = "x86_64-elf-ld"

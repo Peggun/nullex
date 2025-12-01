@@ -8,3 +8,4 @@ Cargo.lock
 
 build
 tmp
+qemu.log

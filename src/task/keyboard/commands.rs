@@ -11,13 +11,13 @@ use alloc::{
 };
 
 use crate::{
-	apic::{TICK_COUNT, to_hrt},
 	constants::SYSLOG_SINK,
 	drivers::keyboard::scancode::CWD,
 	fs::{self, ramfs::Permission, resolve_path},
 	lazy_static,
 	print,
 	println,
+	rtc::{read_rtc_time, rtc_ticks},
 	serial_println,
 	syscall,
 	task::{ProcessId, executor::EXECUTOR},
@@ -180,9 +180,9 @@ pub fn init_commands() {
 	});
 
 	register_command(Command {
-		name: "uptime",
-		func: uptime,
-		help: "System uptime.",
+		name: "time",
+		func: time,
+		help: "Current date and time.",
 		cmd_type: CommandType::Generic
 	});
 	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
@@ -385,11 +385,8 @@ pub fn kill(args: &[&str]) {
 	serial_println!("Killed process {}", pid);
 }
 
-pub fn uptime(_args: &[&str]) {
-	let ticks = TICK_COUNT.load(core::sync::atomic::Ordering::Relaxed);
-	let time = to_hrt(ticks);
-	println!(
-		"up: {} days {}:{}:{}.{}",
-		time.days, time.hours, time.mins, time.secs, time.ms
-	);
+pub fn time(_args: &[&str]) {
+	let time = read_rtc_time();
+
+	println!("{}", time);
 }

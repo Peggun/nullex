@@ -47,6 +47,15 @@ SECTIONS
         . = ALIGN(0x1000);
     }
 
+    .kernel_tests : ALIGN(0x1000) {
+        __start_kernel_tests = .;
+        KEEP(*(.kernel_tests))
+        KEEP(*(.kernel_tests.*))
+        KEEP(*(.kernel_tests.*.*))
+        __stop_kernel_tests = .;
+        . = ALIGN(0x1000);
+    }
+
     .bss (NOLOAD) : ALIGN(0x1000) {
         _bss = .;
         *(.bss .bss.*)
