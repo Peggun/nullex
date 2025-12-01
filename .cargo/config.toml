@@ -4,12 +4,13 @@ build-std = ["core", "compiler_builtins", "alloc"]
 bindeps = true
 
 [build]
+target = "x86_64-unknown-none.json"
 rustflags = [
   "-C", "force-frame-pointers=yes",
   "-C", "debuginfo=2",
 ]
 
-[target."x86_64-unknown-none.json"]
+[target.x86_64-unknown-none]
 rustflags = [
   "-C", "link-arg=-Wl,--whole-archive",
   "-C", "link-arg=-lnullex",
