@@ -20,7 +20,7 @@ install_on_apt() {
   echo "-- Detected apt (Debian/Ubuntu). Installing build-essential, llvm, qemu, python..."
   $SUDO_PREFIX apt update
   $SUDO_PREFIX apt install -y build-essential curl git ca-certificates uuid-dev nasm acpica-tools ovmf dosfstools parted \
-      qemu-system-x86 qemu-utils clang python3
+      qemu-system-x86 qemu-utils clang python3 xorriso grub-pc-bin
   $SUDO_PREFIX bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
   echo "-- apt installs finished"
 }
@@ -28,7 +28,7 @@ install_on_apt() {
 install_on_pacman() {
   echo "-- Detected pacman (Arch). Installing base-devel group, llvm, qemu, python..."
   $SUDO_PREFIX pacman -Sy --noconfirm
-  $SUDO_PREFIX pacman -S --needed --noconfirm base-devel qemu llvm clang curl git python ovmf libuuid nasm acpica ovmf dosfstools parted
+  $SUDO_PREFIX pacman -S --needed --noconfirm base-devel qemu llvm clang curl git python ovmf libuuid nasm acpica ovmf dosfstools parted grub xorriso
   echo "-- pacman installs finished"
 }
 
@@ -44,7 +44,7 @@ install_on_dnf() {
 
   # install qemu/kvm and llvm/clang and python
   $SUDO_PREFIX dnf -y install qemu-kvm qemu-img qemu-system-x86 llvm clang curl git || \
-    $SUDO_PREFIX dnf -y install qemu qemu-img llvm clang curl git python3 libuuid-devel nasm acpica-tools edk2-ovmf dosfstools parted
+    $SUDO_PREFIX dnf -y install qemu qemu-img llvm clang curl git python3 libuuid-devel nasm acpica-tools edk2-ovmf dosfstools parted grub2-tools xorriso
   echo "-- dnf installs finished"
 }
 

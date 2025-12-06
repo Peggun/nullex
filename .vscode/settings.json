@@ -6,5 +6,6 @@
   "files.watcherExclude": {
     "**/target/**": true,
     "**/node_modules/**": true
-  }
+  },
+  "makefile.configureOnOpen": true
 }
