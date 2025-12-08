@@ -1,4 +1,4 @@
-use core::{arch::asm, sync::atomic::AtomicU32};
+use core::arch::asm;
 
 // from https://board.flatassembler.net/topic.php?p=240655
 // but translated to x64 with some AI magic, because fuck asm

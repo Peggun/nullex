@@ -46,7 +46,6 @@ pub mod vga_buffer;
 
 use alloc::boxed::Box;
 use core::{
-	arch::asm,
 	future::Future,
 	hint::spin_loop,
 	pin::Pin,
@@ -73,12 +72,8 @@ use crate::{
 		keyboard
 	},
 	utils::{
-		ktest::{TestError, run_all_tests},
-		multiboot2::parse_multiboot2,
-		mutex::SpinMutex,
-		process::spawn_process
-	},
-	vga_buffer::WRITER
+		ktest::run_all_tests, multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process
+	}
 };
 
 lazy_static! {

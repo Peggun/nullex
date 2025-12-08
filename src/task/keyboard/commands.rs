@@ -17,7 +17,7 @@ use crate::{
 	lazy_static,
 	print,
 	println,
-	rtc::{read_rtc_time, rtc_ticks},
+	rtc::read_rtc_time,
 	serial_println,
 	syscall,
 	task::{ProcessId, executor::EXECUTOR},

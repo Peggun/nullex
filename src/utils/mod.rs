@@ -1,3 +1,4 @@
+pub mod align;
 pub mod bitflags;
 pub mod bits;
 pub mod cpu_utils;

@@ -153,7 +153,7 @@ fn align_up(addr: usize, align: usize) -> usize {
 
 #[cfg(feature = "test")]
 pub mod tests {
-	use crate::{TestError, allocator::align_up};
+	use crate::{utils::ktest::TestError, allocator::align_up};
 
 	pub fn test_align_up_already_aligned() -> Result<(), TestError> {
 		let a = 0x1000usize;

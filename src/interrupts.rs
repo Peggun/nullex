@@ -28,7 +28,6 @@ use crate::{
 		PIC2_CMD,
 		REG_C,
 		RTC_TICKS,
-		cmos_read,
 		send_rtc_eoi
 	},
 	serial::add_byte,
