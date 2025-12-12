@@ -1,5 +1,6 @@
-use crate::{bitflags, utils::align::*};
+use alloc::vec::Vec;
 
+use crate::{bitflags, drivers::virtio::{Features, virtqueue::VirtQueue}};
 
 bitflags! {
     /// A simple low-level indication of the completed steps in the device 
@@ -45,56 +46,54 @@ bitflags! {
         /// Indicates that something went wrong in the guest, and it has given
         /// up on the device.
         const FAILED = 1 << 7;
+
+        /// incase for C АBI
+        const _ = !0;
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum VirtQueueKind {
-    ReceiveQueue = 0,
-    TransmitQueue = 1,
+pub trait VirtIODeviceTrait {
+    fn init(&mut self);
+    fn reset(&mut self);
+
+    fn has_feature(&mut self, bit: Features) -> bool;
+
+    fn get_config_generation(&mut self) -> u32;
+    fn read_config_field(&mut self, bit: u32) -> Option<u32>;
 }
 
-pub enum VirtQueueBackend {
-    Split(Result<SplitVirtQueue, &'static str>),
-    Packed(PackedVirtQueue),
+pub struct VirtIODevice {
+    pub offered_features: Features,
+    pub device_status: VirtIODeviceStatus,
+    pub configuration_space: u32,
+
+    pub virtqueues: Vec<Option<VirtQueue>>,
+
+    pub can_send_notifs: bool,
 }
 
-pub struct VirtQueue {
-    pub metadata: VirtQueueMetadata,
-    pub backend: VirtQueueBackend,
-}
+impl VirtIODeviceTrait for VirtIODevice {
+    fn init(&mut self) {}
 
-pub struct VirtQueueMetadata {
-    pub index: u16,
-    pub kind: VirtQueueKind,
-    pub flags: u64,
-}
+    /// Reset the device.
+    fn reset(&mut self) {
+        self.device_status = VirtIODeviceStatus::ZERO;
+        self.can_send_notifs = false;
 
-pub struct SplitVirtQueue {
-    pub descriptor_table: Align16<u32>,
-    pub available_ring: Align2<u32>,
-    pub used_ring: Align4<u32>,
-}
 
-impl SplitVirtQueue {
-    pub fn new(queue_size: u16) -> Result<Self, &'static str> {
-        if queue_size > 32768 {
-            return Err("queue_size must be less than or equal to 32768.")
-        }
+    }
 
-        // if number isnt a power of 2
-        if queue_size > 0 && (queue_size & (queue_size - 1)) != 0 {
-            return Err("queue_size must be a power of 2.")
-        }
+    fn has_feature(&mut self, bit: Features) -> bool {
+        (self.offered_features & bit) != 0
+    }
 
-        Ok(
-            Self {
-                descriptor_table: Align16::new((16 * queue_size) as u32),
-                available_ring: Align2::new((6 + 2 * queue_size) as u32),
-                used_ring: Align4::new((6 + 8 * queue_size) as u32),
-            }
-        )
+    fn get_config_generation(&mut self) -> u32 {
+        self.configuration_space
+    }
+
+    fn read_config_field(&mut self, bit: u32) -> Option<u32>{
+        if !self.has_feature(VirtIODeviceStatus::FEATURES_OK.bits() as u64) {
+            Some(self.configuration_space & bit)
+        } else { None }
     }
 }
-
-pub struct PackedVirtQueue { /* */ }
