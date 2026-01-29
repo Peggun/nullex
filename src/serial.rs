@@ -4,7 +4,7 @@
 Serial Interface module for the kernel.
 */
 
-use alloc::{collections::btree_map, string::String};
+use alloc::string::String;
 use core::{arch::asm, fmt, hint::spin_loop, task::Poll};
 
 use crossbeam_queue::ArrayQueue;

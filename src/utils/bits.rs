@@ -1,3 +1,6 @@
+use alloc::vec::Vec;
+use core::range::Range;
+
 // im not very good with bitwise ops. this helped alot.
 pub trait BitsExt {
 	const LENGTH: usize;
@@ -86,4 +89,42 @@ pub fn sign_extend(x: u64, b: u32) -> u64 {
 	let x = x & ((1u64 << b) - 1);
 
 	(((x ^ m) as i64) - (m as i64)) as u64
+}
+
+// bitmaps
+#[derive(Debug, Clone)]
+pub struct BitMap {
+	pub size: u64,
+	pub table: Vec<bool>
+}
+
+impl BitMap {
+	pub fn new(size: u64) -> BitMap {
+		BitMap {
+			size,
+			table: vec![false; size as usize]
+		}
+	}
+
+	pub fn set_idx(&mut self, idx: usize, set: bool) {
+		self.table[idx] = set;
+	}
+
+	pub fn set_idxs(&mut self, idxs: Range<usize>, set: bool) {
+		for idx in idxs {
+			self.set_idx(idx, set);
+		}
+	}
+
+	pub fn get_idx(&self, idx: usize) -> bool {
+		self.table[idx]
+	}
+
+	pub fn get_idxs(&self, idxs: Range<usize>) -> Vec<bool> {
+		let mut indexs = Vec::new();
+		for idx in idxs {
+			indexs.push(self.get_idx(idx));
+		}
+		indexs
+	}
 }

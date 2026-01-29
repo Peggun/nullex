@@ -1004,7 +1004,7 @@ DEALINGS IN THE SOFTWARE.
 - Files used (in this repo): `utils/spin/*`
 - License at commit: MIT (SPDX: MIT)
 - Upstream copyright (from MIT text): Copyright (c) 2014 Mathijs van de Nes
-- Modifications: Removed code parts that are not needed currently for the kernel.
+- Modifications: Removed code parts that are not needed currently for the kernel. Removed tests and certain feature code.
 
 ### Original Licenses
 #### MIT License

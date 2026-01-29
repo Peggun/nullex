@@ -15,9 +15,12 @@ use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, Pag
 use crate::{
 	apic::{TICK_COUNT, send_eoi},
 	common::ports::{inb, outb},
-	drivers::keyboard::queue::add_scancode,
+	drivers::{
+		keyboard::queue::add_scancode,
+		virtio::net::{VIRTIO_NET_IDT_VECTOR, virtio_net_interrupt_handler}
+	},
 	gdt,
-	hlt_loop,
+	lazy_static,
 	println,
 	rtc::{
 		CMOS_DATA,
@@ -28,13 +31,14 @@ use crate::{
 		PIC2_CMD,
 		REG_C,
 		RTC_TICKS,
-		cmos_read,
 		send_rtc_eoi
 	},
 	serial::add_byte,
 	serial_println,
 	syscall::syscall,
-	task::executor::CURRENT_PROCESS
+	task::executor::CURRENT_PROCESS,
+	utils::{bits::BitMap, mutex::SpinMutex},
+	hlt_loop,
 };
 
 pub const APIC_TIMER_VECTOR: u8 = 32;
@@ -43,8 +47,19 @@ pub const SERIAL_VECTOR: u8 = 36;
 pub const RTC_VECTOR: u8 = 0x70; // irq 8 - 15 is mapped from 0x70 to 0x77;
 pub const SYSCALL_VECTOR: u8 = 0x80;
 
-static mut IDT_STORAGE: MaybeUninit<InterruptDescriptorTable> = MaybeUninit::uninit();
-static IDT_INITED: AtomicBool = AtomicBool::new(false);
+// TODO: remove the maybeuninit, just move to a safe lazy_static!
+pub static mut IDT_STORAGE: MaybeUninit<InterruptDescriptorTable> = MaybeUninit::uninit();
+pub static IDT_INITED: AtomicBool = AtomicBool::new(false);
+
+lazy_static! {
+	// bitmap
+	pub static ref VECTOR_TABLE: SpinMutex<BitMap> = {
+		let mut bmp = BitMap::new(256);
+		bmp.set_idxs((0..31).into(), true);
+		bmp.set_idx(255, true);
+		SpinMutex::new(bmp)
+	};
+}
 
 pub fn init_idt() {
 	unsafe {
@@ -60,12 +75,20 @@ pub fn init_idt() {
 			.set_handler_fn(double_fault_handler)
 			.set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
 
-		// APIC interrupt handlers
+		// driver handlers
 		local_idt[APIC_TIMER_VECTOR as usize].set_handler_fn(apic_timer_handler);
 		local_idt[KEYBOARD_VECTOR as usize].set_handler_fn(keyboard_interrupt_handler);
 		local_idt[SERIAL_VECTOR as usize].set_handler_fn(serial_input_interrupt_handler);
 		local_idt[RTC_VECTOR as usize].set_handler_fn(rtc_timer_handler);
+
+		// syscall handler
 		local_idt[SYSCALL_VECTOR as usize].set_handler_fn(syscall_handler);
+
+		// virtio handlers
+		local_idt[VIRTIO_NET_IDT_VECTOR as usize].set_handler_fn(virtio_net_interrupt_handler);
+
+		// Spurious interrupt handler
+		local_idt[0xFF].set_handler_fn(spurious_interrupt_handler);
 
 		let storage_ptr: *mut MaybeUninit<InterruptDescriptorTable> =
 			core::ptr::addr_of_mut!(IDT_STORAGE);
@@ -75,9 +98,26 @@ pub fn init_idt() {
 		idt_ref.load();
 
 		IDT_INITED.store(true, Ordering::SeqCst);
-		x86_64::instructions::interrupts::enable();
+		// CRITICAL: Keep interrupts DISABLED here. Enable only after
+		// APIC/IOAPIC init in kernel_main. Enabling too early causes
+		// interrupt handlers to read APIC registers at uninitialized address 0.
 	}
 }
+
+pub unsafe fn add_idt_entry(
+	vector: usize,
+	handler: extern "x86-interrupt" fn(InterruptStackFrame)
+) { unsafe {
+	x86_64::instructions::interrupts::without_interrupts(|| {
+		let storage_ptr: *mut MaybeUninit<InterruptDescriptorTable> =
+			core::ptr::addr_of_mut!(IDT_STORAGE);
+		let idt_ptr = storage_ptr as *mut InterruptDescriptorTable;
+		let idt_ref: &mut InterruptDescriptorTable = &mut *idt_ptr;
+
+		idt_ref[vector].set_handler_fn(handler);
+		idt_ref.load();
+	});
+}}
 
 /// Breakpoint exception handler.
 extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame) {
@@ -142,6 +182,13 @@ extern "x86-interrupt" fn serial_input_interrupt_handler(_stack_frame: Interrupt
 	}
 }
 
+/// Spurious interrupt handler (vector 0xFF).
+/// Called when a spurious interrupt is received.
+extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {
+	serial_println!("[WARNING] Spurious interrupt received (vector 0xFF)");
+	// Per x86_64 spec: do NOT send EOI for spurious interrupts
+}
+
 /// Page fault handler.
 extern "x86-interrupt" fn page_fault_handler(
 	stack_frame: InterruptStackFrame,
@@ -155,6 +202,7 @@ extern "x86-interrupt" fn page_fault_handler(
 		println!("Accessed Address: {:?}", Cr2::read());
 		println!("Error Code: {:?}", error_code);
 		println!("{:#?}", stack_frame);
+
 		hlt_loop();
 	}
 	#[cfg(feature = "test")]
@@ -237,6 +285,35 @@ extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 	}
 }
 
+// extern "x86-interrupt" fn gsi_interrupt_dispatcher(_stack_frame:
+// InterruptStackFrame) { 	let mut handled = false;
+// 	{
+// 		let gt = GSI_TABLE.lock();
+// 		for gsi in 0..16 {
+// 			if let Some(handler) = gt[gsi].handler {
+// 				// Call the registered handler through unsafe asm
+// 				// since x86-interrupt ABI functions cannot be called directly
+// 				unsafe {
+// 					core::arch::asm!(
+// 						"call {0}",
+// 						in(reg) handler as *const (),
+// 						in("rdi") &_stack_frame,
+// 						options(nostack),
+// 					);
+// 				}
+// 				handled = true;
+// 				break; // Assume only one interrupt at a time
+// 			}
+// 		}
+// 	}
+
+// 	if !handled {
+// 		serial_println!("[GSI] Unhandled interrupt!");
+// 	}
+
+// 	unsafe { send_eoi(); }
+// }
+
 /// Defines the interrupt vectors used in the IDT.
 // uses APIC now.
 #[derive(Debug, Clone, Copy)]
@@ -256,4 +333,30 @@ impl InterruptVector {
 	pub fn as_usize(self) -> usize {
 		self.as_u8() as usize
 	}
+}
+
+// allocate and register return the vector
+pub fn allocate_and_register_vector(
+	handler: extern "x86-interrupt" fn(InterruptStackFrame)
+) -> Result<usize, &'static str> {
+	let mut idx = 48;
+	let mut vec_table = VECTOR_TABLE.lock();
+
+	while idx < 256 {
+		if vec_table.get_idx(idx) {
+			idx += 1;
+			continue;
+		} else {
+			// add the idt entry here
+			vec_table.set_idx(idx, true);
+			drop(vec_table);
+			if !IDT_INITED.load(Ordering::SeqCst) {
+				panic!("Attempted to add IDT entry before IDT initialization");
+			}
+			unsafe { add_idt_entry(idx, handler) };
+			return Ok(idx)
+		}
+	}
+
+	Err("vector table full") // table full
 }

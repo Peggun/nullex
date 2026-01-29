@@ -16,13 +16,11 @@ impl DefaultFormatter {
 
 impl LogFormatter for DefaultFormatter {
 	fn format(&self, level: LogLevel, message: &str) -> String {
-		unsafe {
-			let mut formatted_message = String::new();
-			if self.show_level {
-				formatted_message.push_str(&format!("[{:#?}] ", level));
-			}
-			formatted_message.push_str(message);
-			formatted_message
+		let mut formatted_message = String::new();
+		if self.show_level {
+			formatted_message.push_str(&format!("[{:#?}] ", level));
 		}
+		formatted_message.push_str(message);
+		formatted_message
 	}
 }

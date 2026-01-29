@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
 
 use crate::{
-	apic,
 	lazy_static,
 	utils::logger::{
 		format::DefaultFormatter,

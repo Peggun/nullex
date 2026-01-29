@@ -254,8 +254,6 @@ pub fn init_rtc() {
 		outb(CMOS_INDEX, REG_C | NMI_BIT);
 		let _ = inb(CMOS_DATA);
 	}
-
-	interrupts::enable();
 }
 
 pub unsafe fn send_rtc_eoi() {

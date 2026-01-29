@@ -8,6 +8,7 @@ target = "x86_64-unknown-none.json"
 rustflags = [
   "-C", "force-frame-pointers=yes",
   "-C", "debuginfo=2",
+  "-C", "opt-level=0",
 ]
 
 [target.x86_64-unknown-none]
@@ -15,11 +16,10 @@ rustflags = [
   "-C", "link-arg=-Wl,--whole-archive",
   "-C", "link-arg=-lnullex",
   "-C", "link-arg=-Wl,--no-whole-archive",
+  "-C", "opt-level=0",
 ]
 
 [env]
-# Keep host-side assembler (if you want it), but do NOT set CC globally to the cross compiler.
-# Use target-scoped environment variables so host-builds are unaffected.
 AS = "x86_64-elf-as"
 CC_x86_64_unknown_none = "x86_64-elf-gcc"
 AR_x86_64_unknown_none = "x86_64-elf-ar"

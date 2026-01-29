@@ -4,6 +4,8 @@ use core::{
 	sync::atomic::{AtomicBool, Ordering}
 };
 
+use x86_64::instructions::interrupts;
+
 pub struct SpinMutex<T> {
 	pub locked: AtomicBool,
 	pub data: UnsafeCell<T>
@@ -21,8 +23,14 @@ impl<T> SpinMutex<T> {
 	}
 
 	pub fn lock(&self) -> SpinMutexGuard<'_, T> {
+		// fixed deadlock where ISR and other parts of code
+		// tried to get data at the same time
+		interrupts::disable();
+
 		while self.locked.swap(true, Ordering::Acquire) {
+			interrupts::enable();
 			core::hint::spin_loop();
+			interrupts::disable();
 		}
 		SpinMutexGuard {
 			mutex: self

@@ -4,6 +4,8 @@
 Memory module for the kernel.
 */
 
+use alloc::{boxed::Box, vec::Vec};
+
 use x86_64::{
 	PhysAddr,
 	VirtAddr,
@@ -21,10 +23,58 @@ use x86_64::{
 };
 
 use crate::{
+	PHYS_MEM_OFFSET,
+	allocator::{self, ALLOCATOR_INFO},
 	arch::x86_64::bootinfo::{MemoryMap, MemoryRegionType},
+	lazy_static,
 	println,
-	utils::multiboot2::{__link_phys_base, _end}
+	serial_println,
+	utils::{
+		multiboot2::{__link_phys_base, _end, compute_phys_map_offset},
+		mutex::SpinMutex
+	}
 };
+
+lazy_static! {
+	pub static ref PAGE_OFFSET: SpinMutex<u64> =
+		SpinMutex::new(unsafe { compute_phys_map_offset() });
+}
+
+#[derive(Clone, Copy)]
+pub struct DmaBuffer {
+	pub phys: PhysAddr,
+	pub virt: VirtAddr,
+	pub len: usize
+}
+
+pub fn init_global_alloc(
+	mut mapper: OffsetPageTable<'static>,        // Take ownership
+	mut frame_allocator: BootInfoFrameAllocator  // Take ownership
+) -> Result<(), &'static str> {
+	match allocator::init_heap(&mut mapper, &mut frame_allocator) {
+		Ok(()) => println!("[Info] Heap pages mapped successfully"),
+		Err(e) => panic!("Heap mapping failed: {:?}", e)
+	}
+
+	unsafe {
+		allocator::LOCAL_HEAP_ALLOCATOR
+			.lock()
+			.init(allocator::HEAP_START, allocator::HEAP_SIZE);
+
+		let allocator_ref = &allocator::LOCAL_HEAP_ALLOCATOR;
+		ALLOCATOR_INFO.strategy.write().replace(allocator_ref);
+	}
+
+	println!("[Info] Heap Initialized. Promoting structures to 'static...");
+
+	let static_frame_alloc = Box::leak(Box::new(frame_allocator));
+	let static_mapper = Box::leak(Box::new(mapper));
+
+	*ALLOCATOR_INFO.frame_allocator.lock() = Some(static_frame_alloc);
+	*ALLOCATOR_INFO.mapper.lock() = Some(static_mapper);
+
+	Ok(())
+}
 
 pub fn map_apic(
 	mapper: &mut impl Mapper<Size4KiB>,
@@ -117,8 +167,6 @@ impl BootInfoFrameAllocator {
 	}
 }
 
-pub struct EmptyFrameAllocator;
-
 unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
 	fn allocate_frame(&mut self) -> Option<PhysFrame> {
 		let frame = self.usable_frames().nth(self.next);
@@ -131,17 +179,10 @@ unsafe impl FrameAllocator<Size4KiB> for BootInfoFrameAllocator {
 /// `None` if the address is not mapped.
 /// # Safety
 /// We need all memory mapped at `physical_memory_offset`.
-pub unsafe fn translate_addr(addr: VirtAddr, physical_memory_offset: VirtAddr) -> Option<PhysAddr> {
-	unsafe { translate_addr_inner(addr, physical_memory_offset) }
-}
-
-/// function that is called by `translate_addr`.
-unsafe fn translate_addr_inner(
-	addr: VirtAddr,
-	physical_memory_offset: VirtAddr
-) -> Option<PhysAddr> {
-	let level_4_table = unsafe { active_level_4_table(physical_memory_offset) };
-	unsafe { OffsetPageTable::new(level_4_table, physical_memory_offset) }.translate_addr(addr)
+pub unsafe fn virt_to_phys(addr: VirtAddr) -> Option<PhysAddr> {
+	let pmo = *PHYS_MEM_OFFSET.lock();
+	let level_4_table = unsafe { active_level_4_table(pmo) };
+	unsafe { OffsetPageTable::new(level_4_table, pmo) }.translate_addr(addr)
 }
 
 /// Returns a mutable reference to the active level 4 table.
@@ -157,22 +198,8 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
 	unsafe { &mut *page_table_ptr } // unsafe
 }
 
-/// Creates an example mapping for the given page to frame `0xb8000`.
-pub fn create_example_mapping(
-	page: Page,
-	mapper: &mut OffsetPageTable,
-	frame_allocator: &mut impl FrameAllocator<Size4KiB>
-) {
-	use x86_64::structures::paging::PageTableFlags as Flags;
-
-	let frame = PhysFrame::containing_address(PhysAddr::new(0xb8000));
-	let flags = Flags::PRESENT | Flags::WRITABLE;
-
-	let map_to_result = unsafe {
-		// FIXME: this is not safe, we do it only for testing
-		mapper.map_to(page, frame, flags, frame_allocator)
-	};
-	map_to_result.expect("map_to failed").flush();
+pub unsafe fn phys_to_virt(addr: PhysAddr) -> VirtAddr {
+	VirtAddr::new(addr.as_u64().wrapping_add(*PAGE_OFFSET.lock()))
 }
 
 /// # Safety
@@ -180,4 +207,56 @@ pub fn create_example_mapping(
 pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
 	let level_4_table = unsafe { active_level_4_table(physical_memory_offset) };
 	unsafe { OffsetPageTable::new(level_4_table, physical_memory_offset) }
+}
+
+pub fn dma_alloc(size: usize) -> Option<(VirtAddr, PhysAddr)> {
+	let mut mapper_binding = ALLOCATOR_INFO.mapper.lock();
+	let mapper_slot = mapper_binding.as_mut().unwrap();
+	let mut frame_binding = ALLOCATOR_INFO.frame_allocator.lock();
+	let frame_slot = frame_binding.as_mut().unwrap();
+
+	let page_count = (size + 4095) / 4096;
+
+	let mut frames = Vec::new();
+	for _ in 0..page_count {
+		if let Some(frame) = frame_slot.allocate_frame() {
+			frames.push(frame);
+		} else {
+			return None;
+		}
+	}
+
+	for i in 1..frames.len() {
+		if frames[i].start_address().as_u64() != frames[i - 1].start_address().as_u64() + 4096 {
+			serial_println!(
+				"[DMA] Allocation failed: Frames not contiguous at index {}",
+				i
+			);
+			return None;
+		}
+	}
+
+	let first_phys = frames[0].start_address();
+
+	static mut NEXT_DMA_VIRT: u64 = 0x5555_0000_0000;
+	let virt_addr = VirtAddr::new(unsafe { NEXT_DMA_VIRT });
+	unsafe {
+		NEXT_DMA_VIRT += (page_count as u64) * 4096;
+	}
+
+	for (i, frame) in frames.iter().enumerate() {
+		let va = virt_addr + (i as u64) * 4096;
+		let page = Page::containing_address(va);
+
+		let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE | PageTableFlags::NO_CACHE;
+
+		unsafe {
+			mapper_slot
+				.map_to(page, *frame, flags, *frame_slot)
+				.expect("Failed to map DMA page")
+				.flush();
+		}
+	}
+
+	Some((virt_addr, first_phys))
 }

@@ -1,11 +1,16 @@
-use std::{env, fs, fs::File, io::Write, path::Path};
+use std::{
+	env,
+	fs::{self, File},
+	io::Write,
+	path::Path
+};
 
 /// Extract token inside parentheses (like "foo" or "crate::mod::foo")
 fn extract_inner_token(s: &str) -> Option<String> {
 	if let Some(pos) = s.find(')') {
 		let inner = &s[..pos];
 		let t = inner.trim();
-		let t = t.trim_end_matches(|c: char| c == ',' || c == ';').trim();
+		let t = t.trim_end_matches([',', ';']).trim();
 		if !t.is_empty() {
 			return Some(t.to_string());
 		}
@@ -13,18 +18,15 @@ fn extract_inner_token(s: &str) -> Option<String> {
 	None
 }
 
-fn main() {
-	let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+fn search_files_recursively(path: &Path) -> Vec<String> {
 	let mut symbols: Vec<String> = Vec::new();
 
-	let src = Path::new("src");
-
-	for entry in fs::read_dir(src).expect("failed to read src dir") {
+	for entry in fs::read_dir(path).expect("failed to read dir") {
 		let entry = entry.expect("read_dir entry");
 		let path = entry.path();
-		if path.is_file() {
-			if let Some(ext) = path.extension() {
-				if ext == "rs" {
+		if path.is_file()
+			&& let Some(ext) = path.extension()
+				&& ext == "rs" {
 					let file = fs::read_to_string(&path).unwrap_or_default();
 
 					let needle = "create_test!(";
@@ -53,9 +55,20 @@ fn main() {
 						}
 					}
 				}
-			}
+		if path.is_dir() {
+			symbols.extend(search_files_recursively(path.as_path()));
 		}
 	}
+
+	symbols
+}
+
+fn main() {
+	let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
+
+	let src = Path::new("src");
+
+	let symbols = search_files_recursively(src);
 
 	let out_path = Path::new(&out_dir).join("tests_registry.rs");
 	let mut f = File::create(&out_path).expect("could not create tests_registry.rs in OUT_DIR");
