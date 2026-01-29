@@ -3,13 +3,13 @@
 pub struct Align16<T>(T);
 
 impl<T> Align16<T> {
-    pub const fn new(num: T) -> Self {
-        Self(num)
-    }
+	pub const fn new(num: T) -> Self {
+		Self(num)
+	}
 
-    pub fn value(self) -> T {
-        self.0
-    }
+	pub fn value(self) -> T {
+		self.0
+	}
 }
 
 /// A wrapper for aligning a type of `T` to 8 bytes.
@@ -17,13 +17,13 @@ impl<T> Align16<T> {
 pub struct Align8<T>(T);
 
 impl<T> Align8<T> {
-    pub const fn new(num: T) -> Self {
-        Self(num)
-    }
+	pub const fn new(num: T) -> Self {
+		Self(num)
+	}
 
-    pub fn value(self) -> T {
-        self.0
-    }
+	pub fn value(self) -> T {
+		self.0
+	}
 }
 
 /// A wrapper for aligning a type of `T` to 4 bytes.
@@ -31,13 +31,13 @@ impl<T> Align8<T> {
 pub struct Align4<T>(T);
 
 impl<T> Align4<T> {
-    pub const fn new(num: T) -> Self {
-        Self(num)
-    }
+	pub const fn new(num: T) -> Self {
+		Self(num)
+	}
 
-    pub fn value(self) -> T {
-        self.0
-    }
+	pub fn value(self) -> T {
+		self.0
+	}
 }
 
 /// A wrapper for aligning a type of `T` to 2 bytes.
@@ -45,11 +45,11 @@ impl<T> Align4<T> {
 pub struct Align2<T>(T);
 
 impl<T> Align2<T> {
-    pub const fn new(num: T) -> Self {
-        Self(num)
-    }
+	pub const fn new(num: T) -> Self {
+		Self(num)
+	}
 
-    pub fn value(self) -> T {
-        self.0
-    }
+	pub fn value(self) -> T {
+		self.0
+	}
 }

@@ -4,34 +4,94 @@
 Heap allocator module for the kernel.
 */
 
-use core::alloc;
+use core::{
+	alloc::{self, GlobalAlloc},
+	marker::PhantomData,
+	ptr::null_mut
+};
 
+// Import Box from alloc
 use linked_list::LinkedListAllocator;
 
+pub mod buddy;
 pub mod bump;
 pub mod fixed_size_block;
+pub mod io_alloc;
 pub mod linked_list;
 
 use x86_64::structures::paging::{
 	FrameAllocator,
 	Mapper,
+	OffsetPageTable,
 	Page,
+	PageSize,
 	PageTableFlags,
 	Size4KiB,
 	mapper::MapToError
 };
 
 use crate::{
+	lazy_static,
+	memory::BootInfoFrameAllocator,
 	println,
-	utils::mutex::{SpinMutex, SpinMutexGuard}
+	utils::{
+		mutex::{SpinMutex, SpinMutexGuard},
+		spin::rwlock::RwLock
+	}
 };
 
 pub const HEAP_START: usize = 0x_4444_4444_0000;
 pub const HEAP_SIZE: usize = 2 * 1024 * 1024;
 
 // fixed is better performance wise.
+pub struct AllocatorInfo<S, M, A>
+where
+	S: PageSize + Send + Sync + 'static,
+	M: Mapper<S> + Send + Sync + 'static,
+	A: FrameAllocator<S> + Send + Sync + 'static
+{
+	pub strategy: RwLock<Option<&'static (dyn GlobalAlloc + Send + Sync)>>,
+	pub frame_allocator: SpinMutex<Option<&'static mut A>>,
+	pub mapper: SpinMutex<Option<&'static mut M>>,
+	size: PhantomData<S>
+}
+
+lazy_static! {
+	pub static ref ALLOCATOR_INFO: AllocatorInfo<Size4KiB, OffsetPageTable<'static>, BootInfoFrameAllocator> =
+		AllocatorInfo {
+			strategy: RwLock::new(None),
+			frame_allocator: SpinMutex::new(None),
+			mapper: SpinMutex::new(None),
+			size: PhantomData
+		};
+}
+pub static LOCAL_HEAP_ALLOCATOR: Locked<LinkedListAllocator> =
+	Locked::new(LinkedListAllocator::new());
+
+pub struct GlobalAllocator;
+
+unsafe impl GlobalAlloc for GlobalAllocator {
+	unsafe fn alloc(&self, layout: alloc::Layout) -> *mut u8 {
+		unsafe {
+			if let Some(ref strategy) = *ALLOCATOR_INFO.strategy.read() {
+				return strategy.alloc(layout)
+			} else {
+				null_mut()
+			}
+		}
+	}
+
+	unsafe fn dealloc(&self, ptr: *mut u8, layout: alloc::Layout) {
+		unsafe {
+			if let Some(ref strategy) = *ALLOCATOR_INFO.strategy.read() {
+				strategy.dealloc(ptr, layout);
+			}
+		}
+	}
+}
+
 #[global_allocator]
-static ALLOCATOR: Locked<LinkedListAllocator> = Locked::new(LinkedListAllocator::new());
+pub static ALLOCATOR: GlobalAllocator = GlobalAllocator;
 
 #[alloc_error_handler]
 fn alloc_error_handler(layout: alloc::Layout) -> ! {
@@ -119,10 +179,6 @@ pub fn init_heap(
 		}
 	}
 
-	unsafe {
-		ALLOCATOR.lock().init(HEAP_START, HEAP_SIZE);
-	}
-
 	println!("[Info] Heap initialized ({} pages).", num_pages);
 	Ok(())
 }
@@ -153,7 +209,7 @@ fn align_up(addr: usize, align: usize) -> usize {
 
 #[cfg(feature = "test")]
 pub mod tests {
-	use crate::{utils::ktest::TestError, allocator::align_up};
+	use crate::{allocator::align_up, utils::ktest::TestError};
 
 	pub fn test_align_up_already_aligned() -> Result<(), TestError> {
 		let a = 0x1000usize;

@@ -178,13 +178,37 @@ pub fn init_commands() {
 		help: "Kill a process",
 		cmd_type: CommandType::Generic
 	});
-
 	register_command(Command {
 		name: "time",
 		func: time,
 		help: "Current date and time.",
 		cmd_type: CommandType::Generic
 	});
+	register_command(Command {
+		name: "testnet",
+		func: testnet,
+		help: "Test the network.",
+		cmd_type: CommandType::Generic
+	});
+	register_command(Command {
+		name: "rslv",
+		func: rslv,
+		help: "Resolve a hostname.",
+		cmd_type: CommandType::Generic
+	});
+	register_command(Command {
+		name: "ping",
+		func: ping,
+		help: "Ping a hostname",
+		cmd_type: CommandType::Generic
+	});
+	register_command(Command {
+		name: "netpoll",
+		func: netpoll,
+		help: "Poll the RX queue",
+		cmd_type: CommandType::Generic
+	});
+
 	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
 }
 
@@ -389,4 +413,51 @@ pub fn time(_args: &[&str]) {
 	let time = read_rtc_time();
 
 	println!("{}", time);
+}
+
+pub fn testnet(_args: &[&str]) {
+	match crate::net::send_arp_request(crate::net::GATEWAY_IP) {
+		Ok(()) => println!("ARP request sent to gateway"),
+		Err(e) => println!("Failed to send ARP: {}", e)
+	}
+}
+
+pub fn rslv(args: &[&str]) {
+	if args.is_empty() {
+		println!("rslv: need hostname to resolve to.");
+		return;
+	}
+
+	let hn = args[0];
+	match crate::net::dns::resolve(hn) {
+		Ok(ip) => {
+			println!(
+				"hostname: {} resolved to {}.{}.{}.{}",
+				hn, ip[0], ip[1], ip[2], ip[3]
+			);
+		}
+		Err(e) => println!("DNS Error: {}", e)
+	}
+}
+
+pub fn ping(args: &[&str]) {
+	if args.is_empty() {
+		println!("ping: need hostname to ping to");
+		return;
+	}
+
+	let hn = args[0];
+	match crate::net::dns::resolve(hn) {
+		Ok(ip) => match crate::net::send_ping(ip, 1) {
+			Ok(()) => println!("Ping sent to {}!", hn),
+			Err(e) => println!("Ping error: {}", e)
+		},
+		Err(e) => println!("DNS Error: {}", e)
+	}
+}
+
+pub fn netpoll(_args: &[&str]) {
+	println!("=== Manual Network Poll ===");
+	crate::drivers::virtio::net::rx_poll();
+	println!("=== Poll Complete ===");
 }

@@ -1,19 +1,18 @@
 # Nullex Kernel
 Small, modular hobby kernel written in Rust — designed to be easy to extend and learn from.
 
-Please read [current_spec.txt](https://github.com/Peggun/nullex/blob/master/current_spec.txt) to understand what is going on.
 This project uses code segments from third party crates. All information can be found [here](https://github.com/Peggun/nullex/blob/master/THIRD_PARTY_LICENSES.md). Please let me know if there is an issue with this, so I can update accordingly.
 
 ## Getting Started
 
 ### Prerequisites
 
-You can install all prerequisites through the setup-dev scripts for both Windows, and Linux / Unix.
+You can install all prerequisites through the setup-dev scripts for Linux / Unix. Windows is not supported fully currently unfortuantely.
 Just run the script and it will install everything for you. 
 If something doesnt work. Please setup a GitHub Issue so that I can fix it as fast as possible.
 
 #### Building
-You can build the project through running
+You can build the project through running:
 ```sh
 make build
 ```
@@ -29,6 +28,14 @@ cargo test
 ```
 
 #### Running
+Currently the nullex kernel does support networking, however very small ping and resolving. 
+To be able to set this up, we need to make our HOST operating system (Linux) to allow for this
+TAP network from QEMU to be setup to allow Virtio-Net to access the World Wide Web.
+You can easily do this by running the `setup-vn.sh` file inside of the scripts directory.
+```bash
+sudo ./scripts/setup-vn.sh 
+```
+
 Run the QEMU Emulator:
 ```bash
 make run

@@ -3,9 +3,14 @@
 
 use core::{ptr::read_unaligned, u64};
 
+use x86_64::PhysAddr;
+
 use crate::{
+	acpi::RSDT,
 	arch::x86_64::bootinfo::{FrameRange, MemoryMap, MemoryRegion, MemoryRegionType},
-	println
+	memory::phys_to_virt,
+	println,
+	serial_println
 };
 
 pub const MULTIBOOT_SEARCH: u32 = 32768;
@@ -367,7 +372,11 @@ pub struct MultibootTagSmbios {
 pub struct MultibootTagOldAcpi {
 	pub r#type: u32,
 	pub size: u32,
-	pub rsdp: [u8; 0]
+	pub signature: [u8; 8],
+	pub checksum: u8,
+	pub oem_id: [u8; 6],
+	pub rev: u8,
+	pub rsdt_address: u32 // phys_addr
 }
 
 #[repr(C)]
@@ -421,14 +430,17 @@ pub struct MultibootInfoHeader {
 
 pub struct BootInformation {
 	pub physical_memory_offset: usize,
-	pub memory_map: MemoryMap
+	pub memory_map: MemoryMap,
+
+	pub rsdp: usize
 }
 
 impl BootInformation {
 	fn new() -> Self {
 		Self {
 			physical_memory_offset: 0,
-			memory_map: MemoryMap::new()
+			memory_map: MemoryMap::new(),
+			rsdp: 0
 		}
 	}
 }
@@ -623,6 +635,31 @@ pub unsafe fn parse_multiboot2(mbi_addr: usize) -> BootInformation {
 						i += 1;
 					}
 				}
+
+				MULTIBOOT_TAG_TYPE_ACPI_OLD => {
+					let oa: *const MultibootTagOldAcpi = tag as *const MultibootTagOldAcpi;
+
+					let signature_arr = (*oa).signature;
+
+					// convert the signature WITHOUT using the heap as its not initialized yet
+					let signature: &str = match str::from_utf8(&signature_arr) {
+						Ok(v) => v,
+						Err(e) => panic!("invalid UTF-8 sequence: {}", e)
+					};
+
+					if signature != "RSD PTR " {
+						serial_println!(
+							"[MULTIBOOT2] [ERROR] acpi invalid signature: {}",
+							signature
+						)
+					}
+
+					serial_println!("[MULTIBOOT2] oa rsdp: {}", (*oa).rsdt_address);
+					let mut lock = RSDT.lock();
+					let virt = phys_to_virt(PhysAddr::new((*oa).rsdt_address.into()));
+					*lock = virt;
+				}
+
 				MULTIBOOT_TAG_TYPE_LOAD_BASE_ADDR => {
 					let lb: *const MultibootTagLoadBaseAddr =
 						tag as *const MultibootTagLoadBaseAddr;

@@ -17,11 +17,14 @@ Kernel module for the kernel.
 #![feature(ptr_internals)]
 #![feature(fn_traits)]
 #![feature(macro_metavar_expr_concat)]
+#![feature(new_range_api)]
+#![feature(allocator_api)]
 
 #[macro_use]
 extern crate alloc;
 extern crate core;
 
+pub mod acpi;
 pub mod allocator;
 pub mod apic;
 pub mod arch;
@@ -32,10 +35,12 @@ pub mod drivers;
 pub mod error;
 pub mod fs;
 pub mod gdt;
+pub mod gsi;
 pub mod interrupts;
 pub mod io;
 pub mod ioapic;
 pub mod memory;
+pub mod net;
 pub mod pit;
 pub mod rtc;
 pub mod serial;
@@ -55,26 +60,35 @@ use core::{
 
 use x86_64::{
 	VirtAddr,
-	instructions::{hlt, port::Port}
+	instructions::{hlt, interrupts::enable, port::Port}
 };
 
 use crate::{
+	acpi::link_isos,
+	allocator::ALLOCATOR_INFO,
 	apic::APIC_BASE,
 	common::ports::{inb, outb},
+	drivers::virtio::{
+		VirtqueueUsed,
+		net::{RX_QUEUE, VIRTIO_NET_DEVICE}
+	},
 	fs::ramfs::{FileSystem, Permission},
 	interrupts::APIC_TIMER_VECTOR,
-	io::keyboard::line_editor::print_keypresses,
-	memory::BootInfoFrameAllocator,
-	rtc::dump_rtc_and_pic_state,
+	io::{
+		keyboard::line_editor::print_keypresses,
+		pci::{self, discover_pci_devices}
+	},
+	ioapic::{IOAPIC, dump_gsi},
+	memory::{BootInfoFrameAllocator, init_global_alloc},
 	task::{
 		Process,
 		executor::{self, CURRENT_PROCESS, EXECUTOR},
 		keyboard
 	},
-	utils::{
-		ktest::run_all_tests, multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process
-	}
+	utils::{multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process}
 };
+// Bring in virtio driver registration function explicitly so we can register drivers
+use crate::drivers::virtio::net::virtio_net_driver_init;
 
 lazy_static! {
 	pub static ref PHYS_MEM_OFFSET: SpinMutex<VirtAddr> = SpinMutex::new(VirtAddr::new(0x0));
@@ -98,7 +112,8 @@ pub fn init() {
 	serial_println!("[Info] GDT done.");
 	interrupts::init_idt();
 	serial_println!("[Info] Finished IDT Init.");
-	x86_64::instructions::interrupts::enable();
+	// NOTE: Do not enable CPU interrupts here — we'll enable after IOAPIC/ISO
+	// linking.
 	serial_println!("[Info] Done.");
 }
 
@@ -143,103 +158,141 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	clear_screen!();
 	println!("[Info] Starting Kernel Init...");
 
+	// Parse boot info and initialize memory
 	let boot_info = unsafe { parse_multiboot2(mbi_addr) };
-
-	let pmo = PHYS_MEM_OFFSET.lock();
-	let mut mapper = unsafe { memory::init(*pmo) };
+	let pmo_val = *PHYS_MEM_OFFSET.lock();
+	let mapper = unsafe { memory::init(pmo_val) };
 	let memory_map_static: &'static _ = unsafe { core::mem::transmute(&boot_info.memory_map) };
-	let mut frame_allocator = BootInfoFrameAllocator::init(memory_map_static);
+	let frame_allocator = BootInfoFrameAllocator::init(memory_map_static);
 
-	// mask legacy PIC IRQs
-	// always need to mask these
-	// double fault if not masked
-	unsafe {
-		outb(0x21, 0xFF);
-		outb(0xA1, 0xFF);
+	if let Err(e) = init_global_alloc(mapper, frame_allocator) {
+		panic!("Global Allocator Initialization failed: {}", e);
 	}
 
+	// Initialize GDT and IDT (but don't enable interrupts yet)
 	crate::init();
 
-	match allocator::init_heap(&mut mapper, &mut frame_allocator) {
-		Ok(()) => println!("Heap initialized successfully"),
-		Err(e) => panic!("Heap initialization failed: {:?}", e)
-	}
-
+	// Setup APIC and IOAPIC
 	{
-		let mut apic_base = APIC_BASE.lock();
-		*apic_base = pmo.as_u64() as usize + 0xFEE0_0000usize;
+		let mut m_lock = ALLOCATOR_INFO.mapper.lock();
+		let mut f_lock = ALLOCATOR_INFO.frame_allocator.lock();
+		let mapper = m_lock.as_mut().unwrap();
+		let frame_allocator = f_lock.as_mut().unwrap();
+
+		*APIC_BASE.lock() = pmo_val.as_u64() as usize + 0xFEE0_0000usize;
+		memory::map_apic(*mapper, *frame_allocator, pmo_val);
+		memory::map_ioapic(*mapper, *frame_allocator, pmo_val);
 	}
 
-	// apic init
-	memory::map_apic(&mut mapper, &mut frame_allocator, *pmo);
 	unsafe {
-		apic::enable_apic(0xFF); // make sure IDT doesnt use 0xFF
+		apic::enable_apic(0xFF);
 	}
 
+	rtc::init_rtc();
 	match apic::calibrate(1024) {
 		Ok((ticks_per_sec, initial_count)) => {
 			serial_println!("APIC ticks/sec = {}", ticks_per_sec);
-			serial_println!("APIC initial_count for 1000 Hz = {}", initial_count);
-
 			unsafe {
 				apic::mask_timer(true);
 				apic::start_timer_periodic(APIC_TIMER_VECTOR, initial_count);
 				apic::mask_timer(false);
 			}
 		}
+		Err(e) => serial_println!("APIC calibration failed: {}", e)
+	}
+
+	let mut ioapic = IOAPIC.lock();
+	let lapic_id = unsafe { (apic::read_register(apic::APIC_ID) >> 24) as u8 };
+	unsafe { ioapic.init(32, lapic_id) };
+	drop(ioapic);
+
+	// Mask legacy PIC
+	unsafe {
+		outb(0x21, 0xFF);
+		outb(0xA1, 0xFF);
+	}
+
+	serial_println!("[ACPI] ACPI tables parsed (RSDT available)");
+
+	// Setup filesystem
+	println!("[Info] Initializing RAMFS and preparing PCI...");
+	let fs = FileSystem::new();
+	setup_system_files(fs);
+
+	// Register drivers BEFORE PCI discovery
+	serial_println!("[PCI] Registering platform drivers before PCI discovery...");
+	virtio_net_driver_init();
+
+	// Discover PCI devices (drivers will probe but NOT set DRIVER_OK)
+	discover_pci_devices();
+
+	// Link ISOs and program IOAPIC
+	unsafe {
+		link_isos();
+	}
+
+	// *** KEY CHANGE: Finalize all devices before enabling interrupts ***
+	serial_println!("[INIT] Finalizing all PCI devices...");
+	if let Err(e) = pci::finalize_all_devices() {
+		panic!("Failed to finalize PCI devices: {}", e);
+	}
+
+	serial_println!("[INIT] Enabling CPU interrupts...");
+	enable();
+	serial_println!("[INIT] Interrupts enabled successfully!");
+
+	dump_gsi(11);
+
+	// network init
+	crate::net::init();
+	serial_println!("[NET] Resolving gateway MAC...");
+	let _ = crate::net::send_arp_request(crate::net::GATEWAY_IP);
+
+	match crate::net::arp::wait_for_arp(crate::net::GATEWAY_IP, 2000) {
+		Ok(mac) => {
+			serial_println!(
+				"[NET] Gateway MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+				mac[0],
+				mac[1],
+				mac[2],
+				mac[3],
+				mac[4],
+				mac[5]
+			);
+		}
 		Err(e) => {
-			serial_println!("APIC calibration failed: {}", e)
+			serial_println!("[NET] Could not resolve gateway: {}", e);
 		}
 	}
 
-	memory::map_ioapic(&mut mapper, &mut frame_allocator, *pmo);
-
-	rtc::init_rtc();
-	dump_rtc_and_pic_state();
-	serial_println!("[Info] RTC Initialized.");
-
-	let ioapic_virt_base = (*pmo).as_u64() + 0xFEC0_0000u64;
-	let mut ioapic = unsafe { ioapic::IoApic::new(ioapic_virt_base) };
-	let lapic_id = unsafe { (apic::read_register(apic::APIC_ID) >> 24) as u8 };
-	unsafe {
-		ioapic.init(32, lapic_id); // offset 32, dest = local apic id
+	// Give it time to resolve
+	for _ in 0..10000 {
+		core::hint::spin_loop();
 	}
 
-	// apic init cont.
-	unsafe {
-		apic::mask_timer(true);
-		serial_println!("apic count: {}", apic::read_current_count())
-	}
-
-	// rtc init
-	rtc::init_rtc();
-	dump_rtc_and_pic_state();
-
-	let fs = FileSystem::new();
-
-	println!("[Info] Initializing RAMFS...");
-
-	// setup files and ramfs.
-	setup_system_files(fs);
-
-	println!("[Info] Done.");
-
-	// run tests after all system components have initialized successfully (usually
-	// always)
-	#[cfg(feature = "test")]
+	// Check if it resolved
+	if let Some(mac) = crate::net::arp::ARP_CACHE
+		.lock()
+		.iter()
+		.find(|(ip, _)| *ip == crate::net::GATEWAY_IP)
+		.map(|(_, mac)| *mac)
 	{
-		clear_screen!();
-		run_all_tests();
-		loop {}
+		serial_println!(
+			"[NET] Gateway MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+			mac[0],
+			mac[1],
+			mac[2],
+			mac[3],
+			mac[4],
+			mac[5]
+		);
+	} else {
+		serial_println!("[NET] WARNING: Gateway MAC not resolved!");
 	}
-
-	//SYSLOG_SINK.log("Initialized Main Kernel Successfully\n", LogLevel::Info);
 
 	WRITER.lock().clear_everything();
-	// WRITER.lock().set_colors(Color16::White, Color16::Black);
 
-	// Run init_commands in its own process so it doesn't run on the boot/kernel
-	// stack.
+	// Spawn processes
 	let _cmds_pid = spawn_process(
 		|_state| {
 			Box::pin(async move {
@@ -249,21 +302,16 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 		},
 		false
 	);
-	// init_serial_input();
-	// init_serial_commands();
 
-	// Spawn the keyboard process.
 	let _keyboard_pid = spawn_process(
 		|_state| Box::pin(print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>,
 		false
 	);
 
-	// main executor loop with CURRENT_PROCESS management.
-	// i gotta fix this.
+	// Main executor loop
 	let process_queue = EXECUTOR.lock().process_queue.clone();
 	loop {
 		if let Some(pid) = process_queue.pop() {
-			// Before scheduling, clear the queued flag.
 			if let Some(process_arc) = EXECUTOR.lock().processes.get(&pid) {
 				process_arc
 					.lock()
@@ -277,11 +325,10 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 				executor.processes.get(&pid).cloned()
 			};
 			if let Some(process_arc) = process_arc {
-				// Set the current process state.
 				*CURRENT_PROCESS.lock() = Some(process_arc.lock().state.clone());
 
 				let mut process = process_arc.lock();
-				let process_state = process.state.clone(); // Clone the Arc<ProcessState> for the waker
+				let process_state = process.state.clone();
 				unsafe {
 					executor::CURRENT_PROCESS_GUARD = &mut *process as *mut Process;
 				}
@@ -310,7 +357,6 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 					executor.waker_cache.remove(&pid);
 					serial_println!("Process {} exited with code: {}", pid.get(), exit_code);
 				}
-				// Clear the current process state.
 				*CURRENT_PROCESS.lock() = None;
 			}
 		} else {
@@ -337,4 +383,60 @@ pub fn qemu_exit(code: u32) -> ! {
 fn panic(info: &core::panic::PanicInfo) -> ! {
 	println!("{}", info);
 	crate::hlt_loop();
+}
+
+pub fn debug_rx_queue_detailed() {
+	serial_println!("[DEBUG] === Detailed RX Queue State ===");
+
+	let rx_queue = RX_QUEUE.lock();
+
+	unsafe {
+		let avail = &*rx_queue.avail;
+		let used = &*rx_queue.used;
+
+		serial_println!("[DEBUG] Available ring:");
+		serial_println!("  flags: {:#x}", avail.flags);
+		serial_println!("  idx: {}", avail.idx);
+
+		serial_println!("[DEBUG] Used ring:");
+		serial_println!("  flags: {:#x}", used.flags);
+		serial_println!("  idx: {}", used.idx);
+		serial_println!("  last_used: {}", rx_queue.last_used);
+
+		let packets_available = used.idx.wrapping_sub(rx_queue.last_used);
+		serial_println!("[DEBUG] Packets in used ring: {}", packets_available);
+
+		if packets_available > 0 {
+			serial_println!("[DEBUG] !!! PACKETS ARE AVAILABLE BUT NOT PROCESSED !!!");
+
+			// Check first entry
+			let ring_ptr = (used as *const _ as *const u8)
+				.add(core::mem::size_of::<VirtqueueUsed>())
+				as *const crate::drivers::virtio::VirtqueueUsedElement;
+			let first_elem = &*ring_ptr;
+
+			serial_println!(
+				"[DEBUG] First used element: id={}, len={}",
+				first_elem.id,
+				first_elem.len
+			);
+		}
+
+		// Check device status
+		let io_base = {
+			let dev = VIRTIO_NET_DEVICE.lock();
+			dev.as_ref().map(|d| d.io_base as usize)
+		};
+
+		if let Some(io_base) = io_base {
+			use crate::common::ports::inb;
+			let status = inb((io_base + crate::drivers::virtio::VIRTIO_IO_DEVICE_STATUS) as u16);
+			let isr = inb((io_base + crate::drivers::virtio::VIRTIO_IO_ISR) as u16);
+
+			serial_println!("[DEBUG] Device status: {:#x}", status);
+			serial_println!("[DEBUG] ISR register: {:#x}", isr);
+		}
+	}
+
+	serial_println!("[DEBUG] === End RX Queue State ===");
 }

@@ -4,16 +4,24 @@
 //   https://github.com/kwzhao/x2apic-rs (commit aff8465)
 //   Upstream original file(s): <src/ioapic/*>
 // Copyright (c) 2019 Kevin Zhao
-// Modifications: None
+// Modifications: Added serial_println! for debugging, modifed for kernel halts.
+// Expanded `RedirectionTableEntry` impl functions to support all of the
+// possible RTE flags. Made `high` & `low` RTE members public. Added tests
 // See THIRD_PARTY_LICENSES.md for full license texts and upstream details.
 
 use core::{
 	convert::{TryFrom, TryInto},
 	fmt,
-	ptr::{self, Unique}
+	ptr::{self, Unique},
+	sync::atomic::{Ordering, compiler_fence}
 };
 
-use crate::{bitflags, serial_println};
+use crate::{PHYS_MEM_OFFSET, bitflags, lazy_static, serial_println, utils::mutex::SpinMutex};
+
+lazy_static! {
+	pub static ref IOAPIC: SpinMutex<IoApic> =
+		SpinMutex::new(unsafe { IoApic::new(PHYS_MEM_OFFSET.lock().as_u64() + 0xFEC0_0000) });
+}
 
 #[derive(Debug)]
 pub struct IoApicRegisters {
@@ -42,8 +50,11 @@ impl IoApicRegisters {
 
 	pub unsafe fn write(&mut self, selector: u32, value: u32) {
 		unsafe {
+			compiler_fence(Ordering::SeqCst);
 			ptr::write_volatile(self.ioregsel.as_ptr(), selector);
 			ptr::write_volatile(self.ioregwin.as_ptr(), value);
+			compiler_fence(Ordering::SeqCst);
+			let _ = ptr::read_volatile(self.ioregwin.as_ptr());
 		}
 	}
 
@@ -140,8 +151,8 @@ bitflags! {
 /// Redirection table entry.
 #[derive(Default)]
 pub struct RedirectionTableEntry {
-	low: u32,
-	high: u32
+	pub low: u32,
+	pub high: u32
 }
 
 impl RedirectionTableEntry {
@@ -196,6 +207,58 @@ impl RedirectionTableEntry {
 	pub fn set_dest(&mut self, dest: u8) {
 		self.high = (dest as u32) << 24;
 	}
+
+	pub fn dest_mode(&self) -> bool {
+		((self.low >> 11) & 0x1) != 0
+	}
+
+	pub fn delivery_status(&self) -> bool {
+		((self.low >> 12) & 0x1) != 0
+	}
+
+	pub fn set_delivery_status(&mut self, val: bool) {
+		self.low = (self.low & !(0x1 << 12)) | ((val as u32) << 12);
+	}
+
+	pub fn polarity(&self) -> bool {
+		((self.low >> 13) & 0x1) != 0
+	}
+
+	pub fn set_polarity(&mut self, val: bool) {
+		self.low = (self.low & !(0x1 << 13)) | ((val as u32) << 13);
+	}
+
+	pub fn remote_irr(&self) -> bool {
+		((self.low >> 14) & 0x1) != 0
+	}
+
+	pub fn set_remote_irr(&mut self, val: bool) {
+		self.low = (self.low & !(0x1 << 14)) | ((val as u32) << 14);
+	}
+
+	pub fn trigger_mode(&self) -> bool {
+		((self.low >> 15) & 0x1) != 0
+	}
+
+	pub fn set_trigger_mode(&mut self, val: bool) {
+		self.low = (self.low & !(0x1 << 15)) | ((val as u32) << 15);
+	}
+
+	pub fn mask(&self) -> bool {
+		((self.low >> 16) & 0x1) != 0
+	}
+
+	pub fn set_mask(&mut self, val: bool) {
+		self.low = (self.low & !(0x1 << 16)) | ((val as u32) << 16);
+	}
+
+	pub fn destination(&self) -> u8 {
+		(self.high & 0xff) as u8
+	}
+
+	pub fn set_destination(&mut self, val: u8) {
+		self.high = (self.high & !0xff) | (val as u32 & 0xff);
+	}
 }
 
 // Gets the lower segment selector for `irq`
@@ -242,6 +305,12 @@ impl IoApic {
 				dest_apic
 			);
 
+			serial_println!(
+				"[IOAPIC] IOREGSEL ptr = {:p}, IOWIN ptr = {:p}",
+				self.regs.ioregsel.as_ptr(),
+				self.regs.ioregwin.as_ptr()
+			);
+
 			let version_reg = self.regs.read(VERSION);
 			let max_redir = ((version_reg >> 16) & 0xFF) as u8;
 			serial_println!(
@@ -250,36 +319,73 @@ impl IoApic {
 				max_redir
 			);
 
-			for irq in 0..=max_redir {
+			let safe_cap: u8 = core::cmp::min(max_redir, 15);
+
+			serial_println!("[IOAPIC] using safe_cap = {}", safe_cap);
+
+			for irq in 0..=safe_cap {
+				serial_println!("[IOAPIC] programming irq {}", irq);
+
 				let vector = offset + irq;
 				let mut entry = RedirectionTableEntry::default();
 
 				entry.set_vector(vector);
 				entry.set_mode(IrqMode::Fixed);
 				entry.set_dest(dest_apic);
-
 				entry.set_flags(IrqFlags::MASKED);
 
 				let (low, high) = entry.into_raw();
+
+				// write low then high; read them back and log if mismatch
 				self.regs.write(lo(irq), low);
-				self.regs.write(lo(irq), high);
+				self.regs.write(hi(irq), high);
+
+				let verify_lo = self.regs.read(lo(irq));
+				let verify_hi = self.regs.read(hi(irq));
+				if verify_lo != low || verify_hi != high {
+					serial_println!(
+						"[IOAPIC] Warning: RTE write verification mismatch irq={} wrote=(0x{:08X},0x{:08X}) read=(0x{:08X},0x{:08X})",
+						irq,
+						low,
+						high,
+						verify_lo,
+						verify_hi
+					);
+				} else {
+					serial_println!("[IOAPIC] RTE {} OK", irq);
+				}
 			}
 
-			// Unmask the keyboard (IRQ 1)
-			let mut entry = RedirectionTableEntry::default();
-			entry.set_vector(offset + 1); // IRQ 1 → vector (offset + 1)
-			entry.set_mode(IrqMode::Fixed);
-			entry.set_flags(IrqFlags::empty()); // edge/high, unmasked
-			entry.set_dest(dest_apic);
+			// Now explicitly configure/unmask keyboard (IRQ 1) if it's within safe_cap.
+			if 1 <= safe_cap {
+				let mut entry = RedirectionTableEntry::default();
+				entry.set_vector(offset + 1);
+				entry.set_mode(IrqMode::Fixed);
+				entry.set_flags(IrqFlags::empty()); // unmasked
+				entry.set_dest(dest_apic);
 
-			let (low, high) = entry.into_raw();
-			self.regs.write(lo(1), low);
-			self.regs.write(hi(1), high);
+				let (low, high) = entry.into_raw();
+				self.regs.write(lo(1), low);
+				self.regs.write(hi(1), high);
+
+				// Verify keyboard RTE specifically
+				let verify_lo = self.regs.read(lo(1));
+				let verify_hi = self.regs.read(hi(1));
+				serial_println!(
+					"[IOAPIC] Keyboard RTE read back = (0x{:08X},0x{:08X})",
+					verify_lo,
+					verify_hi
+				);
+			} else {
+				serial_println!("[IOAPIC] WARNING: safe_cap < 1; keyboard not configured");
+			}
+
+			dump_gsi(11);
 
 			serial_println!(
-				"[IOAPIC] IRQ1 → vector {}, dest_apic {}",
-				offset + 1,
-				dest_apic
+				"[IOAPIC] init finished (safe initialization). advertised_max = {}, safe_cap = {}",
+				max_redir,
+				safe_cap
 			);
 		}
 	}
@@ -360,7 +466,7 @@ pub mod prelude {
 
 #[cfg(feature = "test")]
 pub mod tests {
-	use crate::{PHYS_MEM_OFFSET, ioapic::prelude::*, memory::init, utils::ktest::TestError};
+	use crate::{ioapic::prelude::*, utils::ktest::TestError};
 
 	pub fn test_lo_hi_computation() -> Result<(), TestError> {
 		let l = lo(5);
@@ -427,4 +533,22 @@ pub mod tests {
 		Ok(())
 	}
 	crate::create_test!(test_invalid_irqmode_tryfrom);
+}
+
+pub fn dump_gsi(gsi: u8) {
+	unsafe {
+		let ioapic_virt_base = (*PHYS_MEM_OFFSET.lock()).as_u64() + 0xFEC0_0000u64;
+		let mut ioapic = IoApicRegisters::new(ioapic_virt_base);
+		let lov = ioapic.read(lo(gsi));
+		let hiv = ioapic.read(hi(gsi));
+		serial_println!("GSI {} RTE: lo={:#010x} hi={:#010x}", gsi, lov, hiv);
+		let rte = RedirectionTableEntry::from_raw(lov, hiv);
+		serial_println!(
+			"[RTE] vector={} mode={:?} flags={:?} dest={:#x}",
+			rte.vector(),
+			rte.mode(),
+			rte.flags(),
+			rte.dest()
+		);
+	}
 }

@@ -11,7 +11,11 @@ use core::{
 
 use x86_64::instructions::interrupts;
 
-use crate::{interrupts::APIC_TIMER_VECTOR, rtc::read_rtc_raw, utils::mutex::SpinMutex};
+use crate::{
+	interrupts::APIC_TIMER_VECTOR,
+	rtc::read_rtc_raw,
+	utils::mutex::SpinMutex
+};
 
 pub static APIC_BASE: SpinMutex<usize> = SpinMutex::new(0);
 pub static TICK_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -43,97 +47,123 @@ pub const LVT_MODE_PERIODIC: u32 = 1 << 17;
 #[inline(always)]
 unsafe fn apic_reg_ptr(offset: usize) -> *mut u32 {
 	let base = *APIC_BASE.lock();
+	// Verify APIC_BASE is initialized (must be within APIC memory range)
+	if base == 0 || base < 0xFED0_0000 {
+		panic!("APIC_BASE not initialized or invalid: {:#x}", base);
+	}
 	(base + offset) as *mut u32
 }
 
 #[inline(always)]
 /// Read APIC register.
-pub unsafe fn read_register(offset: usize) -> u32 { unsafe {
-	let p = apic_reg_ptr(offset);
-	read_volatile(p)
-}}
+pub unsafe fn read_register(offset: usize) -> u32 {
+	unsafe {
+		let p = apic_reg_ptr(offset);
+		read_volatile(p)
+	}
+}
 
 #[inline(always)]
 /// Write APIC register.
-pub unsafe fn write_register(offset: usize, val: u32) { unsafe {
-	let p = apic_reg_ptr(offset);
-	write_volatile(p, val);
+pub unsafe fn write_register(offset: usize, val: u32) {
+	unsafe {
+		let p = apic_reg_ptr(offset);
+		write_volatile(p, val);
 
-	// apic usually needs a read after writing
-	let _ = read_volatile(apic_reg_ptr(APIC_ID));
-}}
+		// apic usually needs a read after writing
+		let _ = read_volatile(apic_reg_ptr(APIC_ID));
+	}
+}
 
 /// Enables APIC by setting the Spurious Vector Bit to enabled.
-pub unsafe fn enable_apic(spurious_vector: u8) { unsafe {
-	let mut svr = (spurious_vector as u32) & 0xFF;
-	svr |= SVR_APIC_ENABLE;
-	write_register(APIC_SVR, svr);
-}}
+pub unsafe fn enable_apic(spurious_vector: u8) {
+	unsafe {
+		let mut svr = (spurious_vector as u32) & 0xFF;
+		svr |= SVR_APIC_ENABLE;
+		write_register(APIC_SVR, svr);
+	}
+}
 
 /// Write EOI to the Local APIC and acknowledge the interrupt.
-pub unsafe fn send_eoi() { unsafe {
-	write_register(APIC_EOI, 0);
-}}
+pub unsafe fn send_eoi() {
+	unsafe {
+		write_register(APIC_EOI, 0);
+	}
+}
 
 /// Set the timer divide configuration.
-pub unsafe fn set_timer_divide(divide_cfg: u32) { unsafe {
-	write_register(APIC_DIVIDE_CONF, divide_cfg & 0xF);
-}}
+pub unsafe fn set_timer_divide(divide_cfg: u32) {
+	unsafe {
+		write_register(APIC_DIVIDE_CONF, divide_cfg & 0xF);
+	}
+}
 
 /// Set the APIC timer initial count (TICR)
-pub unsafe fn set_timer_initial(count: u32) { unsafe {
-	write_register(APIC_INITIAL_COUNT, count);
-}}
+pub unsafe fn set_timer_initial(count: u32) {
+	unsafe {
+		write_register(APIC_INITIAL_COUNT, count);
+	}
+}
 
 /// Read current count (TCCR)
-pub unsafe fn read_current_count() -> u32 { unsafe {
-	read_register(APIC_CURRENT_COUNT)
-}}
+pub unsafe fn read_current_count() -> u32 {
+	unsafe { read_register(APIC_CURRENT_COUNT) }
+}
 
 /// Initialises the APIC timer in a simple default. Used before calibrating.
-pub unsafe fn init_timer_default(timer_vector: u8) { unsafe {
-	configure_lvt_timer(timer_vector, false, true);
-	set_timer_divide(0x3);
-	set_timer_initial(0xFFFF_FFFFu32);
-	configure_lvt_timer(timer_vector, true, true);
-}}
+pub unsafe fn init_timer_default(timer_vector: u8) {
+	unsafe {
+		configure_lvt_timer(timer_vector, false, true);
+		set_timer_divide(0x3);
+		set_timer_initial(0xFFFF_FFFFu32);
+		configure_lvt_timer(timer_vector, true, true);
+	}
+}
 
 /// Configure the LVT timer
-pub unsafe fn configure_lvt_timer(vector: u8, periodic: bool, masked: bool) { unsafe {
-	let mut entry = (vector as u32) & 0xFF;
-	if periodic {
-		entry |= LVT_MODE_PERIODIC;
+pub unsafe fn configure_lvt_timer(vector: u8, periodic: bool, masked: bool) {
+	unsafe {
+		let mut entry = (vector as u32) & 0xFF;
+		if periodic {
+			entry |= LVT_MODE_PERIODIC;
+		}
+		if masked {
+			entry |= LVT_MASK_BIT;
+		}
+		write_register(APIC_LVT_TIMER, entry);
 	}
-	if masked {
-		entry |= LVT_MASK_BIT;
-	}
-	write_register(APIC_LVT_TIMER, entry);
-}}
+}
 
 /// Mask / unmask the timer interrupt.
-pub unsafe fn mask_timer(mask: bool) { unsafe {
-	let mut r = read_register(APIC_LVT_TIMER);
-	if mask {
-		r |= LVT_MASK_BIT;
-	} else {
-		r &= !LVT_MASK_BIT;
+pub unsafe fn mask_timer(mask: bool) {
+	unsafe {
+		let mut r = read_register(APIC_LVT_TIMER);
+		if mask {
+			r |= LVT_MASK_BIT;
+		} else {
+			r &= !LVT_MASK_BIT;
+		}
+		write_register(APIC_LVT_TIMER, r);
 	}
-	write_register(APIC_LVT_TIMER, r);
-}}
+}
 
 /// Set the LVT timer into periodic mode with a initial count.
-pub unsafe fn start_timer_periodic(timer_vector: u8, initial_count: u32) { unsafe {
-	set_timer_divide(0x3);
-	set_timer_initial(initial_count);
-	configure_lvt_timer(timer_vector, true, false);
-}}
+pub unsafe fn start_timer_periodic(timer_vector: u8, initial_count: u32) {
+	unsafe {
+		set_timer_divide(0x3);
+		set_timer_initial(initial_count);
+		configure_lvt_timer(timer_vector, true, false);
+	}
+}
 
 /// Set the LVT timer into one-shot mode with a initial count.
-pub unsafe fn start_timer_one_shot(timer_vector: u8, initial_count: u32) { unsafe {
-	set_timer_divide(0x3);
-	set_timer_initial(initial_count);
-	configure_lvt_timer(timer_vector, false, false); // unmask one-shot
-}}
+pub unsafe fn start_timer_one_shot(timer_vector: u8, initial_count: u32) {
+	unsafe {
+		set_timer_divide(0x3);
+		set_timer_initial(initial_count);
+		configure_lvt_timer(timer_vector, false, false); // unmask one-shot
+	}
+}
 
 /// Calibrate the LAPIC timer using the RTC
 ///
@@ -143,17 +173,27 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), &'static str> {
 		return Err("target_hz must be > 0")
 	}
 
+	// Ensure interrupts are disabled while we calibrate (caller should already
+	// ensure interrupts are disabled; this is defensive).
 	interrupts::disable();
 
 	unsafe {
+		// Keep the timer masked so no IRQ will fire while we are sampling counts.
+		// set_timer_divide and set_timer_initial purely program counter behaviour.
 		mask_timer(true);
 		set_timer_divide(0x3);
 		set_timer_initial(0xFFFF_FFFFu32);
-		configure_lvt_timer(APIC_TIMER_VECTOR, false, true);
+
+		// configure_lvt_timer(vec, masked, periodic)
+		// Use masked = true while measuring (we don't want the hardware to interrupt
+		// us). periodic = false (one-shot) is fine for measuring.
+		configure_lvt_timer(APIC_TIMER_VECTOR, true, false);
 	}
 
+	// Read start counter while still masked
 	let start_count = unsafe { read_current_count() };
 
+	// Wait for RTC second tick (polling) — no interrupts required
 	let (s_before, _m, _h, _d, _mo, _y) = read_rtc_raw();
 	loop {
 		let (s_now, _, _, _, _, _) = read_rtc_raw();
@@ -162,9 +202,12 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), &'static str> {
 		}
 	}
 
+	// Read end counter
 	let end_count = unsafe { read_current_count() };
 
-	interrupts::enable();
+	// Do NOT enable interrupts here — that can let the APIC timer fire and race
+	// with initialization, producing a double fault if the handler/stack/IDT isn't
+	// ready. interrupts::enable();   <-- removed intentionally
 
 	let ticks_per_second = start_count.wrapping_sub(end_count) as u64;
 	if ticks_per_second == 0 {
@@ -177,6 +220,17 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), &'static str> {
 	}
 	let initial_count = initial_count_u64 as u32;
 
+	// leave the timer masked — the caller will unmask / program periodic mode once
+	// the IDT, IOAPIC, and interrupt handlers (and stacks) are fully ready.
+	unsafe {
+		mask_timer(true);
+		// If you want, also configure the LVT now to the intended final settings
+		// (vector/periodic), but keep it masked until the rest of the interrupt
+		// system is ready.
+		configure_lvt_timer(APIC_TIMER_VECTOR, true, true); // keep masked; set periodic
+	}
+
+	// still safe to return while interrupts remain disabled
 	Ok((ticks_per_second, initial_count))
 }
 

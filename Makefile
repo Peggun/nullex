@@ -12,7 +12,7 @@ assembly_object_files := $(patsubst src/arch/$(arch)/%.asm, \
 
 CARGO_FLAGS ?=
 
-.PHONY: all clean run iso kernel build test test-ci
+.PHONY: all clean run iso kernel build test test-ci miri
 
 all: $(kernel)
 
@@ -24,9 +24,9 @@ run: $(iso)
 	@echo "Running QEMU (CI=$(CI))"; \
 	if [ -n "$(CI)" ]; then \
 	  mkdir -p build; \
-	  qemu-system-x86_64 -cdrom $(iso) -serial file:build/serial.log -net nic -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04 -nographic; \
+	  sudo qemu-system-x86_64 -cdrom $(iso) -serial stdio -monitor vc -machine q35 -netdev tap,id=net0,ifname=tap0,script=no,downscript=no -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04; \
 	else \
-	  qemu-system-x86_64 -cdrom $(iso) -serial mon:stdio -net nic -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04; \
+	  sudo qemu-system-x86_64 -cdrom $(iso) -serial stdio -monitor vc -machine q35 -netdev tap,id=net0,ifname=tap0,script=no,downscript=no -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04; \
 	fi; \
 	EXIT=$$?; \
 	echo "qemu host exit code: $$EXIT"; \
@@ -55,7 +55,7 @@ run: $(iso)
 	fi
 
 debug: $(iso)
-	qemu-system-x86_64 -cdrom $(iso) -serial mon:stdio -net nic -device isa-debug-exit,iobase=0xf4,iosize=0x04 -D ./qemu.log -d int
+	sudo qemu-system-x86_64 -cdrom $(iso) -serial stdio -monitor vc -machine q35 -netdev tap,id=net0,ifname=tap0,script=no,downscript=no -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04; -D ./qemu.log -d int
 
 build: $(iso)
 
