@@ -1,3 +1,9 @@
+//!
+//! completion.rs
+//! 
+//! Keyboard command completion logic for the kernel.
+//! 
+
 use alloc::{
 	string::{String, ToString},
 	vec::Vec
@@ -13,16 +19,14 @@ use crate::{
 };
 
 #[derive(Debug, PartialEq)]
-pub enum CompletionType {
+enum CompletionType {
 	File,
 	Directory,
 	Both,
 	None
 }
 
-/// A helper function to determine whether the command should use file/directory
-/// completion.
-pub fn command_supports_completion(command: &str) -> CompletionType {
+fn command_supports_completion(command: &str) -> CompletionType {
 	match command {
 		"cd" | "ls" | "rmdir" => CompletionType::Directory,
 		"cat" | "write" | "rm" => CompletionType::File,
@@ -33,6 +37,7 @@ pub fn command_supports_completion(command: &str) -> CompletionType {
 	}
 }
 
+/// Complete the command with the use of the `TAB` key
 pub fn tab_completion(line: &mut String) {
 	let parts: Vec<&str> = line.split(' ').collect();
 	let part = parts[parts.len() - 1].to_string();
@@ -147,6 +152,7 @@ pub fn tab_completion(line: &mut String) {
 	});
 }
 
+/// Uparrow completion. Goes through the command history.
 pub fn uparrow_completion(line: &mut String) {
 	// lock the history and history index.
 	let history = CMD_HISTORY.lock();
@@ -173,6 +179,7 @@ pub fn uparrow_completion(line: &mut String) {
 	line.push_str(cmd);
 }
 
+/// Downarrow completion. Goes through the command history
 pub fn downarrow_completion(line: &mut String) {
 	let history = CMD_HISTORY.lock();
 	let mut index = CMD_HISTORY_INDEX.lock();

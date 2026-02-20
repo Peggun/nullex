@@ -1,75 +1,95 @@
+//!
+//! acpi.rs
+//! 
+//! ACPI definitions for the kernel.
+//! 
+
 use alloc::vec::Vec;
 use core::ptr::{addr_of, read_unaligned};
 
 use x86_64::VirtAddr;
 
 use crate::{
-	PHYS_MEM_OFFSET,
-	common::ports::outb,
-	gsi::GSI_TABLE,
-	interrupts::allocate_and_register_vector,
-	io::pci::{pci_find_index_from_gsi, try_bind_device},
-	ioapic::IoApic,
-	lazy_static,
-	rtc::{PIC1_DATA, PIC2_DATA},
-	serial_println,
-	utils::mutex::SpinMutex
+	PHYS_MEM_OFFSET, apic::{PIC1_DATA, PIC2_DATA}, common::ports::outb, gsi::{GSI_TABLE, program_gsi_vector}, interrupts::allocate_and_register_vector, io::pci::{pci_find_index_from_gsi, try_bind_device}, lazy_static, serial_println, utils::mutex::SpinMutex
 };
 
-// https://wiki.osdev.org/RSDT (What can you find?)
-pub const MADT_TABLE_SIGNATURE: &'static str = "APIC";
-pub const BERT_TABLE_SIGNATURE: &'static str = "BERT";
-pub const CPEP_TABLE_SIGNATURE: &'static str = "CPEP";
-pub const DSDT_TABLE_SIGNATURE: &'static str = "DSDT";
-pub const ECDT_TABLE_SIGNATURE: &'static str = "ECDT";
-pub const EINJ_TABLE_SIGNATURE: &'static str = "EINJ";
-pub const ERST_TABLE_SIGNATURE: &'static str = "ERST";
-pub const FADT_TABLE_SIGNATURE: &'static str = "FACP";
-pub const FACS_TABLE_SIGNATURE: &'static str = "FACS";
-pub const HEST_TABLE_SIGNATURE: &'static str = "HEST";
-pub const MSCT_TABLE_SIGNATURE: &'static str = "MSCT";
-pub const MPST_TABLE_SIGNATURE: &'static str = "MPST";
+// https://wiki.osdev.org/RSDT
+const MADT_TABLE_SIGNATURE: &'static str = "APIC";
+const BERT_TABLE_SIGNATURE: &'static str = "BERT";
+const CPEP_TABLE_SIGNATURE: &'static str = "CPEP";
+const DSDT_TABLE_SIGNATURE: &'static str = "DSDT";
+const ECDT_TABLE_SIGNATURE: &'static str = "ECDT";
+const EINJ_TABLE_SIGNATURE: &'static str = "EINJ";
+const ERST_TABLE_SIGNATURE: &'static str = "ERST";
+const FADT_TABLE_SIGNATURE: &'static str = "FACP";
+const FACS_TABLE_SIGNATURE: &'static str = "FACS";
+const HEST_TABLE_SIGNATURE: &'static str = "HEST";
+const MSCT_TABLE_SIGNATURE: &'static str = "MSCT";
+const MPST_TABLE_SIGNATURE: &'static str = "MPST";
 // skip OEM tables as there are lots of OEM tables (add later)
-pub const PMTT_TABLE_SIGNATURE: &'static str = "PMTT";
-pub const PSDT_TABLE_SIGNATURE: &'static str = "PSDT";
-pub const RASF_TABLE_SIGNATURE: &'static str = "RASF";
-pub const RSDT_TABLE_SIGNATURE: &'static str = "RSDT";
-pub const SBST_TABLE_SIGNATURE: &'static str = "SBST";
-pub const SLIT_TABLE_SIGNATURE: &'static str = "SLIT";
-pub const SRAT_TABLE_SIGNATURE: &'static str = "SRAT";
-pub const SSDT_TABLE_SIGNATURE: &'static str = "SSDT";
-pub const XSDT_TABLE_SIGNATURE: &'static str = "XSDT";
+const PMTT_TABLE_SIGNATURE: &'static str = "PMTT";
+const PSDT_TABLE_SIGNATURE: &'static str = "PSDT";
+const RASF_TABLE_SIGNATURE: &'static str = "RASF";
+const RSDT_TABLE_SIGNATURE: &'static str = "RSDT";
+const SBST_TABLE_SIGNATURE: &'static str = "SBST";
+const SLIT_TABLE_SIGNATURE: &'static str = "SLIT";
+const SRAT_TABLE_SIGNATURE: &'static str = "SRAT";
+const SSDT_TABLE_SIGNATURE: &'static str = "SSDT";
+const XSDT_TABLE_SIGNATURE: &'static str = "XSDT";
 
 lazy_static! {
+	/// Static reference to the Root System Descriptor Table (RSDT)
 	pub static ref RSDT: SpinMutex<VirtAddr> = SpinMutex::new(VirtAddr::zero());
 }
 
+/// Enum representing all ACPI tables.
 pub enum AcpiTableType {
+	/// MADT Table
 	Madt,
+	/// BERT Table
 	Bert,
+	/// CPEP Table
 	Cpep,
+	/// DSDT Table
 	Dsdt,
+	/// ECDT Table
 	Ecdt,
+	/// EINJ Table
 	Einj,
+	/// ERST Table
 	Erst,
+	/// FADT Table
 	Fadt,
+	/// FACS Table
 	Facs,
+	/// HEST Table
 	Hest,
+	/// MSCT Table
 	Msct,
+	/// MPST Table
 	Mpst,
+	/// PMTT Table
 	Pmtt,
+	/// PSDT Table
 	Psdt,
+	/// RASF Table
 	Rasf,
+	/// RSDT Table
 	Rsdt,
+	/// SBST Table
 	Sbst,
+	/// SLIT Table
 	Slit,
+	/// SRAT Table
 	Srat,
+	/// SSDT Table
 	Ssdt,
+	/// XSDT Table
 	Xsdt
 }
 
 impl AcpiTableType {
-	pub fn signature(&self) -> &'static str {
+	fn signature(&self) -> &'static str {
 		match self {
 			AcpiTableType::Madt => MADT_TABLE_SIGNATURE,
 			AcpiTableType::Bert => BERT_TABLE_SIGNATURE,
@@ -99,24 +119,26 @@ impl AcpiTableType {
 // https://wiki.osdev.org/RSDT
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+/// Structure representing a ACPI SDT (System Descriptor Table) header. All tables have this.
 pub struct AcpiSdtHeader {
-	pub signature: [u8; 4],
-	pub length: u32,
-	pub revision: u8,
-	pub checksum: u8,
-	pub oem_id: [u8; 6],
-	pub oem_table_id: [u8; 8],
-	pub oem_revision: u32,
-	pub creator_id: u32,
-	pub creator_revision: u32
+	signature: [u8; 4],
+	length: u32,
+	revision: u8,
+	checksum: u8,
+	oem_id: [u8; 6],
+	oem_table_id: [u8; 8],
+	oem_revision: u32,
+	creator_id: u32,
+	creator_revision: u32
 }
 
 #[repr(C, packed)]
-pub struct Rsdt {
-	pub header: AcpiSdtHeader,
-	pub pointers_to_other_sdt: Vec<u32>
+struct Rsdt {
+	header: AcpiSdtHeader,
+	pointers_to_other_sdt: Vec<u32>
 }
 
+#[allow(unused)]
 impl Rsdt {
 	// incase. not used currently, *const T is in use.
 	pub fn new(header: AcpiSdtHeader) -> Result<Self, &'static str> {
@@ -135,29 +157,30 @@ impl Rsdt {
 
 #[repr(C, packed)]
 #[derive(Debug)]
-pub struct MadtTable {
-	pub header: AcpiSdtHeader,
-	pub lapic_addr: u32,
-	pub flags: u32
+struct MadtTable {
+	header: AcpiSdtHeader,
+	lapic_addr: u32,
+	flags: u32
 }
 
 #[repr(C, packed)]
 #[derive(Debug, Copy, Clone)]
-pub struct MadtTableEntry {
-	pub r#type: u8,
-	pub length: u8
+struct MadtTableEntry {
+	r#type: u8,
+	length: u8
 }
 
 #[repr(C, packed)]
 #[derive(Debug)]
-pub struct InterruptSourceOverride {
-	pub header: MadtTableEntry,
-	pub bus: u8,
-	pub source: u8,
-	pub gsi: u32,
-	pub flags: u16
+struct InterruptSourceOverride {
+	header: MadtTableEntry,
+	bus: u8,
+	source: u8,
+	gsi: u32,
+	flags: u16
 }
 
+/// Finds and returns the specified ACPI table.
 pub unsafe fn find_acpi_table(
 	root_sdt: VirtAddr,
 	table_type: AcpiTableType
@@ -180,6 +203,7 @@ pub unsafe fn find_acpi_table(
 	}
 }
 
+/// Finds and links all Interrupt Source Overrides (ISO) 
 pub unsafe fn link_isos() {
 	serial_println!("[ACPI] Starting ISO (Interrupt Source Override) linking...");
 
@@ -351,92 +375,5 @@ pub unsafe fn link_isos() {
 			"[ACPI] ISO linking complete: programmed {} interrupts",
 			programmed_count
 		);
-	}
-}
-
-pub fn program_gsi_vector(ioapic_base: u64, gsi: u8, vector: u8, dest_apic: u8, unmask: bool) {
-	serial_println!(
-		"[IOAPIC] Programming GSI {} -> vector {}, dest APIC {}, unmask={}",
-		gsi,
-		vector,
-		dest_apic,
-		unmask
-	);
-
-	let mut ioapic = unsafe { IoApic::new(ioapic_base) };
-	let mut rte = unsafe { ioapic.table_entry(gsi) };
-
-	let gsi_table = GSI_TABLE.lock();
-
-	if gsi_table[gsi as usize].has_iso {
-		let flags = gsi_table[gsi as usize].flags;
-		serial_println!("[IOAPIC] GSI {} has ISO with flags {:#x}", gsi, flags);
-
-		// Polarity: bits 0-1
-		match flags & 0x03 {
-			0x01 => {
-				serial_println!("[IOAPIC] Setting active-high polarity for GSI {}", gsi);
-				rte.set_polarity(false); // false = active high
-			}
-			0x03 => {
-				serial_println!("[IOAPIC] Setting active-low polarity for GSI {}", gsi);
-				rte.set_polarity(true); // true = active low
-			}
-			_ => {
-				serial_println!("[IOAPIC] Using default polarity for GSI {}", gsi);
-			}
-		}
-
-		// Trigger mode: bits 2-3
-		match (flags >> 2) & 0x03 {
-			0x01 => {
-				serial_println!("[IOAPIC] Setting edge-triggered mode for GSI {}", gsi);
-				rte.set_trigger_mode(false); // false = edge
-			}
-			0x03 => {
-				serial_println!("[IOAPIC] Setting level-triggered mode for GSI {}", gsi);
-				rte.set_trigger_mode(true); // true = level
-			}
-			_ => {
-				serial_println!("[IOAPIC] Using default trigger mode for GSI {}", gsi);
-			}
-		}
-	} else {
-		serial_println!("[IOAPIC] GSI {} has no ISO, using defaults", gsi);
-	}
-
-	rte.set_vector(vector);
-	rte.set_dest(dest_apic);
-	rte.set_mask(!unmask);
-
-	serial_println!("[IOAPIC] Writing RTE for GSI {}", gsi);
-	unsafe {
-		ioapic.set_table_entry(gsi, rte);
-	}
-
-	// Verify the write
-	let verify = unsafe { ioapic.table_entry(gsi) };
-	serial_println!(
-		"[IOAPIC] Verified GSI {} -> vec={}, flags={:?}, dest={:#x}, mask={}",
-		gsi,
-		verify.vector(),
-		verify.flags(),
-		verify.dest(),
-		verify.mask()
-	);
-}
-
-pub fn unmask_all_programmed_gsis() {
-	let ioapic_virt_base = PHYS_MEM_OFFSET.lock().as_u64() + 0xFEC0_0000u64;
-	for gsi in 0..256 {
-		if GSI_TABLE.lock()[gsi].vector.is_some() {
-			let mut ioapic = unsafe { IoApic::new(ioapic_virt_base) };
-			let mut rte = unsafe { ioapic.table_entry(gsi as u8) };
-			rte.set_mask(false);
-			unsafe {
-				ioapic.set_table_entry(gsi as u8, rte);
-			}
-			serial_println!("[INIT] Unmasked GSI {}", gsi);
-		}
 	}
 }

@@ -1,3 +1,9 @@
+//! 
+//! io/mod.rs
+//! 
+//! I/O module declaration.
+//! 
+
 use crate::{
 	common::ports::{inb, inl, inq, inw, outb, outl, outq, outw},
 	utils::types::{BYTE, DWORD, QWORD, WORD}
@@ -6,6 +12,7 @@ use crate::{
 pub mod keyboard;
 pub mod pci;
 
+/// Read `N` type from an IO port.
 pub fn io_read<N>(base: usize, offset: usize) -> Result<N, <N as TryFrom<u64>>::Error>
 where
 	N: TryFrom<u64> + Copy
@@ -27,6 +34,7 @@ where
 	}
 }
 
+/// Write `N` type to an IO port.
 pub fn io_write<N>(base: usize, offset: usize, value: N) -> Result<(), &'static str>
 where
 	N: Into<u64> + Copy

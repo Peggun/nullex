@@ -1,8 +1,11 @@
-// syscall.rs
+//! syscall.rs
 
-/*
-Syscall module for the kernel.
-*/
+//!
+//! Syscall module for the kernel.
+//!
+//! Using custom system call commands as I would love this kernel to be unique
+//! to me and others without resembling too much of UNIX/Linux
+//!
 
 use alloc::{string::ToString, sync::Arc};
 use core::sync::atomic::AtomicBool;
@@ -23,22 +26,43 @@ use crate::{
 	utils::oncecell::spin::OnceCell
 };
 
-// System call IDs
-pub const SYS_PRINT: u32 = 1;
-pub const SYS_EXIT: u32 = 2;
-pub const SYS_FORK: u32 = 3;
-pub const SYS_WAIT: u32 = 4;
-pub const SYS_OPEN: u32 = 5;
-pub const SYS_CLOSE: u32 = 6;
-pub const SYS_READ: u32 = 7;
-pub const SYS_WRITE: u32 = 8;
-pub const SYS_EXEC: u32 = 9;
-pub const SYS_KILL: u32 = 10;
-pub const SYS_SLEEP: u32 = 11;
+// syscall ids
 
-// System call handler function
+const SYS_SAY: u32 = 1;
+const SYS_HALT: u32 = 2;
+const SYS_SPLIT: u32 = 3;
+const SYS_WAITON: u32 = 4;
+const SYS_OPENF: u32 = 5;
+const SYS_CLOSEF: u32 = 6;
+const SYS_READF: u32 = 7;
+const SYS_WRITEF: u32 = 8;
+const SYS_RUN: u32 = 9;
+const SYS_STOP: u32 = 10;
+const SYS_NAP: u32 = 11;
+
+/// System call handler function. Called when the `syscall` or `int 0x80` instruction
+/// is called. 
+/// 
+/// # x86 (`int 0x80`)
+/// - syscall_id in eax
+/// - arg1 in ebx
+/// - arg2 in ecx
+/// - arg3 in edx
+/// - arg4 in esi 
+/// - arg5 in edi
+/// - arg6 in ebp (not supported)
+/// 
+/// # x86_64 (`syscall`)
+/// - syscall_id in erax
+/// - arg1 in rbx
+/// - arg2 in rcx
+/// - arg3 in rdx
+/// - arg4 in rsi 
+/// - arg5 in rdi
+/// - arg6 in rbp (not supported)
+/// 
 /// # Safety
-/// make sure valid args!!!
+/// - Make sure valid arguments
 pub unsafe fn syscall(
 	syscall_id: u32,
 	arg1: u64,
@@ -48,48 +72,52 @@ pub unsafe fn syscall(
 	_arg5: u64
 ) -> i32 {
 	match syscall_id {
-		SYS_PRINT => {
+		SYS_SAY => {
 			let ptr = arg1 as *const u8;
 			let len = arg2 as usize;
 			let s = unsafe { core::str::from_raw_parts(ptr, len) };
-			sys_print(s);
+			sys_say(s);
 			0
 		}
-		SYS_EXIT => {
+		SYS_HALT => {
 			let exit_code = arg1 as i32;
-			sys_exit(exit_code);
+			sys_halt(exit_code);
 		}
-		SYS_FORK => sys_fork(),
-		SYS_WAIT => sys_wait(),
-		SYS_OPEN => {
+		SYS_SPLIT => sys_split(),
+		SYS_WAITON => sys_waiton(),
+		SYS_OPENF => {
 			let path_ptr = arg1 as *const u8;
 			let path_len = arg2 as usize;
 			let path = unsafe { core::str::from_raw_parts(path_ptr, path_len) };
-			sys_open(path)
+			sys_openf(path)
 		}
-		SYS_CLOSE => {
+		SYS_CLOSEF => {
 			let fd = arg1 as u32;
-			sys_close(fd)
+			sys_closef(fd)
 		}
-		SYS_READ => {
+		SYS_READF => {
 			let fd = arg1 as u32;
 			let buf_ptr = arg2 as *mut u8;
 			let len = arg3 as usize;
-			unsafe { sys_read(fd, buf_ptr, len) }
+			unsafe { sys_readf(fd, buf_ptr, len) }
 		}
-		SYS_WRITE => {
+		SYS_WRITEF => {
 			let fd = arg1 as u32;
 			let buf_ptr = arg2 as *const u8;
 			let len = arg3 as usize;
-			unsafe { sys_write(fd, buf_ptr, len) }
+			unsafe { sys_writef(fd, buf_ptr, len) }
 		}
-		SYS_EXEC => {
+		SYS_RUN => {
 			let path_ptr = arg1 as *const u8;
 			let path_len = arg2 as usize;
 			let path = unsafe { core::str::from_raw_parts(path_ptr, path_len) };
-			sys_exec(path)
+			sys_run(path)
 		}
-		SYS_KILL => sys_kill(arg1),
+		SYS_STOP => sys_stop(arg1),
+		SYS_NAP => {
+			serial_println!("i go nap nap now. sleep is a) broken, and b) unsafe :(");
+			0
+		},
 		_ => {
 			serial_println!("Invalid syscall ID: {}", syscall_id);
 			-1 // error code for unhandled syscall
@@ -97,17 +125,13 @@ pub unsafe fn syscall(
 	}
 }
 
-// --- Syscall implementations ---
-
-// process management
-
-pub fn sys_fork() -> i32 {
-	serial_println!("sys_fork called");
+fn sys_split() -> i32 {
+	serial_println!("sys_split called");
 	let current_state = {
 		let locked = CURRENT_PROCESS.lock();
 		locked
 			.as_ref()
-			.expect("No current process during sys_fork")
+			.expect("No current process during sys_split")
 			.clone()
 	};
 	let future_fn_clone = current_state.future_fn.clone();
@@ -126,47 +150,45 @@ pub fn sys_fork() -> i32 {
 	child_pid.get() as i32
 }
 
-pub fn sys_wait() -> i32 {
-	// placeholder: should wait for a child process to complete
+fn sys_waiton() -> i32 {
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
 			serial_println!("sys_wait: No current process guard");
 			return -1;
 		}
 		let _process = &mut *executor::CURRENT_PROCESS_GUARD;
-		// TODO: implement waiting for a child process
-		0 // placeholder return value
+		todo!();
+		// implement waiting for a child process
+		//0
 	}
 }
 
-pub fn sys_print(s: &str) {
+fn sys_say(s: &str) {
 	println!("{}", s);
 }
 
-pub fn sys_exit(exit_code: i32) -> ! {
+fn sys_halt(exit_code: i32) -> ! {
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
-			serial_println!("sys_exit: No current process guard");
+			serial_println!("sys_halt: No current process guard");
 		} else {
 			let _process = &mut *executor::CURRENT_PROCESS_GUARD;
 			println!("Process exiting with code: {}", exit_code);
 		}
-		panic!("sys_exit called - process should terminate (simplified behavior)")
+		panic!("sys_halt called - process should terminate (simplified behavior)")
 	}
 }
 
-// file operations
-
-pub fn sys_open(path: &str) -> i32 {
+fn sys_openf(path: &str) -> i32 {
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
-			serial_println!("sys_open: No current process guard");
+			serial_println!("sys_openf: No current process guard");
 			return -1;
 		}
 		let process = &mut *executor::CURRENT_PROCESS_GUARD;
 		let exists = fs::with_fs(|fs| fs.get_file(path).is_ok());
 		if !exists {
-			serial_println!("sys_open: File not found: {}", path);
+			serial_println!("sys_openf: File not found: {}", path);
 			return -1;
 		}
 		let fd = process.next_fd;
@@ -179,28 +201,28 @@ pub fn sys_open(path: &str) -> i32 {
 	}
 }
 
-pub fn sys_close(fd: u32) -> i32 {
+fn sys_closef(fd: u32) -> i32 {
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
-			serial_println!("sys_close: No current process guard");
+			serial_println!("sys_closef: No current process guard");
 			return -1;
 		}
 		let process = &mut *executor::CURRENT_PROCESS_GUARD;
 		if process.open_files.remove(&fd).is_some() {
 			0 // success
 		} else {
-			serial_println!("sys_close: Invalid file descriptor: {}", fd);
+			serial_println!("sys_closef: Invalid file descriptor: {}", fd);
 			-1 // invalid fd
 		}
 	}
 }
 
 /// # Safety
-/// valid ptr pls
-pub unsafe fn sys_read(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
+/// `buf_ptr` needs to be a valid pointer or else undefined behaviour
+unsafe fn sys_readf(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
-			serial_println!("sys_read: No current process guard");
+			serial_println!("sys_readf: No current process guard");
 			return -1;
 		}
 		let process = &mut *executor::CURRENT_PROCESS_GUARD;
@@ -220,23 +242,23 @@ pub unsafe fn sys_read(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
 						0 // eof
 					}
 				} else {
-					serial_println!("sys_read: File not found: {}", path);
+					serial_println!("sys_readf: File not found: {}", path);
 					-1 // file not found
 				}
 			})
 		} else {
-			serial_println!("sys_read: Invalid file descriptor: {}", fd);
+			serial_println!("sys_readf: Invalid file descriptor: {}", fd);
 			-1 // invalid fd
 		}
 	}
 }
 
 /// # Safety
-/// valid ptr pls
-pub unsafe fn sys_write(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
+/// `buf_ptr` needs to be a valid pointer or else undefined behaviour
+unsafe fn sys_writef(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
-			serial_println!("sys_write: No current process guard");
+			serial_println!("sys_writef: No current process guard");
 			return -1;
 		}
 		let process = &mut *executor::CURRENT_PROCESS_GUARD;
@@ -247,20 +269,18 @@ pub unsafe fn sys_write(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
 				if fs.write_file(path, buf, false).is_ok() {
 					len as i32 // number of bytes written
 				} else {
-					serial_println!("sys_write: Write failed: {}", path);
+					serial_println!("sys_writef: Write failed: {}", path);
 					-1 // write failed
 				}
 			})
 		} else {
-			serial_println!("sys_write: Invalid file descriptor: {}", fd);
+			serial_println!("sys_writef: Invalid file descriptor: {}", fd);
 			-1 // invalid fd
 		}
 	}
 }
 
-// Placeholder implementations
-
-pub fn sys_exec(path: &str) -> i32 {
+fn sys_run(path: &str) -> i32 {
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
 			serial_println!("sys_exec: No current process guard");
@@ -272,7 +292,7 @@ pub fn sys_exec(path: &str) -> i32 {
 	}
 }
 
-pub fn sys_kill(pid: u64) -> i32 {
+fn sys_stop(pid: u64) -> i32 {
 	EXECUTOR.lock().end_process(ProcessId::new(pid), -2);
 	0 // placeholder: should terminate the specified process
 }

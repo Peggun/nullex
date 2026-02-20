@@ -1,8 +1,8 @@
-// command.rs
-
-/*
-Command handling and definitions module for the kernel.
-*/
+//!
+//! command.rs
+//!
+//! Command handling and definitions module for the kernel.
+//! 
 
 use alloc::{
 	collections::BTreeMap,
@@ -11,7 +11,6 @@ use alloc::{
 };
 
 use crate::{
-	constants::SYSLOG_SINK,
 	drivers::keyboard::scancode::CWD,
 	fs::{self, ramfs::Permission, resolve_path},
 	lazy_static,
@@ -19,37 +18,42 @@ use crate::{
 	println,
 	rtc::read_rtc_time,
 	serial_println,
-	syscall,
 	task::{ProcessId, executor::EXECUTOR},
 	utils::{
-		logger::{levels::LogLevel, traits::logger_sink::LoggerSink},
+		logger::{levels::LogLevel, sinks::SYSLOG_SINK, traits::logger_sink::LoggerSink},
 		mutex::SpinMutex
 	},
 	vga_buffer::WRITER
 };
 
 lazy_static! {
+	/// Static reference to a list of all of the commands that have been run in this instance.
 	pub static ref CMD_HISTORY: SpinMutex<Vec<String>> = SpinMutex::new(Vec::new());
+	/// Static reference to the current command history index we are at.
 	pub static ref CMD_HISTORY_INDEX: SpinMutex<usize> = SpinMutex::new(0);
 }
 
 /// A type alias for a command function.
-pub type CommandFunction = fn(args: &[&str]);
+type CommandFunction = fn(args: &[&str]);
 
 #[derive(Clone, Copy, PartialEq)]
-pub enum CommandType {
+/// Enum representing types of commands.
+enum CommandType {
 	Generic,
-	Application
+	// this might be used in the future.
+	_Application
 }
 
 /// A command structure containing the command name, the function to call, and
 /// help text.
 #[derive(Clone, Copy)]
+#[allow(unused)]
 pub struct Command {
-	pub name: &'static str,
-	pub func: CommandFunction,
-	pub help: &'static str,
-	pub cmd_type: CommandType
+	name: &'static str,
+	func: CommandFunction,
+	help: &'static str,
+	// this might be used in the future.
+	cmd_type: CommandType
 }
 
 lazy_static! {
@@ -161,12 +165,6 @@ pub fn init_commands() {
 		cmd_type: CommandType::Generic
 	});
 	register_command(Command {
-		name: "exit",
-		func: sys_exit_shell,
-		help: "Exit the shell",
-		cmd_type: CommandType::Generic
-	});
-	register_command(Command {
 		name: "progs",
 		func: progs,
 		help: "List running processes",
@@ -212,7 +210,7 @@ pub fn init_commands() {
 	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
 }
 
-pub fn progs(_args: &[&str]) {
+fn progs(_args: &[&str]) {
 	if let Some(executor) = EXECUTOR.try_lock() {
 		executor.list_processes();
 	} else {
@@ -220,22 +218,22 @@ pub fn progs(_args: &[&str]) {
 	}
 }
 
-pub fn echo(args: &[&str]) {
+fn echo(args: &[&str]) {
 	println!("{}", args.join(" "));
 }
 
-pub fn clear(_args: &[&str]) {
+fn clear(_args: &[&str]) {
 	WRITER.lock().clear_everything();
 }
 
-pub fn help(_args: &[&str]) {
+fn help(_args: &[&str]) {
 	println!("Available commands:");
 	for cmd in COMMAND_REGISTRY.lock().values() {
 		println!("{} - {}", cmd.name, cmd.help);
 	}
 }
 
-pub fn ls(args: &[&str]) {
+fn ls(args: &[&str]) {
 	let path = resolve_path(if args.is_empty() { "." } else { args[0] });
 	fs::with_fs(|fs| match fs.list_dir(&path) {
 		Ok(entries) => {
@@ -248,7 +246,7 @@ pub fn ls(args: &[&str]) {
 	});
 }
 
-pub fn cat(args: &[&str]) {
+fn cat(args: &[&str]) {
 	if args.is_empty() {
 		println!("cat: missing file operand");
 		return;
@@ -263,7 +261,7 @@ pub fn cat(args: &[&str]) {
 	});
 }
 
-pub fn cd(args: &[&str]) {
+fn cd(args: &[&str]) {
 	let path = if args.is_empty() {
 		"/".to_string()
 	} else {
@@ -279,7 +277,7 @@ pub fn cd(args: &[&str]) {
 	});
 }
 
-pub fn touch(args: &[&str]) {
+fn touch(args: &[&str]) {
 	if args.is_empty() {
 		println!("touch: missing file operand");
 		return;
@@ -294,7 +292,7 @@ pub fn touch(args: &[&str]) {
 	}
 }
 
-pub fn mkdir(args: &[&str]) {
+fn mkdir(args: &[&str]) {
 	if args.is_empty() {
 		println!("mkdir: missing operand");
 		return;
@@ -309,7 +307,7 @@ pub fn mkdir(args: &[&str]) {
 	}
 }
 
-pub fn rm(args: &[&str]) {
+fn rm(args: &[&str]) {
 	if args.is_empty() {
 		println!("rm: missing operand");
 		return;
@@ -329,7 +327,7 @@ pub fn rm(args: &[&str]) {
 	}
 }
 
-pub fn rmdir(args: &[&str]) {
+fn rmdir(args: &[&str]) {
 	if args.is_empty() {
 		println!("rmdir: missing operand");
 		return;
@@ -355,7 +353,7 @@ pub fn rmdir(args: &[&str]) {
 	}
 }
 
-pub fn write_file(args: &[&str]) {
+fn write_file(args: &[&str]) {
 	if args.len() < 2 {
 		println!("Usage: write <file> <content>");
 		return;
@@ -369,27 +367,7 @@ pub fn write_file(args: &[&str]) {
 	});
 }
 
-pub fn sys_exit_shell(_args: &[&str]) {
-	syscall::sys_exit(0);
-}
-
-/// join two paths together.
-pub fn join_paths(path: &str, next: &str, out: &mut String) {
-	const FS_SEP: char = '/';
-	out.clear();
-	if !next.starts_with(FS_SEP) {
-		out.push_str(path);
-		if !path.ends_with(FS_SEP) {
-			out.push(FS_SEP);
-		}
-	}
-	out.push_str(next);
-	if out.ends_with(FS_SEP) {
-		out.pop();
-	}
-}
-
-pub fn kill(args: &[&str]) {
+fn kill(args: &[&str]) {
 	if args.is_empty() {
 		println!("kill: missing PID");
 		return;
@@ -409,20 +387,20 @@ pub fn kill(args: &[&str]) {
 	serial_println!("Killed process {}", pid);
 }
 
-pub fn time(_args: &[&str]) {
+fn time(_args: &[&str]) {
 	let time = read_rtc_time();
 
 	println!("{}", time);
 }
 
-pub fn testnet(_args: &[&str]) {
+fn testnet(_args: &[&str]) {
 	match crate::net::send_arp_request(crate::net::GATEWAY_IP) {
 		Ok(()) => println!("ARP request sent to gateway"),
 		Err(e) => println!("Failed to send ARP: {}", e)
 	}
 }
 
-pub fn rslv(args: &[&str]) {
+fn rslv(args: &[&str]) {
 	if args.is_empty() {
 		println!("rslv: need hostname to resolve to.");
 		return;
@@ -440,7 +418,7 @@ pub fn rslv(args: &[&str]) {
 	}
 }
 
-pub fn ping(args: &[&str]) {
+fn ping(args: &[&str]) {
 	if args.is_empty() {
 		println!("ping: need hostname to ping to");
 		return;
@@ -456,7 +434,7 @@ pub fn ping(args: &[&str]) {
 	}
 }
 
-pub fn netpoll(_args: &[&str]) {
+fn netpoll(_args: &[&str]) {
 	println!("=== Manual Network Poll ===");
 	crate::drivers::virtio::net::rx_poll();
 	println!("=== Poll Complete ===");

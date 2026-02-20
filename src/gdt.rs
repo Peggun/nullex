@@ -1,7 +1,7 @@
-// gdt.rs
-/*
-GDT (Global Descriptor Table) module for the kernel.
-*/
+//! gdt.rs
+//!
+//! GDT (Global Descriptor Table) module for the kernel.
+//!
 
 use x86_64::{
 	VirtAddr,
@@ -13,7 +13,8 @@ use x86_64::{
 
 use crate::lazy_static;
 
-pub const DOUBLE_FAULT_IST_INDEX: u16 = 0;
+/// Interrupt Stack Table Index for double faults.
+pub(crate) const DOUBLE_FAULT_IST_INDEX: u16 = 0;
 
 lazy_static! {
 	static ref GDT: (GlobalDescriptorTable, Selectors) = {
@@ -46,6 +47,7 @@ lazy_static! {
 	};
 }
 
+/// Initialises the GDT (Global Descriptor Table)
 pub fn init() {
 	use x86_64::instructions::{
 		segmentation::{CS, Segment},

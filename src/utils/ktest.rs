@@ -1,3 +1,9 @@
+//!
+//! ktest.rs
+//! 
+//! Kernel testing framework module for nullex.
+//! 
+
 use core::{slice::from_raw_parts, str::from_utf8_unchecked};
 
 use crate::{println, serial_println};
@@ -6,23 +12,29 @@ use crate::{println, serial_println};
 include!(concat!(env!("OUT_DIR"), "/tests_registry.rs"));
 
 #[derive(Debug)]
+// todo! expand error types.
+/// Generic enum representing all error types regarding tests.
 pub enum TestError {
+	/// A generic error.
 	Error
 }
-
-pub type TestFn = fn() -> Result<(), TestError>;
+ 
+type TestFn = fn() -> Result<(), TestError>;
 
 #[repr(C)]
+/// Structure representing all data needed for locating
+/// and running tests.
 pub struct TestDescriptor {
-	pub name_ptr: *const u8,
-	pub name_len: usize,
-	pub func: TestFn
+	name_ptr: *const u8,
+	name_len: usize,
+	func: TestFn
 }
 
 unsafe impl Send for TestDescriptor {}
 unsafe impl Sync for TestDescriptor {}
 
 impl TestDescriptor {
+	/// Returns the test name from a `TestDescriptor`
 	pub fn name(&self) -> &'static str {
 		unsafe {
 			let bytes = from_raw_parts(self.name_ptr, self.name_len);
@@ -32,6 +44,41 @@ impl TestDescriptor {
 }
 
 #[macro_export]
+// NOTE: macros get way more documentation for this kernel.
+
+/// Creates a test descriptor for kernel tests.
+///
+/// This macro generates a `TestDescriptor` static variable that registers a test function
+/// with the kernel test framework. The test is placed in the `.kernel_tests` section for
+/// discovery and execution by the test harness.
+///
+/// # Syntax
+///
+/// - `create_test!(function_name)` - Registers a test function in the current module
+/// - `create_test!(path::to::function)` - Registers a test function at a specific path
+///
+/// # Examples
+///
+/// Register a test function in the current module:
+///
+/// ```ignore
+/// fn my_test() -> Result<(), TestError> {
+///     assert_eq!(2 + 2, 4);
+/// }
+/// create_test!(my_test);
+/// ```
+///
+/// Register a test function from another module:
+///
+/// ```ignore
+/// create_test!(crate::tests::validate_kernel_state);
+/// ```
+///
+/// # Notes
+///
+/// - The macro automatically handles name mangling using `__kernel_test_` prefix
+/// - Test descriptors are marked with `#[used]` to prevent linker removal
+/// - The first variant suppresses warnings for non-snake-case identifiers and non-upper-case globals
 macro_rules! create_test {
 	($fn_ident:ident) => {
 		#[allow(non_snake_case)]
@@ -62,10 +109,14 @@ macro_rules! create_test {
 }
 
 unsafe extern "C" {
-	static __start_kernel_tests: u8;
-	static __stop_kernel_tests: u8;
+	/// The starting address where the kernel tests are stored.
+	unsafe static __start_kernel_tests: u8;
+	/// The ending address where the kernel tests are stored.
+	unsafe static __stop_kernel_tests: u8;
 }
 
+/// Runs all tests that have been generated.
+/// Can only run on `#cfg[feature = "test"]`
 pub fn run_all_tests() {
 	#[cfg(feature = "test")]
 	{
@@ -123,6 +174,6 @@ pub fn run_all_tests() {
 	#[cfg(not(feature = "test"))]
 	{
 		println!("Tests not compiled (feature 'test' not enabled)");
-		serial_println!("Tests no compiled (feature 'test' not enable)");
+		serial_println!("Tests not compiled (feature 'test' not enabled)");
 	}
 }

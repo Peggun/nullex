@@ -1,8 +1,7 @@
-// serial.rs
-
-/*
-Serial Interface module for the kernel.
-*/
+//! serial.rs
+//!
+//! Serial Interface module for the kernel.
+//!
 
 use alloc::string::String;
 use core::{arch::asm, fmt, hint::spin_loop, task::Poll};
@@ -20,10 +19,11 @@ use crate::{
 	serial_println,
 	serial_raw_print,
 	task::yield_now,
-	utils::{kfunc::run_serial_command, mutex::SpinMutex, oncecell::spin::OnceCell}
+	utils::{serial_kfunc::run_serial_command, mutex::SpinMutex, oncecell::spin::OnceCell}
 };
 
 #[derive(Debug)]
+/// Structure representing a port to the Serial I/O lines.
 pub struct SerialPort(u16);
 
 impl SerialPort {
@@ -55,10 +55,12 @@ impl SerialPort {
 		self.port_base() + 5
 	}
 
+	/// Creates a new `SerialPort` at the specified port / base.
 	pub unsafe fn new(base: u16) -> Self {
 		Self(base)
 	}
 
+	/// Initializes a new serial port for use.
 	pub fn init(&mut self) {
 		unsafe {
 			outb(self.port_int_en(), 0x00);
@@ -82,7 +84,7 @@ impl SerialPort {
 		unsafe { LineStatusFlags::from_bits_truncate(inb(self.port_line_sts())) }
 	}
 
-	pub fn send(&mut self, data: u8) {
+	fn send(&mut self, data: u8) {
 		match data {
 			8 | 0x7F => {
 				self.send_raw(8);
@@ -99,7 +101,7 @@ impl SerialPort {
 		}
 	}
 
-	pub fn send_raw(&mut self, data: u8) {
+	fn send_raw(&mut self, data: u8) {
 		loop {
 			if let Ok(ok) = self.try_send_raw(data) {
 				break ok;
@@ -109,7 +111,7 @@ impl SerialPort {
 		}
 	}
 
-	pub fn try_send_raw(&mut self, data: u8) -> Result<(), SerialPortError> {
+	fn try_send_raw(&mut self, data: u8) -> Result<(), SerialPortError> {
 		if self.line_sts().contains(LineStatusFlags::OUTPUT_EMPTY) {
 			unsafe {
 				outb(self.port_data(), data);
@@ -120,9 +122,11 @@ impl SerialPort {
 		}
 	}
 
-	pub fn receive(&mut self) -> u8 {
+	// this function is only here because eventually is something like kernel config, like Linux KConfig
+	// someone may want serial input. so we keep here for now.
+	fn _receive(&mut self) -> u8 {
 		loop {
-			if let Ok(ok) = self.try_receive() {
+			if let Ok(ok) = self._try_receive() {
 				break ok;
 			}
 
@@ -130,7 +134,9 @@ impl SerialPort {
 		}
 	}
 
-	pub fn try_receive(&mut self) -> Result<u8, SerialPortError> {
+	// this function is only here because eventually is something like kernel config, like Linux KConfig
+	// someone may want serial input. so we keep here for now.
+	fn _try_receive(&mut self) -> Result<u8, SerialPortError> {
 		if self.line_sts().contains(LineStatusFlags::INPUT_FULL) {
 			let data = unsafe { inb(self.port_data()) };
 			Ok(data)
@@ -151,6 +157,7 @@ impl fmt::Write for SerialPort {
 
 // https://git.berlin.ccc.de/vinzenz/redox/src/commit/9040789987a987299ac222372c28ddb7382afb53/arch/x86_64/src/device/serial.rs
 bitflags! {
+	/// Line status flags
 	pub struct LineStatusFlags: u8 {
 		const INPUT_FULL = 1;
 		const OUTPUT_EMPTY = 1 << 5;
@@ -158,7 +165,7 @@ bitflags! {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum SerialPortError {
+enum SerialPortError {
 	#[error("Serial Port Error.")]
 	SerialPortError
 }
@@ -180,13 +187,18 @@ pub(crate) fn add_byte(byte: u8) {
 		println!("WARNING: scancode queue uninitialized");
 	}
 }
-
-pub struct SerialScancodeStream {
+// this function is only here because eventually is something like kernel config, like Linux KConfig
+// someone may want serial input. so we keep here for now.
+#[allow(dead_code)]
+struct SerialScancodeStream {
 	_private: ()
 }
 
+// this function is only here because eventually is something like kernel config, like Linux KConfig
+// someone may want serial input. so we keep here for now.
+#[allow(dead_code)]
 impl SerialScancodeStream {
-	pub fn new() -> Self {
+	fn new() -> Self {
 		SERIAL_SCANCODE_QUEUE
 			.try_init_once(|| ArrayQueue::new(1000))
 			.expect("SerialScancodeStream::new should only be called once.");
@@ -231,6 +243,7 @@ impl Stream for SerialScancodeStream {
 }
 
 lazy_static! {
+	/// Static reference to the serial port `0x3F8`
 	pub static ref SERIAL1: SpinMutex<SerialPort> = {
 		let mut serial_port = unsafe { SerialPort::new(0x3F8) };
 		serial_port.init();
@@ -238,7 +251,9 @@ lazy_static! {
 	};
 }
 
-pub async fn serial_consumer_loop() -> i32 {
+// this function is only here because eventually is something like kernel config, like Linux KConfig
+// someone may want serial input. so we keep here for now.
+async fn _serial_consumer_loop() -> i32 {
 	let mut bytes = SerialScancodeStream::new();
 	let mut line = String::new();
 	// print serial terminal like ui thing
@@ -282,7 +297,9 @@ pub async fn serial_consumer_loop() -> i32 {
 	0
 }
 
-pub fn init_serial_input() {
+// this function is only here because eventually is something like kernel config, like Linux KConfig
+// someone may want serial input. so we keep here for now.
+fn _init_serial_input() {
 	use x86_64::instructions::port::Port;
 
 	interrupts::without_interrupts(|| {
@@ -333,6 +350,7 @@ macro_rules! serial_println {
     ($($arg:tt)*) => ($crate::serial_print!("{}\r\n", core::format_args!($($arg)*)));
 }
 
+/// Prints to the host through the serial interface, sending raw bytes with no formatting or checking.
 #[macro_export]
 macro_rules! serial_raw_print {
 	($bytes:expr) => {
@@ -340,10 +358,12 @@ macro_rules! serial_raw_print {
 	};
 }
 
+/// Prelude module for the serial I/O code.
 pub mod prelude {
 	pub use crate::serial::*;
 }
 
+#[cfg(feature = "test")]
 pub mod tests {
 	use crate::{serial::prelude::*, utils::ktest::TestError};
 

@@ -1,8 +1,8 @@
-// memory.rs
-
-/*
-Memory module for the kernel.
-*/
+//!
+//!  memory.rs
+//!
+//! Memory module for the kernel.
+//!
 
 use alloc::{boxed::Box, vec::Vec};
 
@@ -36,20 +36,29 @@ use crate::{
 };
 
 lazy_static! {
+	/// Static reference to the Physical Memory Map offset.
 	pub static ref PAGE_OFFSET: SpinMutex<u64> =
 		SpinMutex::new(unsafe { compute_phys_map_offset() });
 }
 
+static mut NEXT_DMA_VIRT: u64 = 0x5555_0000_0000;
+
 #[derive(Clone, Copy)]
+/// Structure representing a buffer of DMA (Direct Memory Access) information
 pub struct DmaBuffer {
+	/// The Physical Address of the DMA buffer
 	pub phys: PhysAddr,
+	/// The Virtual Address of the DMA buffer
 	pub virt: VirtAddr,
+	/// The length of the DMA buffer
 	pub len: usize
 }
 
+/// Initializes the global allocator with the specified strategy in `allocator.rs`
+// todo! eventually kernel config for types of allocators
 pub fn init_global_alloc(
-	mut mapper: OffsetPageTable<'static>,        // Take ownership
-	mut frame_allocator: BootInfoFrameAllocator  // Take ownership
+	mut mapper: OffsetPageTable<'static>,        
+	mut frame_allocator: BootInfoFrameAllocator  
 ) -> Result<(), &'static str> {
 	match allocator::init_heap(&mut mapper, &mut frame_allocator) {
 		Ok(()) => println!("[Info] Heap pages mapped successfully"),
@@ -76,6 +85,7 @@ pub fn init_global_alloc(
 	Ok(())
 }
 
+/// Maps the APIC Timer to valid addresses for use
 pub fn map_apic(
 	mapper: &mut impl Mapper<Size4KiB>,
 	frame_allocator: &mut impl FrameAllocator<Size4KiB>,
@@ -103,7 +113,7 @@ pub fn map_apic(
 	println!("[Info] Done.");
 }
 
-// map_ioapic in memory.rs (patterned after your map_apic)
+/// Maps the IOAPIC timer to valid addresses for use
 pub fn map_ioapic(
 	mapper: &mut impl Mapper<Size4KiB>,
 	frame_allocator: &mut impl FrameAllocator<Size4KiB>,
@@ -195,20 +205,25 @@ unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut
 	let virt = physical_memory_offset + phys.as_u64();
 	let page_table_ptr: *mut PageTable = virt.as_mut_ptr();
 
-	unsafe { &mut *page_table_ptr } // unsafe
+	unsafe { &mut *page_table_ptr }
 }
 
+/// Translates a physical address to a virtual one
+/// 
+/// # Safety
+/// Physical address needs to be mapped, if not, the virtual address returned will be invalid.
 pub unsafe fn phys_to_virt(addr: PhysAddr) -> VirtAddr {
 	VirtAddr::new(addr.as_u64().wrapping_add(*PAGE_OFFSET.lock()))
 }
 
 /// # Safety
-/// We need all memory mapped at `physical_memory_offset`.
+/// We need some memory mapped at `physical_memory_offset`.
 pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static> {
 	let level_4_table = unsafe { active_level_4_table(physical_memory_offset) };
 	unsafe { OffsetPageTable::new(level_4_table, physical_memory_offset) }
 }
 
+/// Allocates a direct memory access block of `size` bytes.
 pub fn dma_alloc(size: usize) -> Option<(VirtAddr, PhysAddr)> {
 	let mut mapper_binding = ALLOCATOR_INFO.mapper.lock();
 	let mapper_slot = mapper_binding.as_mut().unwrap();
@@ -238,7 +253,6 @@ pub fn dma_alloc(size: usize) -> Option<(VirtAddr, PhysAddr)> {
 
 	let first_phys = frames[0].start_address();
 
-	static mut NEXT_DMA_VIRT: u64 = 0x5555_0000_0000;
 	let virt_addr = VirtAddr::new(unsafe { NEXT_DMA_VIRT });
 	unsafe {
 		NEXT_DMA_VIRT += (page_count as u64) * 4096;

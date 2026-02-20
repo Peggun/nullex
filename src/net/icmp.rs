@@ -1,8 +1,15 @@
+//!
+//! icmp.rs
+//! 
+//! ICMP packet handling logic for the kernel.
+//! 
+
 use crate::{serial_println, utils::net::calculate_checksum};
 
-pub const ICMP_ECHO_REPLY: u8 = 0;
-pub const ICMP_ECHO_REQUEST: u8 = 8;
+const ICMP_ECHO_REPLY: u8 = 0;
+const ICMP_ECHO_REQUEST: u8 = 8;
 
+/// Process incoming ICMP packets.
 pub fn process_icmp(pkt: *const u8, len: usize, ip_header_len: usize, src_ip: &[u8; 4]) {
 	let icmp_offset = 14 + ip_header_len;
 
@@ -127,6 +134,7 @@ fn send_icmp_reply(
 	}
 }
 
+/// Sends a PING packet to a destination. 
 pub fn send_ping(dst_ip: [u8; 4], sequence: u16) -> Result<(), &'static str> {
 	let dst_mac = match super::get_next_hop_mac(dst_ip) {
 		Ok(mac) => mac,

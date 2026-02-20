@@ -1,3 +1,9 @@
+//!
+//! net/mod.rs
+//! 
+//! Network module declaration.
+//! 
+
 pub mod arp;
 pub mod dns;
 pub mod ethernet;
@@ -7,11 +13,17 @@ pub mod udp;
 
 use crate::{drivers::virtio::net::VIRTIO_NET_INSTANCE, serial_println};
 
+/// Our IP
+/// currently manually set based on QEMU config.
 pub const OUR_IP: [u8; 4] = [10, 0, 2, 15];
+/// IP address to the Gateway
+// manually set based on QEMU config.
 pub const GATEWAY_IP: [u8; 4] = [10, 0, 2, 2];
+/// Subnet Mask
+// usually always 255.255.255.0 unless in like corporate.
 pub const SUBNET_MASK: [u8; 4] = [255, 255, 255, 0];
 
-/// main point of receiving
+/// Main point of receiving and handling packets.
 pub fn receive_packet(pkt: *const u8, len: usize) {
 	if len < 14 {
 		serial_println!("[NET] Packet too short: {} bytes", len);
@@ -55,18 +67,18 @@ pub fn receive_packet(pkt: *const u8, len: usize) {
 	}
 }
 
-pub fn send_packet(packet: &[u8]) -> Result<(), &'static str> {
+fn send_packet(packet: &[u8]) -> Result<(), &'static str> {
 	crate::drivers::virtio::net::transmit_packet(packet)
 }
 
-pub fn get_our_mac() -> Option<[u8; 6]> {
+fn get_our_mac() -> Option<[u8; 6]> {
 	VIRTIO_NET_INSTANCE
 		.lock()
 		.as_ref()
 		.map(|(net, _)| net.config.mac)
 }
 
-pub fn is_local_ip(ip: [u8; 4]) -> bool {
+fn is_local_ip(ip: [u8; 4]) -> bool {
 	for i in 0..4 {
 		if (ip[i] & SUBNET_MASK[i]) != (OUR_IP[i] & SUBNET_MASK[i]) {
 			return false;
@@ -75,7 +87,7 @@ pub fn is_local_ip(ip: [u8; 4]) -> bool {
 	true
 }
 
-pub fn get_next_hop_mac(dst_ip: [u8; 4]) -> Result<[u8; 6], &'static str> {
+fn get_next_hop_mac(dst_ip: [u8; 4]) -> Result<[u8; 6], &'static str> {
 	let next_hop_ip = if is_local_ip(dst_ip) {
 		dst_ip
 	} else {
@@ -99,6 +111,7 @@ fn format_ip(ip: [u8; 4]) -> alloc::string::String {
 	format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])
 }
 
+/// Initialise the Internet handlers. (DNS currently)
 pub fn init() {
 	dns::init();
 }

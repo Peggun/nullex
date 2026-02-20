@@ -1,4 +1,8 @@
-// executor.rs
+//!
+//! executor.rs
+//! 
+//! Process execution logic for the kernel.
+//! 
 
 use alloc::{collections::BTreeMap, sync::Arc, task::Wake};
 use core::{sync::atomic::Ordering, task::Waker};
@@ -9,19 +13,29 @@ use super::{Process, ProcessId, ProcessState};
 use crate::{lazy_static, println, serial_println, utils::mutex::SpinMutex};
 
 lazy_static! {
+	/// Static reference to the current process that is running.
 	pub static ref CURRENT_PROCESS: SpinMutex<Option<Arc<ProcessState>>> = SpinMutex::new(None);
+	/// Static reference to the current executor that the kernel is running.
+	pub static ref EXECUTOR: SpinMutex<Executor> = SpinMutex::new(Executor::new());
 }
 
+/// Pointer to the current process.
 pub static mut CURRENT_PROCESS_GUARD: *mut Process = core::ptr::null_mut();
 
+/// The process executor of the kernel.
 pub struct Executor {
+	/// Tree map showing all mapped processes.
 	pub processes: BTreeMap<ProcessId, Arc<SpinMutex<Process>>>,
+	/// The queue of all processes waiting to run.
 	pub process_queue: Arc<ArrayQueue<ProcessId>>,
+	/// Cache of all wakers for a process.
 	pub waker_cache: BTreeMap<ProcessId, Waker>,
+	/// Next `ProcessId` to be run.
 	pub next_pid: ProcessId
 }
 
 impl Executor {
+	/// Creates a new process executor
 	pub fn new() -> Self {
 		Executor {
 			processes: BTreeMap::new(),
@@ -31,6 +45,8 @@ impl Executor {
 		}
 	}
 
+
+	/// Spawns a new process.
 	pub fn spawn_process(&mut self, process: Process) {
 		let pid = process.state.id;
 		let process_arc = Arc::new(SpinMutex::new(process));
@@ -40,6 +56,7 @@ impl Executor {
 		self.process_queue.push(pid).expect("queue full");
 	}
 
+	/// Sleeps the executor if there are no pending processes.
 	pub fn sleep_if_idle(&self) {
 		use x86_64::instructions::interrupts;
 		interrupts::disable();
@@ -50,12 +67,14 @@ impl Executor {
 		}
 	}
 
+	/// Creates a new `Process ID` for a `Process`
 	pub fn create_pid(&mut self) -> ProcessId {
 		let pid = self.next_pid;
 		self.next_pid = ProcessId::new(pid.0 + 1);
 		pid
 	}
 
+	/// Lists the running processes.
 	pub fn list_processes(&self) {
 		println!("Running processes:");
 		for pid in self.processes.keys() {
@@ -63,17 +82,14 @@ impl Executor {
 		}
 	}
 
+	/// Ends a running process.
 	pub fn end_process(&mut self, pid: ProcessId, exit_code: i32) {
 		let process_arc = self.processes.get(&pid).unwrap();
-		serial_println!("got arc");
 		let process = process_arc.lock();
-		serial_println!("locked arc");
 		let pid_to_remove = pid;
-		drop(process); // release the immutable borrow
-		serial_println!("dropped process");
+		drop(process);
 		self.processes.remove(&pid_to_remove);
 		self.waker_cache.remove(&pid_to_remove);
-		serial_println!("removed keys");
 
 		serial_println!("Process {} exited with code: {}", pid.get(), exit_code);
 	}
@@ -85,13 +101,18 @@ impl Default for Executor {
 	}
 }
 
+/// Structure representing a waker, to be able to 'wake' a process up.
 pub struct ProcessWaker {
+	/// The `ProcessId` to wake up.
 	pub pid: ProcessId,
+	/// The list of `ProcessId`'s to wake up.
 	pub process_queue: Arc<ArrayQueue<ProcessId>>,
+	/// The current state of the process which will be waking up.
 	pub state: Arc<ProcessState>
 }
 
 impl ProcessWaker {
+	/// Wakes the current process inside of `self.pid`
 	pub fn wake_process(&self) {
 		// use self.state directly no need to lock the process
 		if !self.state.queued.swap(true, Ordering::AcqRel)
@@ -105,6 +126,7 @@ impl ProcessWaker {
 		}
 	}
 
+	/// Creates a new waker for a `ProcessId`
 	pub fn new_waker(
 		pid: ProcessId,
 		process_queue: Arc<ArrayQueue<ProcessId>>,
@@ -126,8 +148,4 @@ impl Wake for ProcessWaker {
 	fn wake_by_ref(self: &Arc<Self>) {
 		self.wake_process();
 	}
-}
-
-lazy_static! {
-	pub static ref EXECUTOR: SpinMutex<Executor> = SpinMutex::new(Executor::new());
 }

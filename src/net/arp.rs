@@ -1,14 +1,22 @@
+//!
+//! arp.rs
+//! 
+//! ARP protocol handling for the kernel.
+//! 
+
 use alloc::vec::Vec;
 
 use crate::{lazy_static, serial_println, utils::mutex::SpinMutex};
 
-pub const ARP_OP_REQUEST: u16 = 1;
-pub const ARP_OP_REPLY: u16 = 2;
+const ARP_OP_REQUEST: u16 = 1;
+const ARP_OP_REPLY: u16 = 2;
 
 lazy_static! {
+	/// Static reference to the ARP cache, so already made look ups can be extremely quick.
 	pub static ref ARP_CACHE: SpinMutex<Vec<([u8; 4], [u8; 6])>> = SpinMutex::new(Vec::new());
 }
 
+/// Processes incoming ARP packets.
 pub fn process_arp(pkt: *const u8, len: usize, _src_mac: [u8; 6]) {
 	if len < 42 {
 		serial_println!("[ARP] Packet too short: {} bytes", len);
@@ -129,6 +137,7 @@ fn send_arp_reply(target_mac: &[u8; 6], target_ip: &[u8; 4]) {
 	}
 }
 
+/// Sends an ARP request to the target IP address.
 pub fn send_arp_request(target_ip: [u8; 4]) -> Result<(), &'static str> {
 	let our_mac = super::get_our_mac().ok_or("No MAC address")?;
 
@@ -161,6 +170,7 @@ pub fn send_arp_request(target_ip: [u8; 4]) -> Result<(), &'static str> {
 	Ok(())
 }
 
+/// Waits for an ARP reply.
 pub fn wait_for_arp(ip: [u8; 4], timeout_ms: u32) -> Result<[u8; 6], &'static str> {
 	let poll_interval = 10; // ms
 	let max_iterations = timeout_ms / poll_interval;
@@ -239,6 +249,7 @@ pub fn wait_for_arp(ip: [u8; 4], timeout_ms: u32) -> Result<[u8; 6], &'static st
 	Err("ARP timeout")
 }
 
+/// Gets the cached IP address from `ARP_CACHE` if it has been cached.
 pub fn get_cached(ip: [u8; 4]) -> Option<[u8; 6]> {
 	let cache = ARP_CACHE.lock();
 	cache

@@ -1,20 +1,37 @@
-pub mod align;
+//!
+//! utils/mod.rs
+//! 
+//! Utilities module declaration.
+//! 
+
+#[allow(missing_docs)]
+#[allow(unused)]
+#[allow(unexpected_cfgs)]
 pub mod bitflags;
 pub mod bits;
+#[deprecated]
 pub mod cpu_utils;
-pub mod crash;
+#[allow(unused)]
 pub mod elf;
 pub mod endian;
-pub mod kfunc;
+#[deprecated]
+#[allow(unused)]
+#[allow(deprecated)]
+pub mod serial_kfunc;
 pub mod ktest;
+#[allow(missing_docs)]
+#[allow(unused)]
 pub mod lazy_static;
 pub mod logger;
-pub mod math;
+#[allow(unused)]
 pub mod multiboot2;
 pub mod mutex;
 pub mod net;
+#[allow(missing_docs)]
 pub mod oncecell;
 pub mod process;
+#[allow(missing_docs)]
 pub mod spin;
 pub mod types;
+#[allow(missing_docs)]
 pub mod volatile;

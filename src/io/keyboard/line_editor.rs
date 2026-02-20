@@ -1,3 +1,9 @@
+//!
+//! line_editor.rs
+//! 
+//! Keypress printing handler for the kernel.
+//! 
+
 use alloc::string::String;
 
 use futures::StreamExt;
@@ -8,15 +14,10 @@ use crate::{
 		ps2::Keyboard,
 		queue::ScancodeStream,
 		scancode::{CWD, KeyCode, ScancodeSet1}
-	},
-	io::keyboard::{
+	}, io::keyboard::{
 		completion::{downarrow_completion, tab_completion, uparrow_completion},
 		decode::{DecodedKey, HandleControl}
-	},
-	print,
-	print_colours,
-	task::yield_now,
-	vga_buffer::{WRITER, console_backspace}
+	}, print, print_colours, task::yield_now, vga_buffer::{WRITER, console_backspace}
 };
 
 /// The async function that reads scancodes and processes keypresses.

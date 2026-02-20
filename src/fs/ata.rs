@@ -1,10 +1,12 @@
-// ata.rs
-
-/*
-ATA disk module for the kernel.
-
-Currently not in use. But for the future.
-*/
+//! 
+//! ata.rs
+//!
+//! ATA disk module for the kernel.
+//!
+ 
+//
+// Currently not in use. But for the future.
+//
 
 use x86_64::instructions::{interrupts, port::Port};
 

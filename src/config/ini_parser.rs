@@ -1,21 +1,21 @@
-// ini_parser.rs
-
-/*
-For future .conf files. Had an idea but then realised theres no point right now.
-*/
+//!
+//! ini_parser.rs
+//!
+//! For future .conf files. Had an idea but then realised theres no point right now.
+//!
 
 use alloc::vec::Vec;
 use core::str;
 
 #[derive(Debug)]
-pub struct IniSection<'a> {
-	pub name: &'a str,
-	pub properties: Vec<(&'a str, &'a str)>
+struct IniSection<'a> {
+	name: &'a str,
+	properties: Vec<(&'a str, &'a str)>
 }
 
 #[derive(Debug)]
-pub struct IniFile<'a> {
-	pub sections: Vec<IniSection<'a>>
+struct IniFile<'a> {
+	sections: Vec<IniSection<'a>>
 }
 
 /// Parses an INI formatted string into an IniFile structure.

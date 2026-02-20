@@ -1,3 +1,9 @@
+//!
+//! cpu_utils.rs
+//! 
+//! Utilites for the CPU.
+//! Currently not in use. To be removed later. 
+
 use core::arch::asm;
 
 // from https://board.flatassembler.net/topic.php?p=240655

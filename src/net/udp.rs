@@ -1,3 +1,9 @@
+//!
+//! udp.rs
+//! 
+//! UDP packet logic for the kernel.
+//! 
+
 use alloc::vec::Vec;
 
 use crate::{
@@ -6,12 +12,11 @@ use crate::{
 	utils::{mutex::SpinMutex, net::calculate_checksum}
 };
 
-pub const UDP_PORT_DNS: u16 = 53;
-
 lazy_static! {
 	static ref UDP_HANDLERS: SpinMutex<Vec<(u16, fn(&[u8]))>> = SpinMutex::new(Vec::new());
 }
 
+/// Process incoming UDP packets.
 pub fn process_udp(pkt: *const u8, len: usize, ip_offset: usize, _src_ip: &[u8; 4]) {
 	let udp_offset = 14 + ip_offset;
 
@@ -54,12 +59,14 @@ pub fn process_udp(pkt: *const u8, len: usize, ip_offset: usize, _src_ip: &[u8; 
 	}
 }
 
+/// Registers a UDP handler for incoming packets.
 pub fn register_handler(port: u16, handler: fn(&[u8])) {
 	let mut handlers = UDP_HANDLERS.lock();
 	handlers.push((port, handler));
 	serial_println!("[UDP] Registered handler for port {}", port);
 }
 
+/// Sends a UDP packet to the destination IP
 pub fn send_udp(
 	dst_ip: [u8; 4],
 	src_port: u16,

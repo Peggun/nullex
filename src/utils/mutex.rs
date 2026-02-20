@@ -1,3 +1,10 @@
+//!
+//! mutex.rs
+//! 
+//! An implementation for a Mutually Exclusive thread-safe type.
+//! 
+//! 
+
 use core::{
 	cell::UnsafeCell,
 	mem::MaybeUninit,
@@ -6,15 +13,17 @@ use core::{
 
 use x86_64::instructions::interrupts;
 
+/// A Mutual Exclusion Object to prevent race conditions.
 pub struct SpinMutex<T> {
-	pub locked: AtomicBool,
-	pub data: UnsafeCell<T>
+	locked: AtomicBool,
+	data: UnsafeCell<T>
 }
 
 unsafe impl<T: Send> Send for SpinMutex<T> {}
 unsafe impl<T: Send> Sync for SpinMutex<T> {}
 
 impl<T> SpinMutex<T> {
+	/// Create a new `SpinMutex` with data `T` (any type)
 	pub const fn new(data: T) -> Self {
 		SpinMutex {
 			locked: AtomicBool::new(false),
@@ -22,6 +31,7 @@ impl<T> SpinMutex<T> {
 		}
 	}
 
+	/// Locks the current `SpinMutex`
 	pub fn lock(&self) -> SpinMutexGuard<'_, T> {
 		// fixed deadlock where ISR and other parts of code
 		// tried to get data at the same time
@@ -37,6 +47,7 @@ impl<T> SpinMutex<T> {
 		}
 	}
 
+	/// Tries to lock the current `SpinMutex`
 	pub fn try_lock(&self) -> Option<SpinMutexGuard<'_, T>> {
 		if self
 			.locked
@@ -51,12 +62,9 @@ impl<T> SpinMutex<T> {
 		}
 	}
 
+	/// Forces the SpinMutex to unlock, regardless if another thread is trying to use it.
 	pub unsafe fn force_unlock(&self) {
 		self.locked.store(false, Ordering::Release);
-	}
-
-	pub fn as_ptr(&self) -> *mut T {
-		self.data.get()
 	}
 }
 
@@ -66,8 +74,10 @@ impl<T: Default> Default for SpinMutex<T> {
 	}
 }
 
+#[allow(unused)]
+// here because its probably good to have.
 impl<T> SpinMutex<Option<T>> {
-	pub const fn none() -> Self {
+	const fn none() -> Self {
 		SpinMutex {
 			locked: AtomicBool::new(false),
 			data: UnsafeCell::new(None)
@@ -75,30 +85,26 @@ impl<T> SpinMutex<Option<T>> {
 	}
 }
 
+#[allow(unused)]
+// here because its probably good to have
 impl<T> SpinMutex<MaybeUninit<T>> {
-	pub const fn uninit() -> Self {
+	const fn uninit() -> Self {
 		SpinMutex {
 			locked: AtomicBool::new(false),
 			data: UnsafeCell::new(MaybeUninit::uninit())
 		}
 	}
 
-	pub unsafe fn assume_init_ref(&self) -> &T {
+	unsafe fn assume_init_ref(&self) -> &T {
 		unsafe { &*((*self.data.get()).as_ptr()) }
 	}
 
-	pub unsafe fn assume_init_mut(&self) -> &mut T {
+	unsafe fn assume_init_mut(&self) -> &mut T {
 		unsafe { &mut *((*self.data.get()).as_mut_ptr()) }
 	}
 }
 
-#[macro_export]
-macro_rules! spin_mutex_none {
-	($t:ty) => {
-		$crate::utils::mutex::SpinMutex::<Option<$t>>::none()
-	};
-}
-
+/// A guard to accessing the `SpinMutex` data with a specified (`'a`) lifetime
 pub struct SpinMutexGuard<'a, T> {
 	mutex: &'a SpinMutex<T>
 }

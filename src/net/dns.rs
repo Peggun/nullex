@@ -1,31 +1,40 @@
+//!
+//! dns.rs
+//! 
+//! DNS Protocol handling for the kernel.
+//! 
+
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
 use crate::{lazy_static, serial_println, utils::mutex::SpinMutex};
 
 // DNS server (QEMU Default)
 // quick note here. 10.0.2.3 is the usermode DNS address
-// however we are using TAP currently, so we send all requests to
+// however we are not in usermode currently, so we send all requests to
 // to the gateway (10.0.2.2)
-pub const DNS_SERVER: [u8; 4] = [10, 0, 2, 2];
-
-pub const DNS_TIMEOUT_MS: u32 = 5000;
-
-pub const DNS_POLL_INTERVAL_MS: u32 = 50;
+const DNS_SERVER: [u8; 4] = [10, 0, 2, 2];
+const DNS_TIMEOUT_MS: u32 = 5000;
 
 lazy_static! {
+	/// Static reference to the DNS cache, so lookups are quicker.
 	pub static ref DNS_CACHE: SpinMutex<Vec<(String, [u8; 4])>> = SpinMutex::new(Vec::new());
+	/// Static reference to a `BTreeMap` of pending queries that need to be processed.
 	pub static ref PENDING_QUERIES: SpinMutex<BTreeMap<u16, String>> =
 		SpinMutex::new(BTreeMap::new());
+	/// Static reference to a list of reponses from the DNS server.
 	pub static ref DNS_RESPONSES: SpinMutex<BTreeMap<u16, Option<[u8; 4]>>> =
 		SpinMutex::new(BTreeMap::new());
+	/// Static reference to the Query ID Counter.
 	pub static ref QUERY_ID_COUNTER: SpinMutex<u16> = SpinMutex::new(1000);
 }
 
+/// Initialises DNS Query handling.
 pub fn init() {
 	super::udp::register_handler(53, handle_dns_response);
 	serial_println!("[DNS] Initialized");
 }
 
+/// Resolves a hostname to an IP Address.
 pub fn resolve(hostname: &str) -> Result<[u8; 4], &'static str> {
 	{
 		let cache = DNS_CACHE.lock();
@@ -288,6 +297,7 @@ fn handle_dns_response(payload: &[u8]) {
 	responses.remove(&transaction_id);
 }
 
+/// Get the hostname if it is cached in `DNS_CACHE`.
 pub fn get_cached(hostname: &str) -> Option<[u8; 4]> {
 	let cache = DNS_CACHE.lock();
 	cache

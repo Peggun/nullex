@@ -1,8 +1,8 @@
-// apic.rs
+//! apic.rs
 
-/*
-APIC timer and register definitions.
-*/
+//!
+//! APIC timer and register definitions.
+//!
 
 use core::{
 	ptr::{read_volatile, write_volatile},
@@ -12,37 +12,67 @@ use core::{
 use x86_64::instructions::interrupts;
 
 use crate::{
-	interrupts::APIC_TIMER_VECTOR,
-	rtc::read_rtc_raw,
-	utils::mutex::SpinMutex
+	interrupts::APIC_TIMER_VECTOR, rtc::read_rtc_time, utils::mutex::SpinMutex
 };
 
+/// The base address of the APIC Timer
 pub static APIC_BASE: SpinMutex<usize> = SpinMutex::new(0);
-pub static TICK_COUNT: AtomicU64 = AtomicU64::new(0);
+/// The number of times the APIC Timer has sent an interrupt
+pub static APIC_TICK_COUNT: AtomicU64 = AtomicU64::new(0);
+/// The TPS (Ticks per second) at which the APIC runs at
+pub static APIC_TPS: AtomicU64 = AtomicU64::new(0);
+
+// pic code
+
+// pic ports
+/// The Data Input port for PIC1
+pub const PIC1_DATA: u16 = 0x21;
+/// The Data Input port for PIC2
+pub const PIC2_DATA: u16 = 0xA1;
+
+// eoi
+/// The Command Port for PIC1
+pub const PIC1_CMD: u16 = 0x20;
+/// The Command Port for PIC2
+pub const PIC2_CMD: u16 = 0xA0;
+/// The value for sending PIC an end of interrupt (EOI) signal
+pub const PIC_EOI: u8 = 0x20;
 
 // apic register offsets
+// https://wiki.osdev.org/APIC
+/// The ID for the APIC
 pub const APIC_ID: usize = 0x020;
-pub const APIC_VERSION: usize = 0x030;
-pub const APIC_TPR: usize = 0x080;
-pub const APIC_EOI: usize = 0x0B0;
-pub const APIC_SVR: usize = 0x0F0;
-pub const APIC_ISR_BASE: usize = 0x100; // ISR 0x100..0x170
-pub const APIC_ICRLO: usize = 0x300;
-pub const APIC_ICRHI: usize = 0x310;
-pub const APIC_LVT_TIMER: usize = 0x320;
-pub const APIC_LVT_THERMAL: usize = 0x330;
-pub const APIC_LVT_PERF: usize = 0x340;
-pub const APIC_LVT_LINT0: usize = 0x350;
-pub const APIC_LVT_LINT1: usize = 0x360;
-pub const APIC_LVT_ERROR: usize = 0x370;
-pub const APIC_INITIAL_COUNT: usize = 0x380;
-pub const APIC_CURRENT_COUNT: usize = 0x390;
-pub const APIC_DIVIDE_CONF: usize = 0x3E0;
+#[allow(unused)]
+const APIC_VERSION: usize = 0x030;
+#[allow(unused)]
+const APIC_TPR: usize = 0x080;
+const APIC_EOI: usize = 0x0B0;
+const APIC_SVR: usize = 0x0F0;
+#[allow(unused)]
+const APIC_ISR_BASE: usize = 0x100; // ISR 0x100..0x170
+#[allow(unused)]
+const APIC_ICRLO: usize = 0x300;
+#[allow(unused)]
+const APIC_ICRHI: usize = 0x310;
+const APIC_LVT_TIMER: usize = 0x320;
+#[allow(unused)]
+const APIC_LVT_THERMAL: usize = 0x330;
+#[allow(unused)]
+const APIC_LVT_PERF: usize = 0x340;
+#[allow(unused)]
+const APIC_LVT_LINT0: usize = 0x350;
+#[allow(unused)]
+const APIC_LVT_LINT1: usize = 0x360;
+#[allow(unused)]
+const APIC_LVT_ERROR: usize = 0x370;
+const APIC_INITIAL_COUNT: usize = 0x380;
+const APIC_CURRENT_COUNT: usize = 0x390;
+const APIC_DIVIDE_CONF: usize = 0x3E0;
 
 // bits/flags
-pub const SVR_APIC_ENABLE: u32 = 1 << 8;
-pub const LVT_MASK_BIT: u32 = 1 << 16;
-pub const LVT_MODE_PERIODIC: u32 = 1 << 17;
+const SVR_APIC_ENABLE: u32 = 1 << 8;
+const LVT_MASK_BIT: u32 = 1 << 16;
+const LVT_MODE_PERIODIC: u32 = 1 << 17;
 
 #[inline(always)]
 unsafe fn apic_reg_ptr(offset: usize) -> *mut u32 {
@@ -65,7 +95,7 @@ pub unsafe fn read_register(offset: usize) -> u32 {
 
 #[inline(always)]
 /// Write APIC register.
-pub unsafe fn write_register(offset: usize, val: u32) {
+unsafe fn write_register(offset: usize, val: u32) {
 	unsafe {
 		let p = apic_reg_ptr(offset);
 		write_volatile(p, val);
@@ -92,36 +122,26 @@ pub unsafe fn send_eoi() {
 }
 
 /// Set the timer divide configuration.
-pub unsafe fn set_timer_divide(divide_cfg: u32) {
+unsafe fn set_timer_divide(divide_cfg: u32) {
 	unsafe {
 		write_register(APIC_DIVIDE_CONF, divide_cfg & 0xF);
 	}
 }
 
 /// Set the APIC timer initial count (TICR)
-pub unsafe fn set_timer_initial(count: u32) {
+unsafe fn set_timer_initial(count: u32) {
 	unsafe {
 		write_register(APIC_INITIAL_COUNT, count);
 	}
 }
 
 /// Read current count (TCCR)
-pub unsafe fn read_current_count() -> u32 {
+unsafe fn read_current_count() -> u32 {
 	unsafe { read_register(APIC_CURRENT_COUNT) }
 }
 
-/// Initialises the APIC timer in a simple default. Used before calibrating.
-pub unsafe fn init_timer_default(timer_vector: u8) {
-	unsafe {
-		configure_lvt_timer(timer_vector, false, true);
-		set_timer_divide(0x3);
-		set_timer_initial(0xFFFF_FFFFu32);
-		configure_lvt_timer(timer_vector, true, true);
-	}
-}
-
 /// Configure the LVT timer
-pub unsafe fn configure_lvt_timer(vector: u8, periodic: bool, masked: bool) {
+unsafe fn configure_lvt_timer(vector: u8, periodic: bool, masked: bool) {
 	unsafe {
 		let mut entry = (vector as u32) & 0xFF;
 		if periodic {
@@ -156,15 +176,6 @@ pub unsafe fn start_timer_periodic(timer_vector: u8, initial_count: u32) {
 	}
 }
 
-/// Set the LVT timer into one-shot mode with a initial count.
-pub unsafe fn start_timer_one_shot(timer_vector: u8, initial_count: u32) {
-	unsafe {
-		set_timer_divide(0x3);
-		set_timer_initial(initial_count);
-		configure_lvt_timer(timer_vector, false, false); // unmask one-shot
-	}
-}
-
 /// Calibrate the LAPIC timer using the RTC
 ///
 /// Returns the (ticks_per_second, recommended_initial_count) on success
@@ -173,18 +184,13 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), &'static str> {
 		return Err("target_hz must be > 0")
 	}
 
-	// Ensure interrupts are disabled while we calibrate (caller should already
-	// ensure interrupts are disabled; this is defensive).
 	interrupts::disable();
 
 	unsafe {
-		// Keep the timer masked so no IRQ will fire while we are sampling counts.
-		// set_timer_divide and set_timer_initial purely program counter behaviour.
 		mask_timer(true);
 		set_timer_divide(0x3);
 		set_timer_initial(0xFFFF_FFFFu32);
 
-		// configure_lvt_timer(vec, masked, periodic)
 		// Use masked = true while measuring (we don't want the hardware to interrupt
 		// us). periodic = false (one-shot) is fine for measuring.
 		configure_lvt_timer(APIC_TIMER_VECTOR, true, false);
@@ -193,10 +199,10 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), &'static str> {
 	// Read start counter while still masked
 	let start_count = unsafe { read_current_count() };
 
-	// Wait for RTC second tick (polling) — no interrupts required
-	let (s_before, _m, _h, _d, _mo, _y) = read_rtc_raw();
+	// Wait for RTC second tick — no interrupts required
+	let s_before = read_rtc_time().sec;
 	loop {
-		let (s_now, _, _, _, _, _) = read_rtc_raw();
+		let s_now = read_rtc_time().sec;
 		if s_now != s_before {
 			break;
 		}
@@ -204,10 +210,6 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), &'static str> {
 
 	// Read end counter
 	let end_count = unsafe { read_current_count() };
-
-	// Do NOT enable interrupts here — that can let the APIC timer fire and race
-	// with initialization, producing a double fault if the handler/stack/IDT isn't
-	// ready. interrupts::enable();   <-- removed intentionally
 
 	let ticks_per_second = start_count.wrapping_sub(end_count) as u64;
 	if ticks_per_second == 0 {
@@ -220,13 +222,8 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), &'static str> {
 	}
 	let initial_count = initial_count_u64 as u32;
 
-	// leave the timer masked — the caller will unmask / program periodic mode once
-	// the IDT, IOAPIC, and interrupt handlers (and stacks) are fully ready.
 	unsafe {
 		mask_timer(true);
-		// If you want, also configure the LVT now to the intended final settings
-		// (vector/periodic), but keep it masked until the rest of the interrupt
-		// system is ready.
 		configure_lvt_timer(APIC_TIMER_VECTOR, true, true); // keep masked; set periodic
 	}
 
@@ -234,6 +231,7 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), &'static str> {
 	Ok((ticks_per_second, initial_count))
 }
 
+/// Prelude module for APIC.
 pub mod prelude {
 	pub use crate::apic::*;
 }

@@ -1,8 +1,8 @@
-// interrupts.rs
-
-/*
-Interrupt handling module for the kernel.
-*/
+//!
+//! interrupts.rs
+//!
+//! Interrupt handling module for the kernel.
+//!
 
 use core::{
 	arch::asm,
@@ -13,46 +13,30 @@ use core::{
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
-	apic::{TICK_COUNT, send_eoi},
-	common::ports::{inb, outb},
-	drivers::{
+	apic::{APIC_TICK_COUNT, PIC_EOI, PIC1_CMD, PIC2_CMD, send_eoi}, common::ports::{inb, outb}, drivers::{
 		keyboard::queue::add_scancode,
-		virtio::net::{VIRTIO_NET_IDT_VECTOR, virtio_net_interrupt_handler}
-	},
-	gdt,
-	lazy_static,
-	println,
-	rtc::{
+	}, gdt, hlt_loop, lazy_static, println, rtc::{
 		CMOS_DATA,
 		CMOS_INDEX,
 		NMI_BIT,
-		PIC_EOI,
-		PIC1_CMD,
-		PIC2_CMD,
 		REG_C,
 		RTC_TICKS,
 		send_rtc_eoi
-	},
-	serial::add_byte,
-	serial_println,
-	syscall::syscall,
-	task::executor::CURRENT_PROCESS,
-	utils::{bits::BitMap, mutex::SpinMutex},
-	hlt_loop,
+	}, serial::add_byte, serial_println, syscall::syscall, task::executor::CURRENT_PROCESS, utils::{bits::BitMap, mutex::SpinMutex}
 };
 
-pub const APIC_TIMER_VECTOR: u8 = 32;
-pub const KEYBOARD_VECTOR: u8 = 33;
-pub const SERIAL_VECTOR: u8 = 36;
-pub const RTC_VECTOR: u8 = 0x70; // irq 8 - 15 is mapped from 0x70 to 0x77;
-pub const SYSCALL_VECTOR: u8 = 0x80;
+pub(crate) const APIC_TIMER_VECTOR: u8 = 32;
+const KEYBOARD_VECTOR: u8 = 33;
+const SERIAL_VECTOR: u8 = 36;
+const RTC_VECTOR: u8 = 0x70; // irq 8 - 15 is mapped from 0x70 to 0x77;
+const SYSCALL_VECTOR: u8 = 0x80;
 
 // TODO: remove the maybeuninit, just move to a safe lazy_static!
-pub static mut IDT_STORAGE: MaybeUninit<InterruptDescriptorTable> = MaybeUninit::uninit();
-pub static IDT_INITED: AtomicBool = AtomicBool::new(false);
+static mut IDT_STORAGE: MaybeUninit<InterruptDescriptorTable> = MaybeUninit::uninit();
+static IDT_INITED: AtomicBool = AtomicBool::new(false);
 
 lazy_static! {
-	// bitmap
+	/// Static reference to all used vectors for ISO's (Interrupt Source Override)
 	pub static ref VECTOR_TABLE: SpinMutex<BitMap> = {
 		let mut bmp = BitMap::new(256);
 		bmp.set_idxs((0..31).into(), true);
@@ -61,7 +45,8 @@ lazy_static! {
 	};
 }
 
-pub fn init_idt() {
+/// Initializes the IDT (Interrupt Descriptor Table)
+pub unsafe fn init_idt() {
 	unsafe {
 		x86_64::instructions::interrupts::disable();
 
@@ -84,9 +69,6 @@ pub fn init_idt() {
 		// syscall handler
 		local_idt[SYSCALL_VECTOR as usize].set_handler_fn(syscall_handler);
 
-		// virtio handlers
-		local_idt[VIRTIO_NET_IDT_VECTOR as usize].set_handler_fn(virtio_net_interrupt_handler);
-
 		// Spurious interrupt handler
 		local_idt[0xFF].set_handler_fn(spurious_interrupt_handler);
 
@@ -98,12 +80,10 @@ pub fn init_idt() {
 		idt_ref.load();
 
 		IDT_INITED.store(true, Ordering::SeqCst);
-		// CRITICAL: Keep interrupts DISABLED here. Enable only after
-		// APIC/IOAPIC init in kernel_main. Enabling too early causes
-		// interrupt handlers to read APIC registers at uninitialized address 0.
 	}
 }
 
+/// Adds an IDT entry and sets a handler function.
 pub unsafe fn add_idt_entry(
 	vector: usize,
 	handler: extern "x86-interrupt" fn(InterruptStackFrame)
@@ -155,7 +135,6 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 		}
 	}
 
-	// Send EOI via APIC instead of PIC
 	unsafe {
 		send_eoi();
 	}
@@ -176,14 +155,12 @@ extern "x86-interrupt" fn serial_input_interrupt_handler(_stack_frame: Interrupt
 		add_byte(byte);
 	}
 
-	// Send EOI via APIC
 	unsafe {
 		send_eoi();
 	}
 }
 
 /// Spurious interrupt handler (vector 0xFF).
-/// Called when a spurious interrupt is received.
 extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {
 	serial_println!("[WARNING] Spurious interrupt received (vector 0xFF)");
 	// Per x86_64 spec: do NOT send EOI for spurious interrupts
@@ -223,7 +200,7 @@ extern "x86-interrupt" fn page_fault_handler(
 ///
 /// This handler is invoked when the APIC timer fires.
 extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) {
-	TICK_COUNT.fetch_add(1, Ordering::Relaxed);
+	APIC_TICK_COUNT.fetch_add(1, Ordering::Relaxed);
 	unsafe {
 		send_eoi();
 	}
@@ -245,6 +222,7 @@ extern "x86-interrupt" fn rtc_timer_handler(_stack_frame: InterruptStackFrame) {
 	}
 }
 
+// 64-BIT! currently.
 extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 	let rax: u32; // syscall number
 	let arg1: u64;
@@ -314,28 +292,7 @@ extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 // 	unsafe { send_eoi(); }
 // }
 
-/// Defines the interrupt vectors used in the IDT.
-// uses APIC now.
-#[derive(Debug, Clone, Copy)]
-#[repr(u8)]
-pub enum InterruptVector {
-	Timer = APIC_TIMER_VECTOR,
-	Keyboard = KEYBOARD_VECTOR,
-	Serial = SERIAL_VECTOR,
-	Syscall = SYSCALL_VECTOR
-}
-
-impl InterruptVector {
-	pub fn as_u8(self) -> u8 {
-		self as u8
-	}
-
-	pub fn as_usize(self) -> usize {
-		self.as_u8() as usize
-	}
-}
-
-// allocate and register return the vector
+/// Allocates and registers a vector to the IOAPIC
 pub fn allocate_and_register_vector(
 	handler: extern "x86-interrupt" fn(InterruptStackFrame)
 ) -> Result<usize, &'static str> {

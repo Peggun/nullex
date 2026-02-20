@@ -1,3 +1,9 @@
+//!
+//! net.rs
+//! 
+//! VirtIO Network Driver Specification based module for the kernel.
+//! 
+
 use alloc::vec::Vec;
 use core::ptr::write_bytes;
 
@@ -40,162 +46,183 @@ use crate::{
 };
 
 lazy_static! {
+	/// Static reference to the VirtioNet Device.
 	pub static ref VIRTIO_NET_DEVICE: SpinMutex<Option<VirtioNetDevice>> = SpinMutex::new(None);
+	/// Static reference to the RX Queue
 	pub static ref RX_QUEUE: SpinMutex<VirtQueue> = SpinMutex::new(VirtQueue::empty());
+	/// Static reference to the TX Queue
 	pub static ref TX_QUEUE: SpinMutex<VirtQueue> = SpinMutex::new(VirtQueue::empty());
+	/// Static reference to the RX Buffers
 	pub static ref RX_BUFFERS: SpinMutex<Vec<Option<DmaBuffer>>> =
 		SpinMutex::new(Vec::with_capacity(256));
+	/// Static reference to the VirtIO net instance.
 	pub static ref VIRTIO_NET_INSTANCE: SpinMutex<Option<(VirtioNet, usize)>> =
 		SpinMutex::new(None);
+	/// Static reference to the TX Inflight.
 	pub static ref TX_INFLIGHT: SpinMutex<Vec<Option<DmaBuffer>>> = SpinMutex::new(Vec::new());
 }
 
-/// Store device-specific data for interrupt handler
+/// Structure to store device-specific data for interrupt handler
 pub struct VirtioNetDevice {
+	/// Base IO address
 	pub io_base: u16,
+	/// Global System Interrupt number
 	pub gsi: u8,
+	/// Interrupt Vector
 	pub vector: u8
 }
 
 // https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-2340001
-pub const VIRTIO_DEVICE_ID: u8 = 1;
-pub const VIRTIO_NET_IDT_VECTOR: u8 = 34;
+const VIRTIO_DEVICE_ID: u8 = 1;
+const VIRTIO_NET_IDT_VECTOR: u8 = 34;
 
-pub const NET_DRIVER_SUPPORTED_FEATURES: u64 = VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS;
+const NET_DRIVER_SUPPORTED_FEATURES: u64 = VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS;
 
-pub const VIRTIO_NET_RX_BUFFERS: u64 = 256;
+const VIRTIO_NET_RX_BUFFERS: u64 = 256;
 
 // other virtqueues like (2n+1) arent implemented
 
 // Feature bits
 /// Device handles packets with partial checksum.
-pub const VIRTIO_NET_F_CSUM: u64 = 1 << 0;
+const VIRTIO_NET_F_CSUM: u64 = 1 << 0;
 /// Driver handles packets with partial checksum.
-pub const VIRTIO_NET_F_GUEST_CSUM: u64 = 1 << 1;
+const VIRTIO_NET_F_GUEST_CSUM: u64 = 1 << 1;
 /// Control channel offloads reconfiguration support.
-pub const VIRTIO_NET_F_GUEST_OFFLOADS: u64 = 1 << 2;
+const VIRTIO_NET_F_GUEST_OFFLOADS: u64 = 1 << 2;
 /// Device maximum MTU (Maximum Transmission Unit) reporting is supported.
-pub const VIRTIO_NET_F_MTU: u64 = 1 << 3;
+const VIRTIO_NET_F_MTU: u64 = 1 << 3;
 // 4 not in use
 /// Device has given MAC address.
-pub const VIRTIO_NET_F_MAC: u64 = 1 << 5;
+const VIRTIO_NET_F_MAC: u64 = 1 << 5;
 // 6 not in use
 /// Driver can receive TSOv4.
 /// Requires `VIRTIO_NET_F_GUEST_CSUM`
-pub const VIRTIO_NET_F_GUEST_TSO4: u64 = 1 << 7;
+const VIRTIO_NET_F_GUEST_TSO4: u64 = 1 << 7;
 /// Driver can receive TSOv6.
 /// Requires `VIRTIO_NET_F_GUEST_CSUM`
-pub const VIRTIO_NET_F_GUEST_TSO6: u64 = 1 << 8;
+const VIRTIO_NET_F_GUEST_TSO6: u64 = 1 << 8;
 /// Driver can receive TSO with ECN.
 /// Requires `VIRTIO_NET_F_GUEST_TSO4` or `VIRTIO_NET_F_GUEST_TSO6`.
 pub const VIRTIO_NET_F_GUEST_ECN: u64 = 1 << 9;
 /// Driver can receive UFO.
 /// Requires `VIRTIO_NET_F_GUEST_CSUM`.
-pub const VIRTIO_NET_F_GUEST_UFO: u64 = 1 << 10;
+const VIRTIO_NET_F_GUEST_UFO: u64 = 1 << 10;
 /// Device can receive TSOv4.
 /// Requires `VIRTIO_NET_F_CSUM`.
-pub const VIRTIO_NET_F_HOST_TSO4: u64 = 1 << 11;
+const VIRTIO_NET_F_HOST_TSO4: u64 = 1 << 11;
 /// Device can receive TSOv6.
 /// Requires `VIRTIO_NET_F_CSUM`.
-pub const VIRTIO_NET_F_HOST_TSO6: u64 = 1 << 12;
+const VIRTIO_NET_F_HOST_TSO6: u64 = 1 << 12;
 /// Device can receive TSO with ECN.
 /// Requires `VIRTIO_NET_F_HOST_TSO4` or `VIRTIO_NET_F_HOST_TSO6`.
-pub const VIRTIO_NET_F_HOST_ECN: u64 = 1 << 13;
+const VIRTIO_NET_F_HOST_ECN: u64 = 1 << 13;
 /// Device can receive UFO.
 /// Requires `VIRTIO_NET_F_CSUM`.
-pub const VIRTIO_NET_F_HOST_UFO: u64 = 1 << 14;
+const VIRTIO_NET_F_HOST_UFO: u64 = 1 << 14;
 /// Driver can merge receive buffers.
-pub const VIRTIO_NET_F_MRG_RXBUF: u64 = 1 << 15;
+const VIRTIO_NET_F_MRG_RXBUF: u64 = 1 << 15;
 /// Configuration status field is available.
-pub const VIRTIO_NET_F_STATUS: u64 = 1 << 16;
+const VIRTIO_NET_F_STATUS: u64 = 1 << 16;
 /// Control channel is available.
-pub const VIRTIO_NET_F_CTRL_VQ: u64 = 1 << 17;
+const VIRTIO_NET_F_CTRL_VQ: u64 = 1 << 17;
 /// Control channel RX mode support.
 /// Requires `VIRTIO_NET_F_CTRL_VQ`.
-pub const VIRTIO_NET_F_CTRL_RX: u64 = 1 << 18;
+const VIRTIO_NET_F_CTRL_RX: u64 = 1 << 18;
 /// Control channel VLAN filtering.
 /// Requires `VIRTIO_NET_F_CTRL_VQ`.
-pub const VIRTIO_NET_F_CTRL_VLAN: u64 = 1 << 19;
+const VIRTIO_NET_F_CTRL_VLAN: u64 = 1 << 19;
 /// Control channel RX extra mode support.
 /// Requires `VIRTIO_NET_F_CTRL_VQ`.
-pub const VIRTIO_NET_F_CTRL_RX_EXTRA: u64 = 1 << 20;
+const VIRTIO_NET_F_CTRL_RX_EXTRA: u64 = 1 << 20;
 /// Driver can send gratuitous packets.
 /// Requires `VIRTIO_NET_F_CTRL_VQ`.
-pub const VIRTIO_NET_F_GUEST_ANNOUNCE: u64 = 1 << 21;
+const VIRTIO_NET_F_GUEST_ANNOUNCE: u64 = 1 << 21;
 /// Driver supports multiqueue with automatic receive steering.
 /// Requires `VIRTIO_NET_F_CTRL_VQ`.
-pub const VIRTIO_NET_F_MQ: u64 = 1 << 22;
+const VIRTIO_NET_F_MQ: u64 = 1 << 22;
 /// Set MAC address through control channel.
 /// Requires `VIRTIO_NET_F_CTRL_VQ`.
-pub const VIRTIO_NET_F_CTRL_MAC_ADDR: u64 = 1 << 23;
+const VIRTIO_NET_F_CTRL_MAC_ADDR: u64 = 1 << 23;
 // 24-32 not in use
-pub const VIRTIO_F_VERSION_1: u64 = 1 << 32;
+const VIRTIO_F_VERSION_1: u64 = 1 << 32;
 // 33-50 not in use
 /// Device supports inner header hash for encapsulated packets.
 /// Requires `VIRTIO_NET_F_CTRL_VQ` along with
 /// `VIRTIO_NET_F_RSS` or `VIRTIO_NET_F_HASH_REPORT`.
-pub const VIRTIO_NET_F_HASH_TUNNEL: u64 = 1 << 51;
+const VIRTIO_NET_F_HASH_TUNNEL: u64 = 1 << 51;
 /// Device supports `VirtQueues` notification coalescing.
 /// Requires `VIRTIO_NET_F_CTRL_VQ`.
-pub const VIRTIO_NET_F_VQ_NOTF_COAL: u64 = 1 << 52;
+const VIRTIO_NET_F_VQ_NOTF_COAL: u64 = 1 << 52;
 /// Device supports notification coalescing.
-pub const VIRTIO_NET_F_NOTF_COAL: u64 = 1 << 53;
+const VIRTIO_NET_F_NOTF_COAL: u64 = 1 << 53;
 /// Driver can receive USOv4 packets.
-pub const VIRTIO_NET_F_GUEST_USO4: u64 = 1 << 54;
+const VIRTIO_NET_F_GUEST_USO4: u64 = 1 << 54;
 /// Driver can receive USOv6 packets.   
-pub const VIRTIO_NET_F_GUEST_USO6: u64 = 1 << 55;
+const VIRTIO_NET_F_GUEST_USO6: u64 = 1 << 55;
 /// Device can receive USO packets.
 /// Requires `VIRTIO_NET_F_CSUM`.
-pub const VIRTIO_NET_F_HOST_USO: u64 = 1 << 56;
+const VIRTIO_NET_F_HOST_USO: u64 = 1 << 56;
 /// Device can report per-packet hash value and a type of calculated hash.
-pub const VIRTIO_NET_F_HASH_REPORT: u64 = 1 << 57;
+const VIRTIO_NET_F_HASH_REPORT: u64 = 1 << 57;
 // 58 not in use
 /// Driver can provide the exact `hdr_len` value. Device benefits from knowing
 /// the exact header length.
-pub const VIRTIO_NET_F_GUEST_HDRLEN: u64 = 1 << 59;
+const VIRTIO_NET_F_GUEST_HDRLEN: u64 = 1 << 59;
 /// Device supports RSS (receive-side scaling) with Toeplitz hash calculation
 /// and configurable hash parameters for receive steering.
 /// Requires `VIRTIO_NET_F_CTRL_VQ`.
-pub const VIRTIO_NET_F_RSS: u64 = 1 << 60;
+const VIRTIO_NET_F_RSS: u64 = 1 << 60;
 /// Device can process duplicated ACKs and
 /// report number of coalesced segments and duplicated ACKS.
 /// Requires `VIRTIO_NET_F_HOST_TSO4` or `VIRTIO_NET_F_HOST_TSO6`.
-pub const VIRTIO_NET_F_RSC_EXT: u64 = 1 << 61;
+const VIRTIO_NET_F_RSC_EXT: u64 = 1 << 61;
 /// Device may act as a standby for a primary device with the same MAC address.
-pub const VIRTIO_NET_F_STANDBY: u64 = 1 << 62;
+const VIRTIO_NET_F_STANDBY: u64 = 1 << 62;
 /// Device reports speed and duplex.
-pub const VIRTIO_NET_F_SPEED_DUPLEX: u64 = 1 << 63;
+const VIRTIO_NET_F_SPEED_DUPLEX: u64 = 1 << 63;
 
 // header values
 // flags
-pub const VIRTIO_NET_HDR_F_NEEDS_CSUM: u64 = 1;
-pub const VIRTIO_NET_HDR_F_DATA_VALID: u64 = 2;
-pub const VIRTIO_NET_HDR_F_RSC_INFO: u64 = 4;
+const VIRTIO_NET_HDR_F_NEEDS_CSUM: u64 = 1;
+const VIRTIO_NET_HDR_F_DATA_VALID: u64 = 2;
+const VIRTIO_NET_HDR_F_RSC_INFO: u64 = 4;
 // gso types
-pub const VIRTIO_NET_HDR_GSO_NONE: u64 = 0;
-pub const VIRTIO_NET_HDR_GSO_TCPV4: u64 = 1;
-pub const VIRTIO_NET_HDR_GSO_UDP: u64 = 3;
-pub const VIRTIO_NET_HDR_GSO_TCPV6: u64 = 4;
-pub const VIRTIO_NET_HDR_GSO_UDP_L4: u64 = 5;
-pub const VIRTIO_NET_HDR_GSO_ECN: u64 = 0x80;
+const VIRTIO_NET_HDR_GSO_NONE: u64 = 0;
+const VIRTIO_NET_HDR_GSO_TCPV4: u64 = 1;
+const VIRTIO_NET_HDR_GSO_UDP: u64 = 3;
+const VIRTIO_NET_HDR_GSO_TCPV6: u64 = 4;
+const VIRTIO_NET_HDR_GSO_UDP_L4: u64 = 5;
+const VIRTIO_NET_HDR_GSO_ECN: u64 = 0x80;
 
 //#[repr(C)]
 #[derive(Debug, Default)]
+/// Structure representing the VirtioNet Configuration.
 pub struct VirtioNetConfig {
+	/// MAC address of the device.
 	pub mac: [u8; 6],
+	/// The status of the device.
 	pub status: Option<Le16>,
+	/// The maximum `VirtQueue` pairs of the device.
 	pub max_virtqueue_pairs: Option<Le16>,
+	/// The maximum transmission unit of the device.
 	pub mtu: Option<Le16>,
+	/// The speed of the device.
 	pub speed: Option<Le32>,
+	/// If the device and send & receive data simultaneously
 	pub duplex: Option<u8>,
+	/// The RSS maximum key size of the device.
 	pub rss_max_key_size: Option<u8>,
+	/// The RSS maximum indirection table length of the device.
 	pub rss_max_indirection_table_length: Option<Le16>,
+	/// All supported hash types of the device.
 	pub supported_hash_types: Option<Le32>,
+	/// All supported tunnel types of the device.
 	pub supported_tunnel_types: Option<Le32>
 }
 
 impl VirtioNetConfig {
-	pub fn new(mac: [u8; 6]) -> Self {
+	/// Create a new `VirtioNetConfig` with a specified MAC address.
+	pub fn new(mac: [u8; 6]) -> VirtioNetConfig {
 		Self {
 			mac,
 			status: None,
@@ -213,32 +240,43 @@ impl VirtioNetConfig {
 
 #[repr(C)]
 #[derive(Default)]
+/// Structure representing a VirtioNet Header.
 pub struct VirtioNetHeader {
-	pub flags: u8,
-	pub gso_type: u8,
-	pub hdr_len: Le16,
-	pub gso_size: Le16,
-	pub csum_start: Le16,
-	pub csum_offset: Le16
+	flags: u8,
+	gso_type: u8,
+	hdr_len: Le16,
+	gso_size: Le16,
+	csum_start: Le16,
+	csum_offset: Le16
 	// pub hash_value: Option<Le16>,
 	// pub hash_report: Option<Le16>,
 	// pub padding_reserved: Option<Le16>
 }
 
+// sanity
 const _: () = assert!(core::mem::size_of::<VirtioNetHeader>() == 10);
 
+/// Structure representing the Virtio Network device.
 pub struct VirtioNet {
+	/// The base IO address of the device.
 	pub io_base: usize,
+	/// The header for the device.
 	pub header: VirtioNetHeader,
+	/// The configuration for the device.
 	pub config: VirtioNetConfig,
+	/// All features that are currently active on the device.
 	pub negotiated_features: u64,
+	/// The receiving queue for the device.
 	pub rx_queue: Option<VirtQueue>,
+	/// The transmit queue for the device.
 	pub tx_queue: Option<VirtQueue>,
+	/// The control queue for the device.
 	pub ctrl_queue: Option<VirtQueue>
 }
 
 impl VirtioNet {
-	pub fn new(
+	/// Creates a new `VirtioNet` device. 
+	pub fn new( 
 		io_base: usize,
 		header: VirtioNetHeader,
 		config: VirtioNetConfig,
@@ -246,7 +284,7 @@ impl VirtioNet {
 		rx: Option<VirtQueue>,
 		tx: Option<VirtQueue>,
 		ctrl: Option<VirtQueue>
-	) -> Self {
+	) -> VirtioNet {
 		Self {
 			io_base,
 			header,
@@ -457,6 +495,7 @@ fn _rx_replenish_one(desc_id: u16, _old_buf: DmaBuffer) {
 	rx_queue.kick();
 }
 
+/// Transmit a packet to the transport queue (TX)
 pub fn transmit_packet(packet: &[u8]) -> Result<(), &'static str> {
 	serial_println!("[VIRTIO-NET] TX packet ({} bytes)", packet.len());
 	serial_println!("[VIRTIO-NET] Packet contents (Ethernet header):");
@@ -520,7 +559,7 @@ pub fn transmit_packet(packet: &[u8]) -> Result<(), &'static str> {
 	Ok(())
 }
 
-pub fn virtio_net_finalize() -> Result<(), &'static str> {
+fn virtio_net_finalize() -> Result<(), &'static str> {
 	serial_println!("[VIRTIO-NET] Finalizing device (setting DRIVER_OK)");
 
 	let mut instance = VIRTIO_NET_INSTANCE.lock();
@@ -533,6 +572,7 @@ pub fn virtio_net_finalize() -> Result<(), &'static str> {
 	}
 }
 
+/// Initialize the Virtio Net driver.
 pub fn virtio_net_driver_init() {
 	serial_println!("[VIRTIO-NET] Registering driver");
 	register_driver(DriverInfo {
@@ -544,6 +584,7 @@ pub fn virtio_net_driver_init() {
 	});
 }
 
+/// Probe the virtio net device.
 pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, &'static str> {
 	serial_println!("[VIRTIO-NET] Probing device {:?}", dev.bdf);
 
@@ -669,6 +710,7 @@ pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, &'static str> {
 	Ok(0)
 }
 
+/// VirtioNet Interrupt Handler.
 pub extern "x86-interrupt" fn virtio_net_interrupt_handler(_stack_frame: InterruptStackFrame) {
 	serial_println!("[VIRTIO-NET] Interrupt!");
 
@@ -699,7 +741,7 @@ pub extern "x86-interrupt" fn virtio_net_interrupt_handler(_stack_frame: Interru
 	}
 }
 
-pub fn tx_poll() {
+fn tx_poll() {
 	//serial_println!("[VIRTIO-NET] Polling TX queue");
 
 	let completions = {
@@ -726,6 +768,7 @@ pub fn tx_poll() {
 	}
 }
 
+/// Poll the receive queue. (RX)
 pub fn rx_poll() {
 	//serial_println!("[VIRTIO-NET] Polling RX queue");
 

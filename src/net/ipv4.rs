@@ -1,9 +1,19 @@
+//!
+//! ipv4.rs
+//! 
+//! IPv4 packet handling logic for the kernel.
+//! 
+
 use crate::serial_println;
 
+/// ICMP IP Protocol Value
 pub const IP_PROTO_ICMP: u8 = 1;
+/// TCP IP Protocol Value
 pub const IP_PROTO_TCP: u8 = 6;
+/// UDP IP Protocol Value
 pub const IP_PROTO_UDP: u8 = 17;
 
+/// Process incoming IPv4 packets.
 pub fn process_ipv4(pkt: *const u8, len: usize) {
 	if len < 34 {
 		serial_println!("[IPv4] Packet too short: {} bytes", len);

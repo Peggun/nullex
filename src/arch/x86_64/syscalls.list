@@ -1,0 +1,14 @@
+# syscalls.list
+# <number> <name>   # meaning
+
+0   say     # print (write to default output)
+1   halt    # exit process
+2   split   # fork process
+3   waiton  # wait / waitpid
+4   openf   # open file
+5   closef  # close file
+6   readf   # read from file
+7   writef  # write to file
+8   run     # exec / replace process image
+9   stop    # kill / signal
+10  nap     # sleep

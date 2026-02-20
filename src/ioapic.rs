@@ -6,7 +6,8 @@
 // Copyright (c) 2019 Kevin Zhao
 // Modifications: Added serial_println! for debugging, modifed for kernel halts.
 // Expanded `RedirectionTableEntry` impl functions to support all of the
-// possible RTE flags. Made `high` & `low` RTE members public. Added tests
+// possible RTE flags. Made `high` & `low` RTE members public. Added tests 
+// Added `lazy_static!` macro call for all modules to use.
 // See THIRD_PARTY_LICENSES.md for full license texts and upstream details.
 
 use core::{
@@ -19,6 +20,8 @@ use core::{
 use crate::{PHYS_MEM_OFFSET, bitflags, lazy_static, serial_println, utils::mutex::SpinMutex};
 
 lazy_static! {
+	/// Public IOAPIC static reference for all module to use.
+	// todo!() actually use this more, i keep creating new ones i think.
 	pub static ref IOAPIC: SpinMutex<IoApic> =
 		SpinMutex::new(unsafe { IoApic::new(PHYS_MEM_OFFSET.lock().as_u64() + 0xFEC0_0000) });
 }

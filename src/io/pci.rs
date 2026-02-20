@@ -1,3 +1,9 @@
+//!
+//! pci.rs
+//! 
+//! PCI device handling logic for the kernel.
+//! 
+
 use alloc::vec::Vec;
 
 use crate::{
@@ -11,28 +17,38 @@ use crate::{
 	}
 };
 
+/// Virtio PCI Vendor ID
 pub const VIRTIO_PCI_VENDOR_ID: u16 = 0x1af4;
+/// Intel PCI Vendor ID
 pub const INTEL_VENDOR_ID: u16 = 0x8086;
-pub const PCI_COMMAND_IO: u16 = 0x0001;
-pub const PCI_MEM_ENABLE: u16 = 0x0002;
-pub const PCI_BUS_MASTER: u16 = 0x0004;
-pub const PCI_CONFIG_ADDRESS: u16 = 0xCF8;
-pub const PCI_CONFIG_DATA: u16 = 0xCFC;
+
+const PCI_COMMAND_IO: u16 = 0x0001;
+const PCI_BUS_MASTER: u16 = 0x0004;
+
+const PCI_CONFIG_ADDRESS: u16 = 0xCF8;
+const PCI_CONFIG_DATA: u16 = 0xCFC;
 
 lazy_static! {
+	/// List of all current Pci Devices
 	pub static ref PCI_DEVICES: SpinMutex<Vec<PciDevice>> = SpinMutex::new(Vec::with_capacity(32));
+	/// List of all the drivers information.
 	pub static ref DRIVER_TABLE: SpinMutex<Vec<DriverInfo>> = SpinMutex::new(Vec::new());
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Structure representing the bus number, device number and function number of a PCI device.
 pub struct Bdf {
+	/// The bus of the PCI device.
 	pub bus: u8,
+	/// The device of the PCI device.
 	pub device: u8,
+	/// The function of the PCI device.
 	pub func: u8
 }
 
 impl Bdf {
-	pub fn new(bus: u8, device: u8, func: u8) -> Self {
+	/// Creates a new `Bdf` with the specified bus, device and function.
+	pub fn new(bus: u8, device: u8, func: u8) -> Bdf {
 		Self {
 			bus,
 			device,
@@ -45,20 +61,23 @@ impl Bdf {
 pub type DeviceFinalizeCallback = fn() -> Result<(), &'static str>;
 
 /// Representation of a discovered PCI Device
+#[allow(dead_code)]
 pub struct PciDevice {
+	/// The Bus, Device and Function of the device.
 	pub bdf: Bdf,
-	pub info: DriverInfo,
-	pub bound_driver: Option<usize>,
-	pub mmio_base: Option<usize>,
+	info: DriverInfo,
+	bound_driver: Option<usize>,
+	// to be added.
+	mmio_base: Option<usize>,
+	/// The Base IO address for the device.
 	pub io_base: Option<usize>,
-	pub io_size: Option<usize>,
+	io_size: Option<usize>,
 
-	/// Callback to finalize device initialization (e.g., set DRIVER_OK)
-	/// Called after IOAPIC is programmed and before enabling CPU interrupts
-	pub finalize_callback: Option<DeviceFinalizeCallback>
+	finalize_callback: Option<DeviceFinalizeCallback>
 }
 
 impl PciDevice {
+	/// Creates a new `PciDevice` with no checks.
 	pub fn new_raw(
 		bdf: Bdf,
 		info: DriverInfo,
@@ -78,6 +97,7 @@ impl PciDevice {
 		}
 	}
 
+	/// Get the interrupt line from this device.
 	pub fn interrupt_line(&self) -> u8 {
 		pci_config_read::<u8>(self.bdf, 0x3C).unwrap()
 	}
@@ -89,14 +109,21 @@ impl PciDevice {
 }
 
 #[derive(Debug, Clone, Copy)]
+/// Structure representing all information about the driver running a PCI device.
 pub struct DriverInfo {
+	/// Vendor of the driver
 	pub vendor: Option<u16>,
+	/// The device which the driver is driving.
 	pub device: Option<u16>,
+	/// The class of the driver
 	pub class: Option<u8>,
+	/// The subclass of the driver
 	pub subclass: Option<u8>,
+	/// The function which probes and ebales the PCI device.
 	pub probe: Option<fn(&mut PciDevice) -> Result<usize, &'static str>>
 }
 
+/// Registers a drvier to the driver table.
 pub fn register_driver(info: DriverInfo) {
 	let mut dt = DRIVER_TABLE.lock();
 	dt.push(info);
@@ -108,8 +135,7 @@ pub fn register_driver(info: DriverInfo) {
 	);
 }
 
-/// Finalize all PCI devices that have pending finalization callbacks.
-/// Call this after IOAPIC programming and before enabling interrupts
+/// Finalize all PCI devices.
 pub fn finalize_all_devices() -> Result<(), &'static str> {
 	serial_println!("[PCI] Finalizing all devices with pending callbacks...");
 
@@ -133,6 +159,7 @@ pub fn finalize_all_devices() -> Result<(), &'static str> {
 	Ok(())
 }
 
+/// Addds a PCI device.
 pub fn add_pci_device(dev: PciDevice) -> usize {
 	let mut devices = PCI_DEVICES.lock();
 	let idx = devices.len();
@@ -140,7 +167,7 @@ pub fn add_pci_device(dev: PciDevice) -> usize {
 	idx
 }
 
-pub fn matches(info: &DriverInfo, dev: &PciDevice) -> bool {
+fn matches(info: &DriverInfo, dev: &PciDevice) -> bool {
 	if let Some(v) = info.vendor {
 		if v != dev.info.vendor.expect("no vendor") {
 			return false;
@@ -164,6 +191,7 @@ pub fn matches(info: &DriverInfo, dev: &PciDevice) -> bool {
 	true
 }
 
+/// Read `N` type from the PCI Config. Assuming N is a unsigned integer.
 pub fn pci_config_read<N>(bdf: Bdf, offset: u8) -> Result<N, <N as TryFrom<u64>>::Error>
 where
 	N: TryFrom<u64> + Copy
@@ -191,6 +219,7 @@ where
 	N::try_from(val)
 }
 
+/// Write `N` type to the PCI Config. Assuming N is a unsigned integer.
 pub fn pci_config_write<N>(bdf: Bdf, offset: u8, value: N) -> Result<(), &'static str>
 where
 	N: Into<u64> + Copy
@@ -220,6 +249,7 @@ where
 	Ok(())
 }
 
+/// Discover all PCI devices currently connected.
 pub fn discover_pci_devices() {
 	serial_println!("[PCI] Starting PCI device discovery...");
 
@@ -255,7 +285,7 @@ pub fn discover_pci_devices() {
 	serial_println!("[PCI] PCI device discovery complete");
 }
 
-pub fn handle_function(bdf: Bdf, vendor: u16) {
+fn handle_function(bdf: Bdf, vendor: u16) {
 	let device = pci_config_read::<WORD>(bdf, 0x02).unwrap();
 
 	let class_reg = pci_config_read::<WORD>(bdf, 0x0A).unwrap();
@@ -287,6 +317,7 @@ pub fn handle_function(bdf: Bdf, vendor: u16) {
 	try_bind_device(idx);
 }
 
+/// Try binds a PCI device to a valid driver.
 pub fn try_bind_device(idx: usize) {
 	let driver_infos = {
 		let dt = DRIVER_TABLE.lock();
@@ -329,6 +360,7 @@ pub fn try_bind_device(idx: usize) {
 	}
 }
 
+/// Enables the specified `PciDevice` for use.
 pub fn pci_enable_device(dev: &mut PciDevice) -> Result<(), &'static str> {
 	let bar_offset = 0x10;
 	let orig = pci_config_read::<DWORD>(dev.bdf, bar_offset).unwrap();
@@ -386,6 +418,7 @@ pub fn pci_enable_device(dev: &mut PciDevice) -> Result<(), &'static str> {
 	}
 }
 
+/// Find the PCI index from the GSI number.
 pub fn pci_find_index_from_gsi(gsi: usize) -> Option<usize> {
 	let devs = PCI_DEVICES.lock();
 	for (idx, dev) in devs.iter().enumerate() {

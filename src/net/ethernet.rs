@@ -1,8 +1,17 @@
+//!
+//! ethernet.rs
+//! 
+//! Ethernet frame handling for the kernel.
+//! 
+
 use crate::serial_println;
 
+/// Ethernet Type ARP value
 pub const ETHERTYPE_ARP: u16 = 0x0806;
+/// Ethernet Type IPv4 value
 pub const ETHERTYPE_IPV4: u16 = 0x0800;
 
+/// Processes the incoming ethernet frame.
 pub fn process_ethernet_frame(ptr: *const u8, len: usize) {
 	if len < 14 {
 		serial_println!("[ETH] Too short");

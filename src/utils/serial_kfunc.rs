@@ -1,3 +1,14 @@
+//!
+//! serial_kfunc.rs
+//! 
+//! Serial kernel functions for the kernel.
+//! 
+//! At the moment this is not needed, and probably not ever. This was a little
+//! idea that I found quickly was completely useless. not removing yet but
+//! most likely will in the future.
+//! 
+
+
 use alloc::{
 	collections::btree_map::BTreeMap,
 	string::{String, ToString},
@@ -5,19 +16,16 @@ use alloc::{
 };
 
 use crate::{
-	apic::TICK_COUNT,
-	lazy_static,
-	serial_println,
-	utils::{cpu_utils::get_cpu_clock, mutex::SpinMutex}
+	apic::APIC_TICK_COUNT, lazy_static, serial_println, utils::{cpu_utils::get_cpu_clock, mutex::SpinMutex}
 };
 
-pub type SerialCmdFn = fn(&[&str]);
+type SerialCmdFn = fn(&[&str]);
 
 #[derive(Debug, Copy, Clone)]
-pub struct SerialCommand {
-	pub name: &'static str,
-	pub help: &'static str,
-	pub func: SerialCmdFn
+struct SerialCommand {
+	name: &'static str,
+	help: &'static str,
+	func: SerialCmdFn
 }
 
 lazy_static! {
@@ -25,13 +33,14 @@ lazy_static! {
 		SpinMutex::new(BTreeMap::new());
 }
 
-pub fn register_serial_command(cmd: SerialCommand) {
+fn register_serial_command(cmd: SerialCommand) {
 	SERIAL_COMMAND_REGISTRY
 		.lock()
 		.insert(cmd.name.to_string(), cmd);
 }
 
 // same as vga keyboard commands.
+/// Runs a serial command.
 pub fn run_serial_command(input: &str) {
 	let parts: Vec<&str> = input.split_whitespace().collect();
 	if parts.is_empty() {
@@ -52,7 +61,7 @@ pub fn run_serial_command(input: &str) {
 	}
 }
 
-pub fn init_serial_commands() {
+fn init_serial_commands() {
 	register_serial_command(SerialCommand {
 		name: "echo",
 		func: echo,
@@ -70,22 +79,22 @@ pub fn init_serial_commands() {
 	});
 }
 
-pub fn echo(args: &[&str]) {
+fn echo(args: &[&str]) {
 	serial_println!("{}", args.join(" "));
 }
 
-pub fn help(_args: &[&str]) {
+fn help(_args: &[&str]) {
 	// prints the commands, last command i will code.
 	serial_println!("");
 }
 
-pub fn uptime(_args: &[&str]) {
+fn uptime(_args: &[&str]) {
 	//update_system_uptime();
-	let ticks = TICK_COUNT.load(core::sync::atomic::Ordering::Relaxed);
+	let ticks = APIC_TICK_COUNT.load(core::sync::atomic::Ordering::Relaxed);
 	serial_println!("ticks: {}", ticks);
 }
 
-pub fn clock(_args: &[&str]) {
+fn clock(_args: &[&str]) {
 	unsafe {
 		serial_println!("clock: {}", get_cpu_clock());
 	}

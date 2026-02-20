@@ -1,3 +1,10 @@
+//!
+//! drivers/virtio/mod.rs 
+//! 
+//! Virtio driver defintions.
+//! 
+
+#[allow(unused)]
 pub mod net;
 
 use core::{
@@ -9,18 +16,20 @@ use x86_64::{PhysAddr, VirtAddr, align_up};
 
 use crate::{bitflags, common::ports::outw};
 
-pub const VIRTIO_IO_DEVICE_FEATURES: usize = 0x00;
-pub const VIRTIO_IO_DRIVER_FEATURES: usize = 0x04;
-pub const VIRTIO_IO_QUEUE_ADDR: usize = 0x08; // same as QUEUE_PFN
-pub const VIRTIO_IO_QUEUE_SIZE: usize = 0x0C;
-pub const VIRTIO_IO_QUEUE_SELECT: usize = 0x0E;
-pub const VIRTIO_IO_QUEUE_NOTIFY: usize = 0x10;
+const VIRTIO_IO_DEVICE_FEATURES: usize = 0x00;
+const VIRTIO_IO_DRIVER_FEATURES: usize = 0x04;
+const VIRTIO_IO_QUEUE_ADDR: usize = 0x08; // same as QUEUE_PFN
+const VIRTIO_IO_QUEUE_SIZE: usize = 0x0C;
+const VIRTIO_IO_QUEUE_SELECT: usize = 0x0E;
+const VIRTIO_IO_QUEUE_NOTIFY: usize = 0x10;
+/// The Virtio Device Status port
 pub const VIRTIO_IO_DEVICE_STATUS: usize = 0x12;
+/// The virtio device interrupt service routine port.
 pub const VIRTIO_IO_ISR: usize = 0x13;
-pub const VIRTIO_IO_DEVICE_CFG: usize = 0x14; // start of config space
+const VIRTIO_IO_DEVICE_CFG: usize = 0x14; // start of config space
 
-pub const VIRTQ_DESC_F_NEXT: u16 = 1;
-pub const VIRTQ_DESC_F_WRITE: u16 = 2;
+const VIRTQ_DESC_F_NEXT: u16 = 1;
+const VIRTQ_DESC_F_WRITE: u16 = 2;
 
 bitflags! {
 	/// A simple low-level indication of the completed steps in the device
@@ -76,54 +85,88 @@ bitflags! {
 // and https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-490006
 #[repr(C)]
 #[derive(Copy, Clone)]
+/// The virtqueue descriptor.
 pub struct VirtqueueDescriptor {
+	/// Address of the descriptor.
 	pub addr: u64,
+	/// Length of the descriptor.
 	pub len: u32,
+	/// Flags for the descriptor.
 	pub flags: u16,
+	/// Next descriptor in line.
 	pub next: u16
 }
 
 #[repr(C)]
 #[derive(Default)]
+/// The available virtqueue ring.
 pub struct VirtqueueAvailable {
+	/// Flags
 	pub flags: u16,
+	/// Index
 	pub idx: u16,
+	/// Ring
 	pub ring: [u16; 0]
 }
 
 #[repr(C)]
 #[derive(Default)]
+/// The used element virtqueue ring.
 pub struct VirtqueueUsedElement {
+	/// Id
 	pub id: u32,
+	/// Length of the ring
 	pub len: u32
 }
 
 #[repr(C)]
 #[derive(Default)]
+/// The used virtqueue ring.
 pub struct VirtqueueUsed {
+	/// Flags
 	pub flags: u16,
+	/// Index
 	pub idx: u16,
+	/// Ring
 	pub ring: [VirtqueueUsedElement; 0]
 }
 
 // makes computing the size easier.
+// more important stuff like this will get more documentation.
+/// Structure representing a VirtQueue.
+/// Represents a VirtIO queue used for communication between the driver and device.
+/// 
+/// A VirtQueue consists of three main components:
+/// - Descriptor table: describes memory buffers
+/// - Available ring: index of buffers available to the device
+/// - Used ring: index of buffers the device has processed
 pub struct VirtQueue {
+	/// Size of the virtqueue in number of descriptors
 	pub size: u16,
 
+	/// Pointer to the descriptor table of the VirtQueue
 	pub desc: *mut VirtqueueDescriptor,
+	/// Pointer to the available ring of the VirtQueue
 	pub avail: *mut VirtqueueAvailable,
+	/// Pointer to the used ring of the VirtQueue
 	pub used: *mut VirtqueueUsed,
 
+	/// Index of the first free descriptor in the VirtQueue
 	pub free_head: u16,
+	/// Index of the last descriptor processed by the device
 	pub last_used: u16,
 
-	// Add free list tracking
+	/// Number of free descriptors available in the VirtQueue
 	pub num_free: u16,
 
+	/// Physical address of the VirtQueue
 	pub phys_addr: PhysAddr,
+	/// Virtual address of the VirtQueue
 	pub virt_addr: VirtAddr,
 
+	/// Index identifying this VirtQueue for the device
 	pub queue_index: u16,
+	/// I/O base address for device communication
 	pub io_base: u16
 }
 
@@ -131,6 +174,7 @@ unsafe impl Send for VirtQueue {}
 unsafe impl Sync for VirtQueue {}
 
 impl VirtQueue {
+	/// Creates an empty `VirtQueue` with no values inside.
 	pub fn empty() -> VirtQueue {
 		VirtQueue {
 			size: 0,
@@ -148,7 +192,7 @@ impl VirtQueue {
 	}
 
 	// Initialize the free list after allocation
-	pub fn init_free_list(&mut self) {
+	fn init_free_list(&mut self) {
 		self.num_free = self.size;
 		self.free_head = 0;
 
@@ -161,7 +205,7 @@ impl VirtQueue {
 		}
 	}
 
-	pub fn add_descriptor(
+	fn add_descriptor(
 		&mut self,
 		phys_addr: PhysAddr,
 		len: u32,
@@ -187,7 +231,7 @@ impl VirtQueue {
 		Ok(idx)
 	}
 
-	pub fn free_descriptor(&mut self, desc_idx: u16) {
+	fn free_descriptor(&mut self, desc_idx: u16) {
 		unsafe {
 			let desc = &mut *self.desc.add(desc_idx as usize);
 			desc.next = self.free_head;
@@ -196,7 +240,7 @@ impl VirtQueue {
 		self.num_free += 1;
 	}
 
-	pub fn push_avail(&mut self, desc_index: u16) {
+	fn push_avail(&mut self, desc_index: u16) {
 		let avail = unsafe { &mut *self.avail };
 		let ring_ptr = unsafe {
 			(avail as *mut _ as *mut u8)
@@ -208,7 +252,7 @@ impl VirtQueue {
 		avail.idx = avail.idx.wrapping_add(1);
 	}
 
-	pub fn kick(&self) {
+	fn kick(&self) {
 		unsafe {
 			outw(
 				self.io_base + VIRTIO_IO_QUEUE_NOTIFY as u16,
@@ -217,7 +261,7 @@ impl VirtQueue {
 		}
 	}
 
-	pub fn pop_used(&mut self) -> Option<(u16, u32)> {
+	fn pop_used(&mut self) -> Option<(u16, u32)> {
 		let used = unsafe { &*self.used };
 
 		fence(Ordering::Acquire);
@@ -241,7 +285,7 @@ impl VirtQueue {
 	}
 }
 
-pub fn virtqueue_size(qsize: usize) -> usize {
+fn virtqueue_size(qsize: usize) -> usize {
 	let desc_size = qsize * core::mem::size_of::<VirtqueueDescriptor>();
 	let avail_size =
 		core::mem::size_of::<VirtqueueAvailable>() + qsize * core::mem::size_of::<u16>();
@@ -253,14 +297,24 @@ pub fn virtqueue_size(qsize: usize) -> usize {
 	(used_offset + used_size as u64).try_into().unwrap()
 }
 
+/// Trait for all Virtio Devices to implement.
 pub trait VirtioDevice {
+	/// Get and return the current negotiated device features.
 	fn device_features(&mut self) -> u64;
+	/// Set driver features.
 	fn set_driver_features(&mut self, features: u64);
+	/// Allocate a Virtqueue for the device.
 	fn alloc_virtqueue(&mut self, virtq: u16) -> Result<VirtQueue, &'static str>;
+	/// Get the current driver status.
 	fn driver_status(&mut self) -> u16;
+	/// Set the current driver status.
 	fn set_driver_status(&mut self, status: u8);
+	/// If the driver is set to a current status.
 	fn has_status(&mut self, status: u8) -> bool;
+	/// All currently supported features
+	// same as device_features()?
 	fn supported_features(&mut self) -> u64;
 
+	/// Initialise the VirtIO device.
 	fn init(&mut self) -> Result<(), &'static str>;
 }

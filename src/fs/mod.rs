@@ -1,3 +1,10 @@
+//!
+//! fs/mod.rs
+//! 
+//! Top level filesystem module declaration.
+//! 
+
+#[allow(missing_docs)]
 pub mod ata;
 pub mod ramfs;
 
@@ -8,12 +15,16 @@ use alloc::{
 
 use crate::{drivers::keyboard::scancode::CWD, fs::ramfs::FileSystem, utils::mutex::SpinMutex};
 
+// TODO: maybe lazy_static!
+/// Current `FileSystem` in use.
 pub static FS: SpinMutex<Option<FileSystem>> = SpinMutex::new(None);
 
+/// Initialises the kernel's `FileSystem`
 pub fn init_fs(fs: FileSystem) {
 	*FS.lock() = Some(fs);
 }
 
+/// Use the current `FileSystem` to perform an action.
 pub fn with_fs<R>(f: impl FnOnce(&mut FileSystem) -> R) -> R {
 	let mut fs_lock = FS.lock();
 	let fs_ref = fs_lock.as_mut().expect("Filesystem must be initialized");
@@ -40,7 +51,7 @@ pub fn resolve_path(path: &str) -> String {
 	normalize_path(&result)
 }
 
-pub fn normalize_path(path: &str) -> String {
+fn normalize_path(path: &str) -> String {
 	let parts: Vec<&str> = path
 		.split('/')
 		.filter(|&p| !p.is_empty() && p != ".")

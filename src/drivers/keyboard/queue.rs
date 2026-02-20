@@ -1,5 +1,11 @@
 // this was my custom code, no `pc-keyboard` code here.
 
+//!
+//! drivers/keyboard/queue.rs
+//! 
+//! Scancode queue logic and definitions for the kernel.
+//! 
+
 use core::task::Poll;
 
 use crossbeam_queue::ArrayQueue;
@@ -7,8 +13,8 @@ use futures::{Stream, task::AtomicWaker};
 
 use crate::{println, utils::oncecell::spin::OnceCell};
 
-pub static SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
-pub static WAKER: AtomicWaker = AtomicWaker::new();
+static SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
+static WAKER: AtomicWaker = AtomicWaker::new();
 
 pub(crate) fn add_scancode(scancode: u8) {
 	if let Ok(queue) = SCANCODE_QUEUE.try_get() {
@@ -25,12 +31,14 @@ pub(crate) fn add_scancode(scancode: u8) {
 	}
 }
 
+/// A stream of all scancodes coming in from interrupts.
 pub struct ScancodeStream {
 	_private: ()
 }
 
 impl ScancodeStream {
-	pub fn new() -> Self {
+	/// Creates a new `ScancodeStream` with a capacity of 100.
+	pub fn new() -> ScancodeStream {
 		SCANCODE_QUEUE
 			.try_init_once(|| ArrayQueue::new(100))
 			.expect("ScancodeStream::new should only be called once");

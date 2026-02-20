@@ -1,8 +1,8 @@
-// allocator.rs
+//! allocator.rs
 
-/*
-Heap allocator module for the kernel.
-*/
+//!
+//! Heap allocator module for the kernel.
+//! 
 
 use core::{
 	alloc::{self, GlobalAlloc},
@@ -10,14 +10,22 @@ use core::{
 	ptr::null_mut
 };
 
-// Import Box from alloc
 use linked_list::LinkedListAllocator;
 
+// allow missing documentation because otherwise
+// it will also be unused as there is only one type of 
+// allocator strategy for the kernel.
+#[allow(missing_docs, deprecated)]
 pub mod buddy;
+#[allow(missing_docs, deprecated)]
 pub mod bump;
+#[allow(missing_docs, deprecated)]
 pub mod fixed_size_block;
+#[allow(missing_docs, deprecated)]
 pub mod io_alloc;
+#[allow(missing_docs, deprecated)]
 pub mod linked_list;
+
 
 use x86_64::structures::paging::{
 	FrameAllocator,
@@ -40,23 +48,30 @@ use crate::{
 	}
 };
 
+/// The starting address of the kernel's heap memory.
 pub const HEAP_START: usize = 0x_4444_4444_0000;
+/// The size of the kernel's heap memory.
 pub const HEAP_SIZE: usize = 2 * 1024 * 1024;
 
-// fixed is better performance wise.
+/// The structure for representing the current Allocator and all information
+/// with it.
 pub struct AllocatorInfo<S, M, A>
 where
 	S: PageSize + Send + Sync + 'static,
 	M: Mapper<S> + Send + Sync + 'static,
 	A: FrameAllocator<S> + Send + Sync + 'static
 {
+	/// The current allocation strategy that is used in the kernel.
 	pub strategy: RwLock<Option<&'static (dyn GlobalAlloc + Send + Sync)>>,
+	/// The current frame allocator that is used in the kernel.
 	pub frame_allocator: SpinMutex<Option<&'static mut A>>,
+	/// The current mapper that is used in the kernel.
 	pub mapper: SpinMutex<Option<&'static mut M>>,
 	size: PhantomData<S>
 }
 
 lazy_static! {
+	/// Static reference to the information about the current allocator that is running in this kernel.
 	pub static ref ALLOCATOR_INFO: AllocatorInfo<Size4KiB, OffsetPageTable<'static>, BootInfoFrameAllocator> =
 		AllocatorInfo {
 			strategy: RwLock::new(None),
@@ -65,10 +80,12 @@ lazy_static! {
 			size: PhantomData
 		};
 }
+/// A generic starting off kernel allocator. This is just to allocate the global allocator.
+#[allow(deprecated)]
 pub static LOCAL_HEAP_ALLOCATOR: Locked<LinkedListAllocator> =
 	Locked::new(LinkedListAllocator::new());
 
-pub struct GlobalAllocator;
+struct GlobalAllocator;
 
 unsafe impl GlobalAlloc for GlobalAllocator {
 	unsafe fn alloc(&self, layout: alloc::Layout) -> *mut u8 {
@@ -91,13 +108,14 @@ unsafe impl GlobalAlloc for GlobalAllocator {
 }
 
 #[global_allocator]
-pub static ALLOCATOR: GlobalAllocator = GlobalAllocator;
+static ALLOCATOR: GlobalAllocator = GlobalAllocator;
 
 #[alloc_error_handler]
 fn alloc_error_handler(layout: alloc::Layout) -> ! {
 	panic!("Allocation error: {:?}", layout)
 }
 
+/// Initialises the kernels heap memory.
 pub fn init_heap(
 	mapper: &mut impl Mapper<Size4KiB>,
 	frame_allocator: &mut impl FrameAllocator<Size4KiB>
@@ -116,7 +134,6 @@ pub fn init_heap(
 		);
 	}
 
-	// Use u64 for address math to match VirtAddr
 	let heap_start_u64 = HEAP_START as u64;
 	// compute last byte in heap safely
 	let heap_end_u64 = heap_start_u64
@@ -141,13 +158,12 @@ pub fn init_heap(
 	let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_start_u64));
 	let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_end_u64));
 
-	// Extra sanity
 	let start_index = start_page.start_address().as_u64() / 4096;
 	let end_index = end_page.start_address().as_u64() / 4096;
 	assert!(start_index <= end_index, "heap start page > heap end page");
 
 	let num_pages = end_index - start_index + 1;
-	// avoid absurd page counts (protect against bad arithmetic)
+	// avoid absurd page counts
 	let max_reasonable_pages: u64 = 10 * 1024 * 1024; // ~10M pages (≈40GB)
 	assert!(
 		num_pages <= max_reasonable_pages,
@@ -164,7 +180,7 @@ pub fn init_heap(
 		end_page.start_address().as_u64()
 	);
 
-	// Map pages one-by-one (safe, explicit)
+	// Map pages one-by-one
 	for page_index in start_index..=end_index {
 		let va = VirtAddr::new(page_index * 4096);
 		let page = Page::containing_address(va);
@@ -184,17 +200,21 @@ pub fn init_heap(
 }
 
 /// A wrapper around spin::Mutex to permit trait implementations.
+#[deprecated = "unnecessary"]
+// tood! remove this.
 pub struct Locked<A> {
 	inner: SpinMutex<A>
 }
 
+#[allow(deprecated)]
 impl<A> Locked<A> {
-	pub const fn new(inner: A) -> Self {
+	const fn new(inner: A) -> Self {
 		Locked {
 			inner: SpinMutex::new(inner)
 		}
 	}
 
+	/// Locks the SpinMutex
 	pub fn lock(&'_ self) -> SpinMutexGuard<'_, A> {
 		self.inner.lock()
 	}

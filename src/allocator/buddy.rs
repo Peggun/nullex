@@ -1,3 +1,9 @@
+//!
+//! allocator/buddy.rs
+//! 
+//! Buddy Allocator module for the kernel.
+//! 
+
 // code from this great website
 // https://nfil.dev/kernel/rust/coding/rust-buddy-allocator/
 

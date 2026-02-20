@@ -1,11 +1,16 @@
+//!
+//! process.rs
+//! 
+//! Utilities for process handling for the kernel.
+//! 
+
 use alloc::{boxed::Box, sync::Arc};
-use core::{future::Future, pin::Pin, sync::atomic::AtomicBool};
+use core::{future::Future, pin::Pin, sync::atomic::{AtomicBool, Ordering}};
 
 use futures::task::AtomicWaker;
 
 use crate::{
-	task::{Process, ProcessId, ProcessState, executor::EXECUTOR},
-	utils::oncecell::cell::OnceCell
+	apic::{APIC_TICK_COUNT, APIC_TPS}, task::{Process, ProcessId, ProcessState, executor::EXECUTOR, yield_now}, utils::oncecell::cell::OnceCell
 };
 
 /// Spawns a process using the provided future function.
@@ -52,4 +57,18 @@ where
 	// spawn the process.
 	executor.spawn_process(process);
 	pid
+}
+
+#[allow(unused)]
+/// # Safety
+/// Should NEVER be used in kernel space. only like a API for syscalls and user space later.
+async unsafe fn sleep(ms: u64) {
+    let tps = APIC_TPS.load(Ordering::Relaxed);
+    let now = APIC_TICK_COUNT.load(Ordering::Relaxed);
+    let ticks = (ms * tps) / 1000;
+    let then = now + ticks;
+
+    while APIC_TICK_COUNT.load(Ordering::Relaxed) < then {
+        yield_now().await;
+    }
 }

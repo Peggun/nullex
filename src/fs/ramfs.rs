@@ -1,8 +1,8 @@
-// ramfs.rs
-
-/*
-RamFS implementation for the kernel.
-*/
+//!
+//! ramfs.rs
+//!
+//! RamFS implementation for the kernel.
+//!
 
 use alloc::{
 	boxed::Box,
@@ -13,14 +13,21 @@ use core::{fmt, str};
 
 use hashbrown::HashMap;
 
+use crate::fs::init_fs;
+
 #[derive(Debug, Clone, Copy, PartialEq)]
+/// Permission Levels for file access.
 pub struct Permission {
+	/// Can read from a file
 	pub read: bool,
+	/// Can write to a file
 	pub write: bool,
+	/// Can execute a file.
 	pub execute: bool
 }
 
 impl Permission {
+	/// All permissions for a file.
 	pub fn all() -> Self {
 		Self {
 			read: true,
@@ -29,6 +36,7 @@ impl Permission {
 		}
 	}
 
+	/// Read-only permissions for a file.
 	pub fn read() -> Self {
 		Self {
 			read: true,
@@ -39,8 +47,11 @@ impl Permission {
 }
 
 #[derive(Debug)]
+/// Structure representing a file in the file system.
 pub struct File {
+	/// Content in bytes.
 	pub content: Vec<u8>,
+	/// Permission level for the file.
 	pub permission: Permission
 }
 
@@ -54,8 +65,10 @@ impl File {
 }
 
 #[derive(Debug)]
+/// Structure representing a directory (multiple files + directories)
 pub struct Directory {
 	entries: HashMap<String, Entry>,
+	/// Directory permissions
 	pub permission: Permission
 }
 
@@ -69,19 +82,27 @@ impl Directory {
 }
 
 #[derive(Debug)]
-pub enum Entry {
+enum Entry {
 	File(File),
 	Directory(Box<Directory>)
 }
 
 #[derive(Debug)]
+/// Enum for all filesystem errors.
 pub enum FsError {
+	/// Entry not found
 	EntryNotFound,
+	/// Target is not a directory.
 	NotADirectory,
+	/// Target is not a file.
 	NotAFile,
+	/// Invalid permissions for access.
 	PermissionDenied,
+	/// File already exists
 	AlreadyExists,
+	/// Path is invalid.
 	InvalidPath,
+	/// The directory is currently not empty.
 	DirectoryNotEmpty
 }
 
@@ -99,19 +120,23 @@ impl fmt::Display for FsError {
 	}
 }
 
+// TODO: put this as a trait.
+/// Structure representing a FileSystem.
 pub struct FileSystem {
 	root: Directory,
 	current_path: Vec<String>
 }
 
 impl FileSystem {
-	pub fn new() -> Self {
+	/// Create a new `FileSystem`
+	pub fn new() -> FileSystem {
 		Self {
 			root: Directory::new(Permission::all()),
 			current_path: Vec::new()
 		}
 	}
 
+	/// Creates a new file in the current `FileSystem`, unless one is already created.
 	pub fn create_file(&mut self, path: &str, perm: Permission) -> Result<(), FsError> {
 		let (dir_components, file_name) = Self::split_path(path)?;
 		let dir = self.get_dir_mut_from_components(&dir_components)?;
@@ -124,6 +149,7 @@ impl FileSystem {
 		Ok(())
 	}
 
+	/// Creates a new directory in the current `FileSystem`, unless one is already created.
 	pub fn create_dir(&mut self, path: &str, perm: Permission) -> Result<(), FsError> {
 		let (dir_components, dir_name) = Self::split_path(path)?;
 		let dir = self.get_dir_mut_from_components(&dir_components)?;
@@ -137,6 +163,7 @@ impl FileSystem {
 		Ok(())
 	}
 
+	/// Writes to a file that already exists
 	pub fn write_file(
 		&mut self,
 		path: &str,
@@ -157,6 +184,8 @@ impl FileSystem {
 		Ok(())
 	}
 
+	/// Read the current file.
+	// todo: add read permission checks, forgot to add this before.
 	pub fn read_file(&self, path: &str) -> Result<&[u8], FsError> {
 		let file = self.get_file(path)?;
 		Ok(&file.content)
@@ -206,11 +235,6 @@ impl FileSystem {
 		self.get_dir_from_components(&components)
 	}
 
-	pub fn get_dir_mut(&mut self, path: &str) -> Result<&mut Directory, FsError> {
-		let components = self.resolve_path(path)?;
-		self.get_dir_mut_from_components(&components)
-	}
-
 	fn get_dir_from_components(&self, components: &[String]) -> Result<&Directory, FsError> {
 		let mut current = &self.root;
 		for component in components {
@@ -238,6 +262,7 @@ impl FileSystem {
 		Ok(current)
 	}
 
+	/// Get a specific file from a file path.
 	pub fn get_file(&self, path: &str) -> Result<&File, FsError> {
 		let (dir_components, file_name) = Self::split_path(path)?;
 		let dir = self.get_dir_from_components(&dir_components)?;
@@ -260,11 +285,13 @@ impl FileSystem {
 		}
 	}
 
+	/// List all contents of a specified path.
 	pub fn list_dir(&self, path: &str) -> Result<Vec<String>, FsError> {
 		let dir = self.get_dir(path)?;
 		Ok(dir.entries.keys().cloned().collect())
 	}
 
+	/// List all contents of a specified path and their type.
 	pub fn list_dir_entry_types(&self, path: &str) -> Result<Vec<String>, FsError> {
 		let dir = self.get_dir(path)?;
 		Ok(dir
@@ -277,6 +304,7 @@ impl FileSystem {
 			.collect())
 	}
 
+	/// If a path is a directory.
 	pub fn is_dir(&self, path: &str) -> bool {
 		let components = match self.resolve_path(path) {
 			Ok(c) => c,
@@ -300,6 +328,7 @@ impl FileSystem {
 		}
 	}
 
+	/// Remove the item at the specified path.
 	pub fn remove(&mut self, path: &str, del_dir: bool, recursive: bool) -> Result<(), FsError> {
 		// split the path into parent components and the name of the entry.
 		let (parent_components, name) = Self::split_path(path)?;
@@ -349,6 +378,7 @@ impl FileSystem {
 		dir.entries.clear();
 	}
 
+	/// If the specified path exists.
 	pub fn exists(&self, path: &str) -> bool {
 		let components = match self.resolve_path(path) {
 			Ok(c) => c,
@@ -373,4 +403,12 @@ impl Default for FileSystem {
 	fn default() -> Self {
 		Self::new()
 	}
+}
+
+/// Setup system files.
+pub fn setup_system_files(mut fs: FileSystem) {
+	fs.create_dir("/logs", Permission::all()).unwrap();
+	fs.create_dir("/proc", Permission::read()).unwrap();
+
+	init_fs(fs);
 }

@@ -1,12 +1,15 @@
-// lib.rs
+//! lib.rs
 
-/*
-Kernel module for the kernel.
-*/
+//!
+//! Kernel module for the kernel.
+//!
 
 #![no_std]
 #![no_main]
+
 #![allow(internal_features)]
+#![warn(missing_docs)]
+
 #![feature(abi_x86_interrupt)]
 #![feature(step_trait)]
 #![feature(associated_type_defaults)]
@@ -30,7 +33,6 @@ pub mod apic;
 pub mod arch;
 pub mod common;
 pub mod config;
-pub mod constants;
 pub mod drivers;
 pub mod error;
 pub mod fs;
@@ -38,11 +40,13 @@ pub mod gdt;
 pub mod gsi;
 pub mod interrupts;
 pub mod io;
+#[allow(missing_docs)]
 pub mod ioapic;
 pub mod memory;
 pub mod net;
 pub mod pit;
 pub mod rtc;
+#[allow(deprecated)]
 pub mod serial;
 pub mod syscall;
 pub mod task;
@@ -52,7 +56,6 @@ pub mod vga_buffer;
 use alloc::boxed::Box;
 use core::{
 	future::Future,
-	hint::spin_loop,
 	pin::Pin,
 	sync::atomic::Ordering,
 	task::{Context, Poll}
@@ -66,13 +69,9 @@ use x86_64::{
 use crate::{
 	acpi::link_isos,
 	allocator::ALLOCATOR_INFO,
-	apic::APIC_BASE,
-	common::ports::{inb, outb},
-	drivers::virtio::{
-		VirtqueueUsed,
-		net::{RX_QUEUE, VIRTIO_NET_DEVICE}
-	},
-	fs::ramfs::{FileSystem, Permission},
+	apic::{APIC_BASE, APIC_TPS},
+	common::ports::outb,
+	fs::ramfs::{FileSystem, setup_system_files},
 	interrupts::APIC_TIMER_VECTOR,
 	io::{
 		keyboard::line_editor::print_keypresses,
@@ -91,70 +90,28 @@ use crate::{
 use crate::drivers::virtio::net::virtio_net_driver_init;
 
 lazy_static! {
+	/// Static reference to the physical memory offset for the kernel.
 	pub static ref PHYS_MEM_OFFSET: SpinMutex<VirtAddr> = SpinMutex::new(VirtAddr::new(0x0));
 }
 
-pub fn raw_serial_test() {
-	unsafe {
-		for &b in b"HELLO\r\n" {
-			// wait for Transmitter Holding Register Empty (LSR bit 5)
-			while (inb(0x3F8 + 5) & 0x20) == 0 {
-				spin_loop();
-			}
-			outb(0x3F8, b);
-		}
-	}
-}
-
-pub fn init() {
+fn init() {
 	serial_println!("[Info] Initializing kernel...");
 	gdt::init();
 	serial_println!("[Info] GDT done.");
-	interrupts::init_idt();
+	unsafe { interrupts::init_idt() };
 	serial_println!("[Info] Finished IDT Init.");
-	// NOTE: Do not enable CPU interrupts here — we'll enable after IOAPIC/ISO
-	// linking.
 	serial_println!("[Info] Done.");
 }
 
-pub fn hlt_loop() -> ! {
+fn hlt_loop() -> ! {
 	loop {
 		x86_64::instructions::hlt();
 	}
 }
 
-#[repr(align(512))]
-pub struct Align512<T>(T);
-pub fn align_buffer(buffer: [u8; 512]) -> Align512<[u8; 512]> {
-	Align512(buffer)
-}
-
-impl<T> Align512<T> {
-	pub fn inner(&self) -> &T {
-		&self.0
-	}
-
-	pub fn inner_mut(&mut self) -> &mut T {
-		&mut self.0
-	}
-}
-
-pub fn setup_system_files(mut fs: FileSystem) {
-	fs.create_dir("/logs", Permission::all()).unwrap();
-	fs.create_dir("/proc", Permission::read()).unwrap();
-
-	fs::init_fs(fs);
-}
-
-#[repr(C)]
-pub struct MultibootBootInfo {
-	pub flags: usize,
-	pub mem_lower: usize,
-	pub mem_upper: usize
-}
-
 #[unsafe(no_mangle)]
-pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
+/// Entry point for the kernel.
+pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	clear_screen!();
 	println!("[Info] Starting Kernel Init...");
 
@@ -169,7 +126,7 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 		panic!("Global Allocator Initialization failed: {}", e);
 	}
 
-	// Initialize GDT and IDT (but don't enable interrupts yet)
+	// Initialize GDT and IDT
 	crate::init();
 
 	// Setup APIC and IOAPIC
@@ -192,6 +149,7 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	match apic::calibrate(1024) {
 		Ok((ticks_per_sec, initial_count)) => {
 			serial_println!("APIC ticks/sec = {}", ticks_per_sec);
+			APIC_TPS.store(ticks_per_sec, Ordering::SeqCst);
 			unsafe {
 				apic::mask_timer(true);
 				apic::start_timer_periodic(APIC_TIMER_VECTOR, initial_count);
@@ -219,11 +177,9 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	let fs = FileSystem::new();
 	setup_system_files(fs);
 
-	// Register drivers BEFORE PCI discovery
 	serial_println!("[PCI] Registering platform drivers before PCI discovery...");
 	virtio_net_driver_init();
 
-	// Discover PCI devices (drivers will probe but NOT set DRIVER_OK)
 	discover_pci_devices();
 
 	// Link ISOs and program IOAPIC
@@ -231,7 +187,6 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 		link_isos();
 	}
 
-	// *** KEY CHANGE: Finalize all devices before enabling interrupts ***
 	serial_println!("[INIT] Finalizing all PCI devices...");
 	if let Err(e) = pci::finalize_all_devices() {
 		panic!("Failed to finalize PCI devices: {}", e);
@@ -365,7 +320,8 @@ pub extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	}
 }
 
-pub fn qemu_exit(code: u32) -> ! {
+#[allow(unused)]
+fn qemu_exit(code: u32) -> ! {
 	serial_println!("QEMU exit: guest code = {}", code);
 
 	let mut port = Port::<u32>::new(0xf4);
@@ -383,60 +339,4 @@ pub fn qemu_exit(code: u32) -> ! {
 fn panic(info: &core::panic::PanicInfo) -> ! {
 	println!("{}", info);
 	crate::hlt_loop();
-}
-
-pub fn debug_rx_queue_detailed() {
-	serial_println!("[DEBUG] === Detailed RX Queue State ===");
-
-	let rx_queue = RX_QUEUE.lock();
-
-	unsafe {
-		let avail = &*rx_queue.avail;
-		let used = &*rx_queue.used;
-
-		serial_println!("[DEBUG] Available ring:");
-		serial_println!("  flags: {:#x}", avail.flags);
-		serial_println!("  idx: {}", avail.idx);
-
-		serial_println!("[DEBUG] Used ring:");
-		serial_println!("  flags: {:#x}", used.flags);
-		serial_println!("  idx: {}", used.idx);
-		serial_println!("  last_used: {}", rx_queue.last_used);
-
-		let packets_available = used.idx.wrapping_sub(rx_queue.last_used);
-		serial_println!("[DEBUG] Packets in used ring: {}", packets_available);
-
-		if packets_available > 0 {
-			serial_println!("[DEBUG] !!! PACKETS ARE AVAILABLE BUT NOT PROCESSED !!!");
-
-			// Check first entry
-			let ring_ptr = (used as *const _ as *const u8)
-				.add(core::mem::size_of::<VirtqueueUsed>())
-				as *const crate::drivers::virtio::VirtqueueUsedElement;
-			let first_elem = &*ring_ptr;
-
-			serial_println!(
-				"[DEBUG] First used element: id={}, len={}",
-				first_elem.id,
-				first_elem.len
-			);
-		}
-
-		// Check device status
-		let io_base = {
-			let dev = VIRTIO_NET_DEVICE.lock();
-			dev.as_ref().map(|d| d.io_base as usize)
-		};
-
-		if let Some(io_base) = io_base {
-			use crate::common::ports::inb;
-			let status = inb((io_base + crate::drivers::virtio::VIRTIO_IO_DEVICE_STATUS) as u16);
-			let isr = inb((io_base + crate::drivers::virtio::VIRTIO_IO_ISR) as u16);
-
-			serial_println!("[DEBUG] Device status: {:#x}", status);
-			serial_println!("[DEBUG] ISR register: {:#x}", isr);
-		}
-	}
-
-	serial_println!("[DEBUG] === End RX Queue State ===");
 }

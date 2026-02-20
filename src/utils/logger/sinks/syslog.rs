@@ -1,3 +1,9 @@
+//!
+//! syslog.rs
+//! 
+//! System Log sink logic for the kernel.
+//! 
+
 use alloc::boxed::Box;
 
 use crate::{
@@ -8,11 +14,15 @@ use crate::{
 	}
 };
 
+
+/// The SysLog sink. Logs to files inside of `/logs/syslog`
 pub struct SyslogSink {
+	/// The formatting strategy used.
 	pub formatter: Box<dyn LogFormatter>
 }
 
 impl SyslogSink {
+	/// Creates a new `SyslogSink` with the formatting strategy
 	pub fn new(formatter: Box<dyn LogFormatter>) -> Self {
 		Self {
 			formatter

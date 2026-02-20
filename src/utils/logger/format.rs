@@ -1,12 +1,20 @@
+//!
+//! format.rs
+//! 
+//! Definitions for formatting settings for the kernel's logging framework
+//! 
+
 use alloc::string::String;
 
 use super::{levels::LogLevel, traits::log_formatter::LogFormatter};
 
+/// Structure representing the default logging formatter
 pub struct DefaultFormatter {
-	pub show_level: bool
+	show_level: bool
 }
 
 impl DefaultFormatter {
+	/// Creates a new `DefaultFormatter`
 	pub fn new(show_level: bool) -> Self {
 		Self {
 			show_level
