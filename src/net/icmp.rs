@@ -4,7 +4,7 @@
 //! ICMP packet handling logic for the kernel.
 //! 
 
-use crate::{serial_println, utils::net::calculate_checksum};
+use crate::{error::NullexError, serial_println, utils::net::calculate_checksum};
 
 const ICMP_ECHO_REPLY: u8 = 0;
 const ICMP_ECHO_REQUEST: u8 = 8;
@@ -135,7 +135,7 @@ fn send_icmp_reply(
 }
 
 /// Sends a PING packet to a destination. 
-pub fn send_ping(dst_ip: [u8; 4], sequence: u16) -> Result<(), &'static str> {
+pub fn send_ping(dst_ip: [u8; 4], sequence: u16) -> Result<(), NullexError> {
 	let dst_mac = match super::get_next_hop_mac(dst_ip) {
 		Ok(mac) => mac,
 		Err(_) => {
@@ -147,11 +147,11 @@ pub fn send_ping(dst_ip: [u8; 4], sequence: u16) -> Result<(), &'static str> {
 
 			serial_println!("[PING] Resolving next hop MAC");
 			super::arp::send_arp_request(next_hop)?;
-			return Err("MAC not cached, ARP sent");
+			return Err(NullexError::MacNotCached);
 		}
 	};
 
-	let our_mac = super::get_our_mac().ok_or("No MAC")?;
+	let our_mac = super::get_our_mac().ok_or(NullexError::MissingMacAddress)?;
 
 	let icmp_data = b"Nullex Kernel Ping!";
 	let total_len = 14 + 20 + 8 + icmp_data.len();

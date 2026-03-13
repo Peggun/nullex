@@ -7,11 +7,7 @@
 use alloc::vec::Vec;
 
 use crate::{
-	allocator::io_alloc::IO_ALLOC,
-	common::ports::{inl, outb, outl, outq, outw},
-	lazy_static,
-	serial_println,
-	utils::{
+	allocator::io_alloc::IO_ALLOC, common::ports::{inl, outb, outl, outq, outw}, error::NullexError, lazy_static, serial_println, utils::{
 		mutex::SpinMutex,
 		types::{DWORD, WORD}
 	}
@@ -58,7 +54,7 @@ impl Bdf {
 }
 
 /// Callback type for finalizing device initialization after IOAPIC setup
-pub type DeviceFinalizeCallback = fn() -> Result<(), &'static str>;
+pub type DeviceFinalizeCallback = fn() -> Result<(), NullexError>;
 
 /// Representation of a discovered PCI Device
 #[allow(dead_code)]
@@ -98,8 +94,9 @@ impl PciDevice {
 	}
 
 	/// Get the interrupt line from this device.
-	pub fn interrupt_line(&self) -> u8 {
-		pci_config_read::<u8>(self.bdf, 0x3C).unwrap()
+	pub fn interrupt_line(&self) -> Result<u8, NullexError> {
+		pci_config_read::<u8>(self.bdf, 0x3C)
+			.map_err(|_| NullexError::Io("Failed to read interrupt line"))
 	}
 
 	/// Set the finalize callback for this device
@@ -120,7 +117,7 @@ pub struct DriverInfo {
 	/// The subclass of the driver
 	pub subclass: Option<u8>,
 	/// The function which probes and ebales the PCI device.
-	pub probe: Option<fn(&mut PciDevice) -> Result<usize, &'static str>>
+	pub probe: Option<fn(&mut PciDevice) -> Result<usize, NullexError>>
 }
 
 /// Registers a drvier to the driver table.
@@ -136,7 +133,7 @@ pub fn register_driver(info: DriverInfo) {
 }
 
 /// Finalize all PCI devices.
-pub fn finalize_all_devices() -> Result<(), &'static str> {
+pub fn finalize_all_devices() -> Result<(), NullexError> {
 	serial_println!("[PCI] Finalizing all devices with pending callbacks...");
 
 	let callbacks: Vec<DeviceFinalizeCallback> = {
@@ -220,7 +217,7 @@ where
 }
 
 /// Write `N` type to the PCI Config. Assuming N is a unsigned integer.
-pub fn pci_config_write<N>(bdf: Bdf, offset: u8, value: N) -> Result<(), &'static str>
+pub fn pci_config_write<N>(bdf: Bdf, offset: u8, value: N) -> Result<(), NullexError>
 where
 	N: Into<u64> + Copy
 {
@@ -260,20 +257,38 @@ pub fn discover_pci_devices() {
 				device: slot,
 				func: 0
 			};
-			let vendor = pci_config_read::<WORD>(bdf, 0x00).unwrap();
+			let vendor = match pci_config_read::<WORD>(bdf, 0x00) {
+				Ok(v) => v,
+				Err(_) => {
+					serial_println!("[PCI] Warning: Failed to read vendor ID for {:02x}:{:02x}.0", bus, slot);
+					continue;
+				}
+			};
 			if vendor == 0xFFFF {
 				continue;
 			}
 
 			handle_function(bdf, vendor);
 
-			let header_type = pci_config_read::<WORD>(bdf, 0x0E).unwrap();
+			let header_type = match pci_config_read::<WORD>(bdf, 0x0E) {
+				Ok(h) => h,
+				Err(_) => {
+					serial_println!("[PCI] Warning: Failed to read header type for {:02x}:{:02x}.0", bus, slot);
+					continue;
+				}
+			};
 			let multifunction = (header_type & 0x80) != 0;
 
 			if multifunction {
 				for func in 1..8 {
 					bdf.func = func;
-					let vendor = pci_config_read::<WORD>(bdf, 0x00).unwrap();
+					let vendor = match pci_config_read::<WORD>(bdf, 0x00) {
+						Ok(v) => v,
+						Err(_) => {
+							serial_println!("[PCI] Warning: Failed to read vendor ID for {:02x}:{:02x}.{}", bus, slot, func);
+							continue;
+						}
+					};
 					if vendor != 0xFFFF {
 						handle_function(bdf, vendor);
 					}
@@ -286,9 +301,21 @@ pub fn discover_pci_devices() {
 }
 
 fn handle_function(bdf: Bdf, vendor: u16) {
-	let device = pci_config_read::<WORD>(bdf, 0x02).unwrap();
+	let device = match pci_config_read::<WORD>(bdf, 0x02) {
+		Ok(d) => d,
+		Err(_) => {
+			serial_println!("[PCI] Warning: Failed to read device ID for {:02x}:{:02x}.{}", bdf.bus, bdf.device, bdf.func);
+			return;
+		}
+	};
 
-	let class_reg = pci_config_read::<WORD>(bdf, 0x0A).unwrap();
+	let class_reg = match pci_config_read::<WORD>(bdf, 0x0A) {
+		Ok(c) => c,
+		Err(_) => {
+			serial_println!("[PCI] Warning: Failed to read class register for {:02x}:{:02x}.{}", bdf.bus, bdf.device, bdf.func);
+			return;
+		}
+	};
 	let class = (class_reg >> 8) as u8;
 	let subclass = (class_reg & 0xFF) as u8;
 	let info = DriverInfo {
@@ -361,12 +388,14 @@ pub fn try_bind_device(idx: usize) {
 }
 
 /// Enables the specified `PciDevice` for use.
-pub fn pci_enable_device(dev: &mut PciDevice) -> Result<(), &'static str> {
+pub fn pci_enable_device(dev: &mut PciDevice) -> Result<(), NullexError> {
 	let bar_offset = 0x10;
-	let orig = pci_config_read::<DWORD>(dev.bdf, bar_offset).unwrap();
+	let orig = pci_config_read::<DWORD>(dev.bdf, bar_offset)
+		.map_err(|_| NullexError::Io("Failed to read original BAR value"))?;
 
 	pci_config_write::<DWORD>(dev.bdf, bar_offset, 0xFFFF_FFFF)?;
-	let mask = pci_config_read::<DWORD>(dev.bdf, bar_offset).unwrap();
+	let mask = pci_config_read::<DWORD>(dev.bdf, bar_offset)
+		.map_err(|_| NullexError::Io("Failed to read BAR size mask"))?;
 
 	pci_config_write::<DWORD>(dev.bdf, bar_offset, orig)?;
 
@@ -375,7 +404,7 @@ pub fn pci_enable_device(dev: &mut PciDevice) -> Result<(), &'static str> {
 		let size = (!size_mask).wrapping_add(1);
 
 		if size == 0 {
-			return Err("I/O Bar Size == 0");
+			return Err(NullexError::Io("I/O Bar Size == 0"));
 		}
 
 		let assigned_base = orig & !0x3u32;
@@ -388,7 +417,7 @@ pub fn pci_enable_device(dev: &mut PciDevice) -> Result<(), &'static str> {
 				Some(base) => {
 					if (base & (size - 1)) != 0 {
 						IO_ALLOC.lock().free(base, size);
-						return Err("allocator returned misaligned I/O base");
+						return Err(NullexError::MisalignedIoBase);
 					}
 
 					dev.io_base = Some(base as usize);
@@ -397,11 +426,12 @@ pub fn pci_enable_device(dev: &mut PciDevice) -> Result<(), &'static str> {
 					let to_write = (base & !0x3u32) | 0x1u32;
 					pci_config_write::<DWORD>(dev.bdf, bar_offset, to_write)?;
 				}
-				None => return Err("Unable to allocate I/O ports")
+				None => return Err(NullexError::Io("Unable to allocate I/O ports"))
 			}
 		}
 
-		let mut cmd = pci_config_read::<WORD>(dev.bdf, 0x04).unwrap();
+		let mut cmd = pci_config_read::<WORD>(dev.bdf, 0x04)
+			.map_err(|_| NullexError::Io("Failed to read command register"))?;
 		cmd |= PCI_COMMAND_IO;
 		cmd |= PCI_BUS_MASTER;
 		pci_config_write::<WORD>(dev.bdf, 0x04, cmd)?;
@@ -422,8 +452,10 @@ pub fn pci_enable_device(dev: &mut PciDevice) -> Result<(), &'static str> {
 pub fn pci_find_index_from_gsi(gsi: usize) -> Option<usize> {
 	let devs = PCI_DEVICES.lock();
 	for (idx, dev) in devs.iter().enumerate() {
-		if dev.interrupt_line() as usize == gsi {
-			return Some(idx);
+		if let Ok(intr_line) = dev.interrupt_line() {
+			if intr_line as usize == gsi {
+				return Some(idx);
+			}
 		}
 	}
 	None

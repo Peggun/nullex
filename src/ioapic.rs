@@ -182,7 +182,7 @@ impl RedirectionTableEntry {
 
 	/// Returns the interrupt delivery mode.
 	pub fn mode(&self) -> IrqMode {
-		self.low.try_into().unwrap()
+		self.low.try_into().unwrap_or(IrqMode::Fixed)
 	}
 
 	/// Sets the interrupt delivery mode to `mode`.

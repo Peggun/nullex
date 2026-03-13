@@ -1,3 +1,4 @@
+# Descriptive Makefile Compilation
 arch ?= x86_64
 kernel := build/kernel-$(arch).bin
 iso := build/os-$(arch).iso
@@ -17,11 +18,12 @@ CARGO_FLAGS ?=
 all: $(kernel)
 
 clean:
+	@echo "Cleaning build directory..."
 	@rm -rf build
 	@cargo clean
 
 run: $(iso)
-	@echo "Running QEMU (CI=$(CI))"; \
+	@echo "Starting QEMU with ISO image..."; \
 	if [ -n "$(CI)" ]; then \
 	  mkdir -p build; \
 	  sudo qemu-system-x86_64 -cdrom $(iso) -serial stdio -monitor vc -machine q35 -netdev tap,id=net0,ifname=tap0,script=no,downscript=no -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04; \
@@ -29,7 +31,7 @@ run: $(iso)
 	  sudo qemu-system-x86_64 -cdrom $(iso) -serial stdio -monitor vc -machine q35 -netdev tap,id=net0,ifname=tap0,script=no,downscript=no -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04; \
 	fi; \
 	EXIT=$$?; \
-	echo "qemu host exit code: $$EXIT"; \
+	echo "QEMU host exit code: $$EXIT"; \
 	if [ -z "$$EXIT" ]; then \
 	  echo "Warning: QEMU exit code empty; using 1"; EXIT=1; \
 	fi; \
@@ -55,19 +57,23 @@ run: $(iso)
 	fi
 
 debug: $(iso)
+	@echo "Starting QEMU in debug mode..."
 	sudo qemu-system-x86_64 -cdrom $(iso) -serial stdio -monitor vc -machine q35 -netdev tap,id=net0,ifname=tap0,script=no,downscript=no -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04; -D ./qemu.log -d int
 
 build: $(iso)
 
 test:
+	@echo "Running tests..."
 	@$(MAKE) run CARGO_FLAGS="--features test"
 
 test-ci:
+	@echo "Running CI tests..."
 	@$(MAKE) run CARGO_FLAGS="--features test" CI=1
 
 iso: $(iso)
 
 $(iso): $(kernel) $(grub_cfg)
+	@echo "Creating ISO image..."
 	@mkdir -p build/isofiles/boot/grub
 	@cp $(kernel) build/isofiles/boot/kernel.bin
 	@cp $(grub_cfg) build/isofiles/boot/grub
@@ -75,13 +81,16 @@ $(iso): $(kernel) $(grub_cfg)
 	@rm -r build/isofiles
 
 $(kernel): kernel $(rust_os) $(assembly_object_files) $(linker_script)
+	@echo "Linking kernel..."
 	@ld -n --gc-sections -T $(linker_script) -o $(kernel) \
 		$(assembly_object_files) $(rust_os)
 
 kernel:
+	@echo "Building kernel with Cargo..."
 	@cargo build --target $(target) $(CARGO_FLAGS)
 
 # compile assembly files
 build/arch/$(arch)/%.o: src/arch/$(arch)/%.asm
+	@echo "Compiling assembly file $<..."
 	@mkdir -p $(shell dirname $@)
 	@nasm -felf64 $< -o $@

@@ -694,7 +694,7 @@ pub unsafe fn parse_multiboot2(mbi_addr: usize) -> BootInformation {
 				_ => println!("Unknown multiboot tag.")
 			}
 
-			tag = (tag as *const u8).add((((*tag).size + 7) & !7).try_into().unwrap())
+		tag = (tag as *const u8).add((((*tag).size + 7) & !7).try_into().unwrap_or(0))
 				as *const MultibootTag;
 			let total = (tag as *const u8 as usize).wrapping_sub(mbi_addr);
 			println!("Total mbi size: 0x{:X}", total);

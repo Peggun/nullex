@@ -14,7 +14,7 @@ use core::{
 
 use x86_64::{PhysAddr, VirtAddr, align_up};
 
-use crate::{bitflags, common::ports::outw};
+use crate::{bitflags, common::ports::outw, ensure, error::NullexError};
 
 const VIRTIO_IO_DEVICE_FEATURES: usize = 0x00;
 const VIRTIO_IO_DRIVER_FEATURES: usize = 0x04;
@@ -210,10 +210,8 @@ impl VirtQueue {
 		phys_addr: PhysAddr,
 		len: u32,
 		device_writes: bool
-	) -> Result<u16, &'static str> {
-		if self.num_free == 0 {
-			return Err("virtqueue full");
-		}
+	) -> Result<u16, NullexError> {
+		ensure!(self.num_free > 0, NullexError::VirtQueueFull);
 
 		let idx = self.free_head;
 
@@ -285,7 +283,7 @@ impl VirtQueue {
 	}
 }
 
-fn virtqueue_size(qsize: usize) -> usize {
+fn virtqueue_size(qsize: usize) -> Result<usize, NullexError> {
 	let desc_size = qsize * core::mem::size_of::<VirtqueueDescriptor>();
 	let avail_size =
 		core::mem::size_of::<VirtqueueAvailable>() + qsize * core::mem::size_of::<u16>();
@@ -293,8 +291,10 @@ fn virtqueue_size(qsize: usize) -> usize {
 	let used_size = core::mem::size_of::<VirtqueueUsed>()
 		+ qsize * core::mem::size_of::<VirtqueueUsedElement>();
 
-	let used_offset = align_up((desc_size + avail_size).try_into().unwrap(), 4096);
-	(used_offset + used_size as u64).try_into().unwrap()
+	let used_offset = align_up((desc_size + avail_size).try_into()
+		.map_err(|_| NullexError::Io("Queue offset overflow"))?, 4096);
+	(used_offset as u64 + used_size as u64).try_into()
+		.map_err(|_| NullexError::Io("Queue memory overflow"))
 }
 
 /// Trait for all Virtio Devices to implement.
@@ -304,7 +304,7 @@ pub trait VirtioDevice {
 	/// Set driver features.
 	fn set_driver_features(&mut self, features: u64);
 	/// Allocate a Virtqueue for the device.
-	fn alloc_virtqueue(&mut self, virtq: u16) -> Result<VirtQueue, &'static str>;
+	fn alloc_virtqueue(&mut self, virtq: u16) -> Result<VirtQueue, NullexError>;
 	/// Get the current driver status.
 	fn driver_status(&mut self) -> u16;
 	/// Set the current driver status.
@@ -316,5 +316,5 @@ pub trait VirtioDevice {
 	fn supported_features(&mut self) -> u64;
 
 	/// Initialise the VirtIO device.
-	fn init(&mut self) -> Result<(), &'static str>;
+	fn init(&mut self) -> Result<(), NullexError>;
 }

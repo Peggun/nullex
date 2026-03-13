@@ -10,7 +10,7 @@ use core::{future::Future, pin::Pin, sync::atomic::{AtomicBool, Ordering}};
 use futures::task::AtomicWaker;
 
 use crate::{
-	apic::{APIC_TICK_COUNT, APIC_TPS}, task::{Process, ProcessId, ProcessState, executor::EXECUTOR, yield_now}, utils::oncecell::cell::OnceCell
+	apic::{APIC_TICK_COUNT, APIC_TPS}, error::NullexError, task::{Process, ProcessId, ProcessState, executor::EXECUTOR, yield_now}, utils::oncecell::cell::OnceCell
 };
 
 /// Spawns a process using the provided future function.
@@ -23,6 +23,8 @@ use crate::{
 ///
 /// # Returns
 ///
+/// The ProcessId of the newly spawned process, or a NullexError if spawn fails.
+///
 /// # Example
 /// ```rs
 /// 
@@ -32,9 +34,7 @@ use crate::{
 ///     false
 /// );
 /// ```
-///
-/// The ProcessId of the newly spawned process.
-pub fn spawn_process<F>(future_fn: F, is_child: bool) -> ProcessId
+pub fn spawn_process<F>(future_fn: F, is_child: bool) -> Result<ProcessId, NullexError>
 where
 	F: Fn(Arc<ProcessState>) -> Pin<Box<dyn Future<Output = i32>>> + Send + Sync + 'static
 {
@@ -55,8 +55,8 @@ where
 	// construct the process.
 	let process = Process::new(state);
 	// spawn the process.
-	executor.spawn_process(process);
-	pid
+	executor.spawn_process(process)?;
+	Ok(pid)
 }
 
 #[allow(unused)]

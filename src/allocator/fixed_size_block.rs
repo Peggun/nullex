@@ -10,7 +10,7 @@ use core::{
 };
 
 use super::Locked;
-use crate::allocator::linked_list;
+use crate::{allocator::linked_list, kassert};
 
 /// The block sizes to use.
 /// Must be powers of 2
@@ -70,10 +70,16 @@ unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
 					node as *mut ListNode as *mut u8
 				}
 				None => {
+					// NOTE: GlobalAlloc trait requires returning *mut u8, cannot propagate errors.
+					// Panics here indicate out-of-memory or internal allocator corruption.
 					panic!("alloc error");
 				}
 			},
-			None => panic!("alloc error")
+			None => {
+				// NOTE: GlobalAlloc trait requires returning *mut u8. Size exceeds all available
+				// block sizes, must use fallback allocator (not yet implemented).
+				panic!("alloc error")
+			}
 		}
 	}
 
@@ -85,13 +91,15 @@ unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
 					next: allocator.list_heads[index].take()
 				};
 				// verify that block has size and alignment required for storing node
-				assert!(mem::size_of::<ListNode>() <= BLOCK_SIZES[index]);
-				assert!(mem::align_of::<ListNode>() <= BLOCK_SIZES[index]);
+				kassert!(mem::size_of::<ListNode>() <= BLOCK_SIZES[index], "size of `ListNode` is bigger that BLOCK_SIZE");
+				kassert!(mem::align_of::<ListNode>() <= BLOCK_SIZES[index], "alignment of `ListNode` is bigger that BLOCK_SIZE");
 				let new_node_ptr = ptr as *mut ListNode;
 				unsafe { new_node_ptr.write(new_node) };
 				allocator.list_heads[index] = Some(unsafe { &mut *new_node_ptr });
 			}
 			None => {
+				// NOTE: GlobalAlloc trait requires returning unit. Invalid deallocation
+				// (size mismatch) indicates memory corruption or double-free attempt.
 				panic!("dealloc error")
 			}
 		}

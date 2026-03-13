@@ -5,8 +5,7 @@
 //! 
 
 use crate::{
-	common::ports::{inb, inl, inq, inw, outb, outl, outq, outw},
-	utils::types::{BYTE, DWORD, QWORD, WORD}
+	common::ports::{inb, inl, inq, inw, outb, outl, outq, outw}, error::NullexError, utils::types::{BYTE, DWORD, QWORD, WORD}
 };
 
 pub mod keyboard;
@@ -35,7 +34,7 @@ where
 }
 
 /// Write `N` type to an IO port.
-pub fn io_write<N>(base: usize, offset: usize, value: N) -> Result<(), &'static str>
+pub fn io_write<N>(base: usize, offset: usize, value: N) -> Result<(), NullexError>
 where
 	N: Into<u64> + Copy
 {

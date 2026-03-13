@@ -12,7 +12,7 @@ use core::{
 use x86_64::instructions::interrupts;
 
 use crate::{
-	interrupts::APIC_TIMER_VECTOR, rtc::read_rtc_time, utils::mutex::SpinMutex
+	error::NullexError, interrupts::APIC_TIMER_VECTOR, rtc::read_rtc_time, utils::mutex::SpinMutex
 };
 
 /// The base address of the APIC Timer
@@ -179,9 +179,9 @@ pub unsafe fn start_timer_periodic(timer_vector: u8, initial_count: u32) {
 /// Calibrate the LAPIC timer using the RTC
 ///
 /// Returns the (ticks_per_second, recommended_initial_count) on success
-pub fn calibrate(target_hz: u32) -> Result<(u64, u32), &'static str> {
+pub fn calibrate(target_hz: u32) -> Result<(u64, u32), NullexError> {
 	if target_hz == 0 {
-		return Err("target_hz must be > 0")
+		return Err(NullexError::ValueBelowZero)
 	}
 
 	interrupts::disable();
@@ -213,12 +213,12 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), &'static str> {
 
 	let ticks_per_second = start_count.wrapping_sub(end_count) as u64;
 	if ticks_per_second == 0 {
-		return Err("measured zero ticks_per_second; calibration failed");
+		return Err(NullexError::CalibrationFailed("measured zero ticks per second."));
 	}
 
 	let initial_count_u64 = ticks_per_second / (target_hz as u64);
 	if initial_count_u64 == 0 || initial_count_u64 > u32::MAX as u64 {
-		return Err("computed invalid initial_count; adjust target_hz or check APIC timer range");
+		return Err(NullexError::InvalidInitialCount);
 	}
 	let initial_count = initial_count_u64 as u32;
 

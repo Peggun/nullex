@@ -10,6 +10,8 @@ use core::{
 	ptr
 };
 
+use crate::kassert;
+
 use super::{Locked, align_up};
 
 struct ListNode {
@@ -59,8 +61,8 @@ impl LinkedListAllocator {
 	/// Adds the given memory region to the front of the list.
 	unsafe fn add_free_region(&mut self, addr: usize, size: usize) {
 		// ensure that the freed region is capable of holding ListNode
-		assert_eq!(align_up(addr, mem::align_of::<ListNode>()), addr);
-		assert!(size >= mem::size_of::<ListNode>());
+		kassert!(align_up(addr, mem::align_of::<ListNode>()) == addr, "addr is not equal to ListNode aligned up");
+		kassert!(size >= mem::size_of::<ListNode>(), "size is less than size of ListNode");
 
 		// create a new list node and append it at the start of the list
 		let mut node = ListNode::new(size);

@@ -23,13 +23,7 @@ use x86_64::{
 };
 
 use crate::{
-	PHYS_MEM_OFFSET,
-	allocator::{self, ALLOCATOR_INFO},
-	arch::x86_64::bootinfo::{MemoryMap, MemoryRegionType},
-	lazy_static,
-	println,
-	serial_println,
-	utils::{
+	PHYS_MEM_OFFSET, allocator::{self, ALLOCATOR_INFO}, arch::x86_64::bootinfo::{MemoryMap, MemoryRegionType}, ensure, error::NullexError, kassert, lazy_static, println, serial_println, utils::{
 		multiboot2::{__link_phys_base, _end, compute_phys_map_offset},
 		mutex::SpinMutex
 	}
@@ -49,7 +43,7 @@ pub struct DmaBuffer {
 	/// The Physical Address of the DMA buffer
 	pub phys: PhysAddr,
 	/// The Virtual Address of the DMA buffer
-	pub virt: VirtAddr,
+	pub virt: VirtAddr,	
 	/// The length of the DMA buffer
 	pub len: usize
 }
@@ -59,11 +53,8 @@ pub struct DmaBuffer {
 pub fn init_global_alloc(
 	mut mapper: OffsetPageTable<'static>,        
 	mut frame_allocator: BootInfoFrameAllocator  
-) -> Result<(), &'static str> {
-	match allocator::init_heap(&mut mapper, &mut frame_allocator) {
-		Ok(()) => println!("[Info] Heap pages mapped successfully"),
-		Err(e) => panic!("Heap mapping failed: {:?}", e)
-	}
+) -> Result<(), NullexError> {
+	kassert!(allocator::init_heap(&mut mapper, &mut frame_allocator).is_ok(), "heap not allocated.");
 
 	unsafe {
 		allocator::LOCAL_HEAP_ALLOCATOR
@@ -226,9 +217,11 @@ pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static>
 /// Allocates a direct memory access block of `size` bytes.
 pub fn dma_alloc(size: usize) -> Option<(VirtAddr, PhysAddr)> {
 	let mut mapper_binding = ALLOCATOR_INFO.mapper.lock();
-	let mapper_slot = mapper_binding.as_mut().unwrap();
+	let mapper_slot = mapper_binding.as_mut()
+		.expect("Mapper not initialized during DMA allocation");
 	let mut frame_binding = ALLOCATOR_INFO.frame_allocator.lock();
-	let frame_slot = frame_binding.as_mut().unwrap();
+	let frame_slot = frame_binding.as_mut()
+		.expect("Frame allocator not initialized during DMA allocation");
 
 	let page_count = (size + 4095) / 4096;
 

@@ -39,10 +39,7 @@ use x86_64::structures::paging::{
 };
 
 use crate::{
-	lazy_static,
-	memory::BootInfoFrameAllocator,
-	println,
-	utils::{
+	bail, ensure, error::NullexError, kassert, lazy_static, memory::BootInfoFrameAllocator, println, utils::{
 		mutex::{SpinMutex, SpinMutexGuard},
 		spin::rwlock::RwLock
 	}
@@ -119,7 +116,7 @@ fn alloc_error_handler(layout: alloc::Layout) -> ! {
 pub fn init_heap(
 	mapper: &mut impl Mapper<Size4KiB>,
 	frame_allocator: &mut impl FrameAllocator<Size4KiB>
-) -> Result<(), MapToError<Size4KiB>> {
+) -> Result<(), NullexError> {
 	use x86_64::VirtAddr;
 
 	println!("[Info] Initializing Heap...");
@@ -127,8 +124,8 @@ pub fn init_heap(
 	// Basic sanity checks
 	#[expect(clippy::assertions_on_constants)]
 	{
-		assert!(HEAP_SIZE > 0, "HEAP_SIZE must be > 0");
-		assert!(
+		kassert!(HEAP_SIZE > 0, "HEAP_SIZE must be > 0");
+		kassert!(
 			HEAP_START.is_multiple_of(4096),
 			"HEAP_START must be page-aligned"
 		);
@@ -139,37 +136,23 @@ pub fn init_heap(
 	let heap_end_u64 = heap_start_u64
 		.checked_add(HEAP_SIZE as u64)
 		.and_then(|v| v.checked_sub(1))
-		.expect("HEAP_START + HEAP_SIZE overflow");
+		.ok_or(NullexError::InitFailed("HEAP_START + HEAP_SIZE overflow"))?;
 
-	// Check canonicalness instead of letting VirtAddr::new panic invisibly
-	if VirtAddr::try_new(heap_start_u64).is_err() {
-		panic!(
-			"HEAP_START (0x{:x}) is not a canonical virtual address",
-			heap_start_u64
-		);
-	}
-	if VirtAddr::try_new(heap_end_u64).is_err() {
-		panic!(
-			"HEAP_END (0x{:x}) is not a canonical virtual address",
-			heap_end_u64
-		);
-	}
+	ensure!(VirtAddr::try_new(heap_start_u64).is_ok(), NullexError::NonCanonicalAddress(unsafe { VirtAddr::new_unsafe(heap_start_u64) }));
 
 	let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_start_u64));
 	let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_end_u64));
 
 	let start_index = start_page.start_address().as_u64() / 4096;
 	let end_index = end_page.start_address().as_u64() / 4096;
-	assert!(start_index <= end_index, "heap start page > heap end page");
+	kassert!(start_index <= end_index, "heap start page > heap end page");
 
 	let num_pages = end_index - start_index + 1;
 	// avoid absurd page counts
 	let max_reasonable_pages: u64 = 10 * 1024 * 1024; // ~10M pages (≈40GB)
-	assert!(
-		num_pages <= max_reasonable_pages,
-		"heap range too large: {} pages",
-		num_pages
-	);
+	if num_pages > max_reasonable_pages {
+		bail!(NullexError::InitFailed("heap range too large."));
+	}
 
 	println!(
 		"[Info] heap: start=0x{:x}, end=0x{:x}, pages={}, start_page=0x{:x}, end_page=0x{:x}",
@@ -187,7 +170,7 @@ pub fn init_heap(
 
 		let frame = frame_allocator
 			.allocate_frame()
-			.ok_or(MapToError::FrameAllocationFailed)?;
+			.ok_or(NullexError::FrameAllocationFailed)?;
 		let flags = PageTableFlags::PRESENT | PageTableFlags::WRITABLE;
 
 		unsafe {

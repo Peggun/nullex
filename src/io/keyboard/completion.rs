@@ -66,52 +66,50 @@ pub fn tab_completion(line: &mut String) {
 			if matches.len() == 1 {
 				match completion_type {
 					CompletionType::File => {
-						if file_types[files.iter().position(|r| r == matches[0].as_str()).unwrap()]
-							== "File"
-						{
-							let match_str = matches.pop().unwrap();
+						if let Some(pos) = files.iter().position(|r| r == matches[0].as_str()) {
+							if file_types[pos] == "File" {
+								let match_str = matches.pop().unwrap();
 
-							// remove the part of the line that is being
-							// completed.
-							for _ in 0..part.len() {
-								line.pop();
-								console_backspace();
+								// remove the part of the line that is being
+								// completed.
+								for _ in 0..part.len() {
+									line.pop();
+									console_backspace();
+								}
+
+								line.push_str(match_str);
+								print!("{}", match_str);
 							}
-
-							line.push_str(match_str);
-							print!("{}", match_str);
 						}
 					}
 					CompletionType::Directory => {
-						if file_types[files.iter().position(|r| r == matches[0].as_str()).unwrap()]
-							== "Directory"
-						{
-							let match_str = matches.pop().unwrap();
+						if let Some(pos) = files.iter().position(|r| r == matches[0].as_str()) {
+							if file_types[pos] == "Directory" {
+								let match_str = matches.pop().unwrap();
 
-							for _ in 0..part.len() {
-								line.pop();
-								console_backspace();
+								for _ in 0..part.len() {
+									line.pop();
+									console_backspace();
+								}
+
+								line.push_str(match_str);
+								print!("{}", match_str);
 							}
-
-							line.push_str(match_str);
-							print!("{}", match_str);
 						}
 					}
 					CompletionType::Both => {
-						if file_types[files.iter().position(|r| r == matches[0].as_str()).unwrap()]
-							== "Directory" || file_types
-							[files.iter().position(|r| r == matches[0].as_str()).unwrap()]
-							== "File"
-						{
-							let match_str = matches.pop().unwrap();
+						if let Some(pos) = files.iter().position(|r| r == matches[0].as_str()) {
+							if file_types[pos] == "Directory" || file_types[pos] == "File" {
+								let match_str = matches.pop().unwrap();
 
-							for _ in 0..part.len() {
-								line.pop();
-								console_backspace();
+								for _ in 0..part.len() {
+									line.pop();
+									console_backspace();
+								}
+
+								line.push_str(match_str);
+								print!("{}", match_str);
 							}
-
-							line.push_str(match_str);
-							print!("{}", match_str);
 						}
 					}
 					_ => return
@@ -123,19 +121,19 @@ pub fn tab_completion(line: &mut String) {
 				match completion_type {
 					CompletionType::File => {
 						for m in matches {
-							if file_types[files.iter().position(|r| r == m.as_str()).unwrap()]
-								== "File"
-							{
-								println!("{}", m);
+							if let Some(pos) = files.iter().position(|r| r == m.as_str()) {
+								if file_types[pos] == "File" {
+									println!("{}", m);
+								}
 							}
 						}
 					}
 					CompletionType::Directory => {
 						for m in matches {
-							if file_types[files.iter().position(|r| r == m.as_str()).unwrap()]
-								== "Directory"
-							{
-								println!("{}", m);
+							if let Some(pos) = files.iter().position(|r| r == m.as_str()) {
+								if file_types[pos] == "Directory" {
+									println!("{}", m);
+								}
 							}
 						}
 					}

@@ -146,8 +146,10 @@ fn sys_split() -> i32 {
 		waker: AtomicWaker::new()
 	});
 	let child_process = Process::new(child_state);
-	executor.spawn_process(child_process);
-	child_pid.get() as i32
+	match executor.spawn_process(child_process) {
+		Ok(()) => child_pid.get() as i32,
+		Err(_) => -1, // Return error code on spawn failure
+	}
 }
 
 fn sys_waiton() -> i32 {

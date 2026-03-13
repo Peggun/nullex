@@ -13,9 +13,7 @@ use core::{
 use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
-	apic::{APIC_TICK_COUNT, PIC_EOI, PIC1_CMD, PIC2_CMD, send_eoi}, common::ports::{inb, outb}, drivers::{
-		keyboard::queue::add_scancode,
-	}, gdt, hlt_loop, lazy_static, println, rtc::{
+	apic::{APIC_TICK_COUNT, PIC_EOI, PIC1_CMD, PIC2_CMD, send_eoi}, common::ports::{inb, outb}, drivers::keyboard::queue::add_scancode, error::NullexError, gdt, hlt_loop, lazy_static, println, rtc::{
 		CMOS_DATA,
 		CMOS_INDEX,
 		NMI_BIT,
@@ -295,7 +293,7 @@ extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 /// Allocates and registers a vector to the IOAPIC
 pub fn allocate_and_register_vector(
 	handler: extern "x86-interrupt" fn(InterruptStackFrame)
-) -> Result<usize, &'static str> {
+) -> Result<usize, NullexError> {
 	let mut idx = 48;
 	let mut vec_table = VECTOR_TABLE.lock();
 
@@ -315,5 +313,5 @@ pub fn allocate_and_register_vector(
 		}
 	}
 
-	Err("vector table full") // table full
+	Err(NullexError::VectorTableFull) // table full
 }

@@ -7,9 +7,7 @@
 use alloc::vec::Vec;
 
 use crate::{
-	lazy_static,
-	serial_println,
-	utils::{mutex::SpinMutex, net::calculate_checksum}
+	error::NullexError, lazy_static, serial_println, utils::{mutex::SpinMutex, net::calculate_checksum}
 };
 
 lazy_static! {
@@ -72,7 +70,7 @@ pub fn send_udp(
 	src_port: u16,
 	dst_port: u16,
 	payload: &[u8]
-) -> Result<(), &'static str> {
+) -> Result<(), NullexError> {
 	let dst_mac = match super::get_next_hop_mac(dst_ip) {
 		Ok(mac) => mac,
 		Err(_) => {
@@ -91,11 +89,11 @@ pub fn send_udp(
 				next_hop[3]
 			);
 			super::arp::send_arp_request(next_hop)?;
-			return Err("MAC not cached");
+			return Err(NullexError::MacNotCached);
 		}
 	};
 
-	let our_mac = super::get_our_mac().ok_or("No MAC")?;
+	let our_mac = super::get_our_mac().ok_or(NullexError::MissingMacAddress)?;
 
 	let total_len = 14 + 20 + 8 + payload.len();
 	let mut packet = alloc::vec![0u8; total_len];

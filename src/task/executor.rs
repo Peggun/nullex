@@ -10,7 +10,7 @@ use core::{sync::atomic::Ordering, task::Waker};
 use crossbeam_queue::ArrayQueue;
 
 use super::{Process, ProcessId, ProcessState};
-use crate::{lazy_static, println, serial_println, utils::mutex::SpinMutex};
+use crate::{error::NullexError, lazy_static, println, serial_println, utils::mutex::SpinMutex};
 
 lazy_static! {
 	/// Static reference to the current process that is running.
@@ -47,13 +47,14 @@ impl Executor {
 
 
 	/// Spawns a new process.
-	pub fn spawn_process(&mut self, process: Process) {
+	pub fn spawn_process(&mut self, process: Process) -> Result<(), NullexError> {
 		let pid = process.state.id;
 		let process_arc = Arc::new(SpinMutex::new(process));
 		if self.processes.insert(pid, process_arc).is_some() {
-			panic!("process with same ID already in processes");
+			return Err(NullexError::ProcessAlreadyExists);
 		}
-		self.process_queue.push(pid).expect("queue full");
+		self.process_queue.push(pid).map_err(|_| NullexError::ProcessQueueFull)?;
+		Ok(())
 	}
 
 	/// Sleeps the executor if there are no pending processes.

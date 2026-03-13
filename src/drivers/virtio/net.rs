@@ -10,9 +10,7 @@ use core::ptr::write_bytes;
 use x86_64::{align_up, structures::idt::InterruptStackFrame};
 
 use crate::{
-	apic::send_eoi,
-	common::ports::{inb, inw, outl, outw},
-	drivers::virtio::{
+	apic::send_eoi, common::ports::{inb, inw, outl, outw}, drivers::virtio::{
 		VIRTIO_IO_DEVICE_CFG,
 		VIRTIO_IO_DEVICE_FEATURES,
 		VIRTIO_IO_DEVICE_STATUS,
@@ -28,17 +26,11 @@ use crate::{
 		VirtqueueDescriptor,
 		VirtqueueUsed,
 		virtqueue_size
-	},
-	gsi::GSI_TABLE,
-	io::{
+	}, error::NullexError, gsi::GSI_TABLE, io::{
 		io_read,
 		io_write,
 		pci::{DriverInfo, PciDevice, VIRTIO_PCI_VENDOR_ID, pci_enable_device, register_driver}
-	},
-	lazy_static,
-	memory::{DmaBuffer, dma_alloc},
-	serial_println,
-	utils::{
+	}, lazy_static, memory::{DmaBuffer, dma_alloc}, serial_println, utils::{
 		endian::{Le16, Le32},
 		mutex::SpinMutex,
 		types::{BYTE, QWORD}
@@ -298,7 +290,7 @@ impl VirtioNet {
 }
 
 impl VirtioDevice for VirtioNet {
-	fn alloc_virtqueue(&mut self, qidx: u16) -> Result<VirtQueue, &'static str> {
+	fn alloc_virtqueue(&mut self, qidx: u16) -> Result<VirtQueue, NullexError> {
 		unsafe {
 			outw(
 				(self.io_base + VIRTIO_IO_QUEUE_SELECT).try_into().unwrap(),
@@ -306,10 +298,10 @@ impl VirtioDevice for VirtioNet {
 			);
 			let size = inw((self.io_base + VIRTIO_IO_QUEUE_SIZE).try_into().unwrap());
 			if size == 0 {
-				return Err("queue not available");
+				return Err(NullexError::VirtQueueUnavailable);
 			}
 
-			let layout_size = virtqueue_size(size as usize);
+			let layout_size = virtqueue_size(size as usize)?;
 			let (virt_addr, phys_addr) = dma_alloc(layout_size).ok_or("dma_alloc failed")?;
 			write_bytes(virt_addr.as_mut_ptr::<u8>(), 0, layout_size);
 
@@ -396,7 +388,7 @@ impl VirtioDevice for VirtioNet {
 		self.negotiated_features
 	}
 
-	fn init(&mut self) -> Result<(), &'static str> {
+	fn init(&mut self) -> Result<(), NullexError> {
 		let supported = self.supported_features();
 		let want = supported & NET_DRIVER_SUPPORTED_FEATURES;
 		self.set_driver_features(want);
@@ -496,7 +488,7 @@ fn _rx_replenish_one(desc_id: u16, _old_buf: DmaBuffer) {
 }
 
 /// Transmit a packet to the transport queue (TX)
-pub fn transmit_packet(packet: &[u8]) -> Result<(), &'static str> {
+pub fn transmit_packet(packet: &[u8]) -> Result<(), NullexError> {
 	serial_println!("[VIRTIO-NET] TX packet ({} bytes)", packet.len());
 	serial_println!("[VIRTIO-NET] Packet contents (Ethernet header):");
 	serial_println!(
@@ -559,7 +551,7 @@ pub fn transmit_packet(packet: &[u8]) -> Result<(), &'static str> {
 	Ok(())
 }
 
-fn virtio_net_finalize() -> Result<(), &'static str> {
+fn virtio_net_finalize() -> Result<(), NullexError> {
 	serial_println!("[VIRTIO-NET] Finalizing device (setting DRIVER_OK)");
 
 	let mut instance = VIRTIO_NET_INSTANCE.lock();
@@ -568,7 +560,7 @@ fn virtio_net_finalize() -> Result<(), &'static str> {
 		serial_println!("[VIRTIO-NET] Device finalized at io_base={:#x}", io_base);
 		Ok(())
 	} else {
-		Err("No VirtIO network instance")
+		Err(NullexError::MissingVirtIOInstance)
 	}
 }
 
@@ -585,7 +577,7 @@ pub fn virtio_net_driver_init() {
 }
 
 /// Probe the virtio net device.
-pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, &'static str> {
+pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, NullexError> {
 	serial_println!("[VIRTIO-NET] Probing device {:?}", dev.bdf);
 
 	pci_enable_device(dev)?;
@@ -616,7 +608,7 @@ pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, &'static str> {
 
 	if !virtio_net.has_status(VirtIODeviceStatus::FEATURES_OK.bits()) {
 		virtio_net.set_driver_status(VirtIODeviceStatus::FAILED.bits());
-		return Err("device rejected features");
+		return Err(NullexError::DeviceRejectedFeatures);
 	}
 
 	let mac = {
@@ -647,7 +639,7 @@ pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, &'static str> {
 	let status = unsafe { inb((io_base + VIRTIO_IO_DEVICE_STATUS) as u16) };
 	serial_println!("[VIRTIO-NET] Device status register: {:#x}", status);
 	if (status & VirtIODeviceStatus::DRIVER_OK.bits()) == 0 {
-		return Err("DRIVER_OK not set!");
+		return Err(NullexError::DriverNotOk);
 	}
 
 	{
@@ -658,7 +650,7 @@ pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, &'static str> {
 
 	*VIRTIO_NET_INSTANCE.lock() = Some((virtio_net, io_base));
 
-	let gsi = dev.interrupt_line() as usize;
+	let gsi = dev.interrupt_line()? as usize;
 	serial_println!("[VIRTIO-NET] Device uses GSI {}", gsi);
 
 	*VIRTIO_NET_DEVICE.lock() = Some(VirtioNetDevice {

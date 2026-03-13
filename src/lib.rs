@@ -1,5 +1,5 @@
+//! 
 //! lib.rs
-
 //!
 //! Kernel module for the kernel.
 //!
@@ -22,6 +22,7 @@
 #![feature(macro_metavar_expr_concat)]
 #![feature(new_range_api)]
 #![feature(allocator_api)]
+#![feature(const_convert)]
 
 #[macro_use]
 extern crate alloc;
@@ -80,9 +81,7 @@ use crate::{
 	ioapic::{IOAPIC, dump_gsi},
 	memory::{BootInfoFrameAllocator, init_global_alloc},
 	task::{
-		Process,
-		executor::{self, CURRENT_PROCESS, EXECUTOR},
-		keyboard
+		Process, ProcessId, executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard
 	},
 	utils::{multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process}
 };
@@ -133,8 +132,10 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	{
 		let mut m_lock = ALLOCATOR_INFO.mapper.lock();
 		let mut f_lock = ALLOCATOR_INFO.frame_allocator.lock();
-		let mapper = m_lock.as_mut().unwrap();
-		let frame_allocator = f_lock.as_mut().unwrap();
+		let mapper = m_lock.as_mut()
+			.expect("FATAL: Mapper not initialized during APIC setup");
+		let frame_allocator = f_lock.as_mut()
+			.expect("FATAL: Frame allocator not initialized during APIC setup");
 
 		*APIC_BASE.lock() = pmo_val.as_u64() as usize + 0xFEE0_0000usize;
 		memory::map_apic(*mapper, *frame_allocator, pmo_val);
@@ -248,7 +249,7 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	WRITER.lock().clear_everything();
 
 	// Spawn processes
-	let _cmds_pid = spawn_process(
+	let _cmds_pid = match spawn_process(
 		|_state| {
 			Box::pin(async move {
 				crate::keyboard::commands::init_commands();
@@ -256,12 +257,24 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 			}) as Pin<Box<dyn Future<Output = i32>>>
 		},
 		false
-	);
+	) {
+		Ok(pid) => pid,
+		Err(e) => {
+			serial_println!("[ERROR] Failed to spawn commands process: {}", e);
+			ProcessId::new(0)
+		}
+	};
 
-	let _keyboard_pid = spawn_process(
+	let _keyboard_pid = match spawn_process(
 		|_state| Box::pin(print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>,
 		false
-	);
+	) {
+		Ok(pid) => pid,
+		Err(e) => {
+			serial_println!("[ERROR] Failed to spawn keyboard process: {}", e);
+			ProcessId::new(0)
+		}
+	};
 
 	// Main executor loop
 	let process_queue = EXECUTOR.lock().process_queue.clone();

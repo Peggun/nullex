@@ -11,7 +11,7 @@ pub mod icmp;
 pub mod ipv4;
 pub mod udp;
 
-use crate::{drivers::virtio::net::VIRTIO_NET_INSTANCE, serial_println};
+use crate::{drivers::virtio::net::VIRTIO_NET_INSTANCE, error::NullexError, serial_println};
 
 /// Our IP
 /// currently manually set based on QEMU config.
@@ -67,7 +67,7 @@ pub fn receive_packet(pkt: *const u8, len: usize) {
 	}
 }
 
-fn send_packet(packet: &[u8]) -> Result<(), &'static str> {
+fn send_packet(packet: &[u8]) -> Result<(), NullexError> {
 	crate::drivers::virtio::net::transmit_packet(packet)
 }
 
@@ -87,7 +87,7 @@ fn is_local_ip(ip: [u8; 4]) -> bool {
 	true
 }
 
-fn get_next_hop_mac(dst_ip: [u8; 4]) -> Result<[u8; 6], &'static str> {
+fn get_next_hop_mac(dst_ip: [u8; 4]) -> Result<[u8; 6], NullexError> {
 	let next_hop_ip = if is_local_ip(dst_ip) {
 		dst_ip
 	} else {
@@ -98,12 +98,13 @@ fn get_next_hop_mac(dst_ip: [u8; 4]) -> Result<[u8; 6], &'static str> {
 		GATEWAY_IP
 	};
 
+	// next hop
 	let cache = arp::ARP_CACHE.lock();
 	cache
 		.iter()
 		.find(|(ip, _)| *ip == next_hop_ip)
 		.map(|(_, mac)| *mac)
-		.ok_or("Next hop MAC not cached")
+		.ok_or(NullexError::MacNotCached)
 }
 
 fn format_ip(ip: [u8; 4]) -> alloc::string::String {

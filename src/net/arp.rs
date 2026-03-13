@@ -6,7 +6,7 @@
 
 use alloc::vec::Vec;
 
-use crate::{lazy_static, serial_println, utils::mutex::SpinMutex};
+use crate::{error::NullexError, lazy_static, serial_println, utils::mutex::SpinMutex};
 
 const ARP_OP_REQUEST: u16 = 1;
 const ARP_OP_REPLY: u16 = 2;
@@ -138,8 +138,8 @@ fn send_arp_reply(target_mac: &[u8; 6], target_ip: &[u8; 4]) {
 }
 
 /// Sends an ARP request to the target IP address.
-pub fn send_arp_request(target_ip: [u8; 4]) -> Result<(), &'static str> {
-	let our_mac = super::get_our_mac().ok_or("No MAC address")?;
+pub fn send_arp_request(target_ip: [u8; 4]) -> Result<(), NullexError> {
+	let our_mac = super::get_our_mac().ok_or(NullexError::MissingMacAddress)?;
 
 	let mut packet = [0u8; 42];
 
@@ -171,7 +171,7 @@ pub fn send_arp_request(target_ip: [u8; 4]) -> Result<(), &'static str> {
 }
 
 /// Waits for an ARP reply.
-pub fn wait_for_arp(ip: [u8; 4], timeout_ms: u32) -> Result<[u8; 6], &'static str> {
+pub fn wait_for_arp(ip: [u8; 4], timeout_ms: u32) -> Result<[u8; 6], NullexError> {
 	let poll_interval = 10; // ms
 	let max_iterations = timeout_ms / poll_interval;
 
@@ -246,7 +246,7 @@ pub fn wait_for_arp(ip: [u8; 4], timeout_ms: u32) -> Result<[u8; 6], &'static st
 		ip[2],
 		ip[3]
 	);
-	Err("ARP timeout")
+	Err(NullexError::ArpFailed)
 }
 
 /// Gets the cached IP address from `ARP_CACHE` if it has been cached.

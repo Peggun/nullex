@@ -6,7 +6,7 @@
 
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
-use crate::{lazy_static, serial_println, utils::mutex::SpinMutex};
+use crate::{error::NullexError, lazy_static, serial_println, utils::mutex::SpinMutex};
 
 // DNS server (QEMU Default)
 // quick note here. 10.0.2.3 is the usermode DNS address
@@ -35,7 +35,7 @@ pub fn init() {
 }
 
 /// Resolves a hostname to an IP Address.
-pub fn resolve(hostname: &str) -> Result<[u8; 4], &'static str> {
+pub fn resolve(hostname: &str) -> Result<[u8; 4], NullexError> {
 	{
 		let cache = DNS_CACHE.lock();
 		if let Some((_, ip)) = cache.iter().find(|(name, _)| name == hostname) {
@@ -57,7 +57,7 @@ pub fn resolve(hostname: &str) -> Result<[u8; 4], &'static str> {
 	wait_for_dns_response(query_id, hostname)
 }
 
-fn wait_for_dns_response(query_id: u16, hostname: &str) -> Result<[u8; 4], &'static str> {
+fn wait_for_dns_response(query_id: u16, hostname: &str) -> Result<[u8; 4], NullexError> {
 	let poll_interval = 10; // ms
 	let max_iterations = DNS_TIMEOUT_MS / poll_interval;
 
@@ -97,10 +97,10 @@ fn wait_for_dns_response(query_id: u16, hostname: &str) -> Result<[u8; 4], &'sta
 	responses.remove(&query_id);
 	let mut pending = PENDING_QUERIES.lock();
 	pending.remove(&query_id);
-	Err("DNS timeout")
+	Err(NullexError::DnsTimeout)
 }
 
-fn send_dns_query(hostname: &str) -> Result<u16, &'static str> {
+fn send_dns_query(hostname: &str) -> Result<u16, NullexError> {
 	use alloc::string::ToString;
 
 	let transaction_id = {
@@ -156,7 +156,7 @@ fn send_dns_query(hostname: &str) -> Result<u16, &'static str> {
 				pending.remove(&transaction_id);
 				let mut responses = DNS_RESPONSES.lock();
 				responses.remove(&transaction_id);
-				return Err("Failed to resolve gateway MAC");
+				return Err(NullexError::FailedToResolve("gateway MAC"));
 			}
 		}
 	};

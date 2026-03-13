@@ -10,7 +10,7 @@ use core::ptr::{addr_of, read_unaligned};
 use x86_64::VirtAddr;
 
 use crate::{
-	PHYS_MEM_OFFSET, apic::{PIC1_DATA, PIC2_DATA}, common::ports::outb, gsi::{GSI_TABLE, program_gsi_vector}, interrupts::allocate_and_register_vector, io::pci::{pci_find_index_from_gsi, try_bind_device}, lazy_static, serial_println, utils::mutex::SpinMutex
+	PHYS_MEM_OFFSET, apic::{PIC1_DATA, PIC2_DATA}, common::ports::outb, error::NullexError, gsi::{GSI_TABLE, program_gsi_vector}, interrupts::allocate_and_register_vector, io::pci::{pci_find_index_from_gsi, try_bind_device}, lazy_static, serial_println, utils::mutex::SpinMutex
 };
 
 // https://wiki.osdev.org/RSDT
@@ -141,9 +141,9 @@ struct Rsdt {
 #[allow(unused)]
 impl Rsdt {
 	// incase. not used currently, *const T is in use.
-	pub fn new(header: AcpiSdtHeader) -> Result<Self, &'static str> {
+	pub fn new(header: AcpiSdtHeader) -> Result<Self, NullexError> {
 		if str::from_utf8(&header.signature).unwrap() != RSDT_TABLE_SIGNATURE {
-			return Err("Incorrect RSDT Signature.\nAre you sure you are trying to parse RSDT?")
+			return Err(NullexError::InvalidAcpiSignature("Incorrect RSDT Signature.\nAre you sure you are trying to parse RSDT?"))
 		}
 
 		let ptos = (header.length as usize - size_of::<AcpiSdtHeader>()) / 4;

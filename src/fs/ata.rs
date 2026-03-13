@@ -10,6 +10,8 @@
 
 use x86_64::instructions::{interrupts, port::Port};
 
+use crate::error::NullexError;
+
 pub struct AtaDisk {
 	data_port: Port<u16>,
 	pub sector_count_port: Port<u8>,
@@ -37,7 +39,7 @@ impl AtaDisk {
 		}
 	}
 
-	pub fn wait_ready(&mut self) -> Result<(), &'static str> {
+	pub fn wait_ready(&mut self) -> Result<(), NullexError> {
 		let mut timeout = 100_000;
 		unsafe {
 			while timeout > 0 {
@@ -46,17 +48,17 @@ impl AtaDisk {
 					// BSY clear
 					if status & 0x21 != 0 {
 						// check ERR/DF
-						return Err("Drive error");
+						return Err(NullexError::AtaDriveError);
 					}
 					return Ok(());
 				}
 				timeout -= 1;
 			}
 		}
-		Err("Timeout waiting for drive")
+		Err(NullexError::AtaTimeout)
 	}
 
-	pub fn read_sector(&mut self, lba: u32, buf: &mut [u8; 512]) -> Result<(), &'static str> {
+	pub fn read_sector(&mut self, lba: u32, buf: &mut [u8; 512]) -> Result<(), NullexError> {
 		interrupts::without_interrupts(|| {
 			unsafe {
 				// select `slave` drive (second disk in QEMU)
