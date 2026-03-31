@@ -302,7 +302,7 @@ impl VirtioDevice for VirtioNet {
 			}
 
 			let layout_size = virtqueue_size(size as usize)?;
-			let (virt_addr, phys_addr) = dma_alloc(layout_size).ok_or("dma_alloc failed")?;
+			let (virt_addr, phys_addr) = dma_alloc(layout_size)?;
 			write_bytes(virt_addr.as_mut_ptr::<u8>(), 0, layout_size);
 
 			outl(
@@ -513,7 +513,7 @@ pub fn transmit_packet(packet: &[u8]) -> Result<(), NullexError> {
 
 	const HEADER_SIZE: usize = core::mem::size_of::<VirtioNetHeader>();
 	let total_size = HEADER_SIZE + packet.len();
-	let (virt_addr, phys_addr) = dma_alloc(total_size).ok_or("TX buffer alloc failed")?;
+	let (virt_addr, phys_addr) = dma_alloc(total_size)?;
 
 	unsafe {
 		let header = VirtioNetHeader::default();

@@ -22,30 +22,30 @@ pub unsafe fn get_cpu_clock() -> u32 {
 			"mov al, 0x0b",
 			"out 0x70, al",
 			"in al, 0x71",
-			"mov bl, al",
+			"mov r8b, al",
 			"mov al, 0x0b",
 			"out 0x70, al",
-			"mov al, bl",
+			"mov al, r8b",
 			"or al, 0x04",
 			"out 0x71, al",
 
-			// wait until RTC register A < 0x38 then capture current value into bl
+			// wait until RTC register A < 0x38 then capture current value into r8b
 			"2:",
 			"mov al, 0",
 			"out 0x70, al",
 			"in al, 0x71",
 			"cmp al, 0x38",
 			"jge 2b",
-			"mov bl, al",
+			"mov r8b, al",
 
-			// wait for next increment of RTC value (bl -> next value)
+			// wait for next increment of RTC value (r8b -> next value)
 			"3:",
 			"mov al, 0",
 			"out 0x70, al",
 			"in al, 0x71",
-			"cmp al, bl",
+			"cmp al, r8b",
 			"jle 3b",
-			"mov bl, al",
+			"mov r8b, al",
 
 			// first timestamp
 			"rdtsc",
@@ -58,7 +58,7 @@ pub unsafe fn get_cpu_clock() -> u32 {
 			"mov al, 0",
 			"out 0x70, al",
 			"in al, 0x71",
-			"cmp al, bl",
+			"cmp al, r8b",
 			"je 4b",
 
 			// second timestamp
@@ -76,10 +76,10 @@ pub unsafe fn get_cpu_clock() -> u32 {
 			"mov al, 0x0b",
 			"out 0x70, al",
 			"in al, 0x71",
-			"mov bl, al",
+			"mov r8b, al",
 			"mov al, 0x0b",
 			"out 0x70, al",
-			"mov al, bl",
+			"mov al, r8b",
 			"and al, 11111011b", // clear bit 2
 			"out 0x71, al",
 
@@ -89,7 +89,7 @@ pub unsafe fn get_cpu_clock() -> u32 {
 			// outputs / clobbers
 			lateout("eax") result,      // return value (low 32 bits of delta)
 			out("rdx") _,               // rdx/edx clobbered by rdtsc/ops
-			out("bl") _,                // we used bl
+			out("r8") _,                // we used r8b
 			out("r10") _, out("r11") _, // temporaries used to store first timestamp
 		);
 	}

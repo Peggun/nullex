@@ -35,7 +35,6 @@ use x86_64::structures::paging::{
 	PageSize,
 	PageTableFlags,
 	Size4KiB,
-	mapper::MapToError
 };
 
 use crate::{

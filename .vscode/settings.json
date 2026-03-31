@@ -3,9 +3,18 @@
   "rust-analyzer.cargo.loadOutDirsFromCheck": false,
   "rust-analyzer.procMacro.enable": false,
   "rust-analyzer.files.excludeDirs": ["target"],
+  "rust-analyzer.cargo.extraArgs": [
+    "-Zunstable-options",
+    "-Zjson-target-spec"
+  ],
+  "rust-analyzer.check.extraArgs": [
+    "-Zunstable-options",
+    "-Zjson-target-spec"
+  ],
   "files.watcherExclude": {
     "**/target/**": true,
     "**/node_modules/**": true
   },
-  "makefile.configureOnOpen": true
+  "makefile.configureOnOpen": true,
+  "C_Cpp.errorSquiggles": "enabled"
 }

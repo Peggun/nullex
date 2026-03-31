@@ -45,6 +45,15 @@ pub enum NullexError {
     /// Failed to allocate a contiguous memory block for Direct Memory Access.
     #[error("dma allocation failed")]
     DmaAllocFailed,
+    /// The kernel's `FrameAllocator` is not initialized.
+    #[error("frame allocator not initialized")]
+    FrameAllocatorNotInitialized,
+    /// The kernel's `Mapper` is not initialized.
+    #[error("mapper not initialized")]
+    MapperNotInitialized,
+    /// The kernel's mapper detects incorrect page table flags.
+    #[error("incorrect page table flags")]
+    IncorrectPageTableFlags,
 
     // --- Interrupt Errors --- //
     /// No free slots remain in the Interrupt Descriptor Table or vector list.
@@ -103,6 +112,11 @@ pub enum NullexError {
     /// The ATA drive reported an internal hardware or controller fault.
     #[error("ata drive error")]
     AtaDriveError,
+
+    // -- FS Errors -- //
+    /// The kernel cannot find the file specified.
+    #[error("file not found")]
+    FileNotFound,
 
     // --- VirtIO / Network Errors --- //
     /// The handshake or setup process for a VirtIO device failed.
@@ -188,6 +202,11 @@ pub enum NullexError {
     /// The process queue is full and cannot accept new processes.
     #[error("process queue full")]
     ProcessQueueFull,
+
+    // --- Process Errors (ELF) --- //
+    /// ELF magic number is incorrect
+    #[error("ELF magic number doesnt match")]
+    ElfMagicIncorrect,
 
     // non-panicking errors.
     /// A non-panicking failure occurred during a component's initialization phase.

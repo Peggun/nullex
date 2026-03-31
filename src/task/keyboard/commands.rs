@@ -20,8 +20,7 @@ use crate::{
 	serial_println,
 	task::{ProcessId, executor::EXECUTOR},
 	utils::{
-		logger::{levels::LogLevel, sinks::SYSLOG_SINK, traits::logger_sink::LoggerSink},
-		mutex::SpinMutex
+		elf::pelf, logger::{levels::LogLevel, sinks::SYSLOG_SINK, traits::logger_sink::LoggerSink}, mutex::SpinMutex
 	},
 	vga_buffer::WRITER
 };
@@ -206,6 +205,7 @@ pub fn init_commands() {
 		help: "Poll the RX queue",
 		cmd_type: CommandType::Generic
 	});
+	register_command(Command { name: "pelf", func: pelf, help: "Parse an ELF file", cmd_type: CommandType::Generic });
 
 	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
 }

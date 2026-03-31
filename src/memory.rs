@@ -18,12 +18,12 @@ use x86_64::{
 		PageTableFlags,
 		PhysFrame,
 		Size4KiB,
-		Translate
+		Translate, page::PageRange
 	}
 };
 
 use crate::{
-	PHYS_MEM_OFFSET, allocator::{self, ALLOCATOR_INFO}, arch::x86_64::bootinfo::{MemoryMap, MemoryRegionType}, ensure, error::NullexError, kassert, lazy_static, println, serial_println, utils::{
+	PHYS_MEM_OFFSET, allocator::{self, ALLOCATOR_INFO}, arch::x86_64::bootinfo::{MemoryMap, MemoryRegionType}, error::NullexError, kassert, lazy_static, println, serial_println, task::AddressSpace, utils::{
 		multiboot2::{__link_phys_base, _end, compute_phys_map_offset},
 		mutex::SpinMutex
 	}
@@ -135,6 +135,7 @@ pub fn map_ioapic(
 
 /// A FrameAllocator that returns usable frames from the bootloader's memory
 /// map.
+#[derive(Clone, Copy)]
 pub struct BootInfoFrameAllocator {
 	memory_map: &'static MemoryMap,
 	next: usize
@@ -143,7 +144,7 @@ pub struct BootInfoFrameAllocator {
 impl BootInfoFrameAllocator {
 	/// Create a FrameAllocator from the passed memory map.
 	pub fn init(memory_map: &'static MemoryMap) -> Self {
-		BootInfoFrameAllocator {
+		BootInfoFrameAllocator { 
 			memory_map,
 			next: 0
 		}
@@ -187,7 +188,7 @@ pub unsafe fn virt_to_phys(addr: VirtAddr) -> Option<PhysAddr> {
 }
 
 /// Returns a mutable reference to the active level 4 table.
-unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
+pub unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static mut PageTable {
 	use x86_64::registers::control::Cr3;
 
 	let (level_4_table_frame, _) = Cr3::read();
@@ -215,13 +216,11 @@ pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static>
 }
 
 /// Allocates a direct memory access block of `size` bytes.
-pub fn dma_alloc(size: usize) -> Option<(VirtAddr, PhysAddr)> {
+pub fn dma_alloc(size: usize) -> Result<(VirtAddr, PhysAddr), NullexError> {
 	let mut mapper_binding = ALLOCATOR_INFO.mapper.lock();
-	let mapper_slot = mapper_binding.as_mut()
-		.expect("Mapper not initialized during DMA allocation");
+	let mapper_slot = mapper_binding.as_mut().ok_or(NullexError::MapperNotInitialized)?;
 	let mut frame_binding = ALLOCATOR_INFO.frame_allocator.lock();
-	let frame_slot = frame_binding.as_mut()
-		.expect("Frame allocator not initialized during DMA allocation");
+	let frame_slot = frame_binding.as_mut().ok_or(NullexError::FrameAllocatorNotInitialized)?;
 
 	let page_count = (size + 4095) / 4096;
 
@@ -230,7 +229,7 @@ pub fn dma_alloc(size: usize) -> Option<(VirtAddr, PhysAddr)> {
 		if let Some(frame) = frame_slot.allocate_frame() {
 			frames.push(frame);
 		} else {
-			return None;
+			return Err(NullexError::FrameAllocationFailed);
 		}
 	}
 
@@ -240,7 +239,7 @@ pub fn dma_alloc(size: usize) -> Option<(VirtAddr, PhysAddr)> {
 				"[DMA] Allocation failed: Frames not contiguous at index {}",
 				i
 			);
-			return None;
+			return Err(NullexError::DmaAllocFailed);
 		}
 	}
 
@@ -259,11 +258,30 @@ pub fn dma_alloc(size: usize) -> Option<(VirtAddr, PhysAddr)> {
 
 		unsafe {
 			mapper_slot
-				.map_to(page, *frame, flags, *frame_slot)
-				.expect("Failed to map DMA page")
+				.map_to(page, *frame, flags, *frame_slot)?
 				.flush();
 		}
 	}
 
-	Some((virt_addr, first_phys))
+	Ok((virt_addr, first_phys))
 }
+
+/// Maps a range of memory within a `Process`'s `AddressSpace`.
+pub fn map_range(addr_space: &mut AddressSpace, pages: PageRange, flags: PageTableFlags) -> Result<(), NullexError> {
+	let mut frame_binding = ALLOCATOR_INFO.frame_allocator.lock();
+	let frame_allocator = frame_binding.as_mut().ok_or(NullexError::FrameAllocatorNotInitialized)?;
+
+	// we have to use a new mapper here because: global mapper: a view into whatever page table CR3 is currently using
+	// not the the process's page table
+	let table_ptr = unsafe { phys_to_virt(addr_space.page_table.start_address()) };
+	let mut mapper = unsafe { OffsetPageTable::new(&mut *table_ptr.as_mut_ptr(), *PHYS_MEM_OFFSET.lock()) };
+
+	for page in pages {
+		let frame = frame_allocator.allocate_frame().ok_or(NullexError::FrameAllocationFailed)?;
+
+		unsafe { mapper.map_to(page, frame, flags, *frame_allocator)?.flush(); }
+	}
+
+	Ok(())
+}
+

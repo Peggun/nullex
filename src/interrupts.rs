@@ -5,12 +5,11 @@
 //!
 
 use core::{
-	arch::asm,
 	mem::MaybeUninit,
 	sync::atomic::{AtomicBool, Ordering}
 };
 
-use x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
+use ::x86_64::structures::idt::{InterruptDescriptorTable, InterruptStackFrame, PageFaultErrorCode};
 
 use crate::{
 	apic::{APIC_TICK_COUNT, PIC_EOI, PIC1_CMD, PIC2_CMD, send_eoi}, common::ports::{inb, outb}, drivers::keyboard::queue::add_scancode, error::NullexError, gdt, hlt_loop, lazy_static, println, rtc::{
@@ -46,7 +45,7 @@ lazy_static! {
 /// Initializes the IDT (Interrupt Descriptor Table)
 pub unsafe fn init_idt() {
 	unsafe {
-		x86_64::instructions::interrupts::disable();
+		::x86_64::instructions::interrupts::disable();
 
 		let mut local_idt = InterruptDescriptorTable::new();
 
@@ -57,6 +56,8 @@ pub unsafe fn init_idt() {
 			.double_fault
 			.set_handler_fn(double_fault_handler)
 			.set_stack_index(gdt::DOUBLE_FAULT_IST_INDEX);
+		local_idt.general_protection_fault.set_handler_fn(general_protection_fault_handler);
+
 
 		// driver handlers
 		local_idt[APIC_TIMER_VECTOR as usize].set_handler_fn(apic_timer_handler);
@@ -65,7 +66,8 @@ pub unsafe fn init_idt() {
 		local_idt[RTC_VECTOR as usize].set_handler_fn(rtc_timer_handler);
 
 		// syscall handler
-		local_idt[SYSCALL_VECTOR as usize].set_handler_fn(syscall_handler);
+		local_idt[SYSCALL_VECTOR as usize].set_handler_fn(syscall_handler)
+    		.set_privilege_level(::x86_64::PrivilegeLevel::Ring3);
 
 		// Spurious interrupt handler
 		local_idt[0xFF].set_handler_fn(spurious_interrupt_handler);
@@ -86,7 +88,7 @@ pub unsafe fn add_idt_entry(
 	vector: usize,
 	handler: extern "x86-interrupt" fn(InterruptStackFrame)
 ) { unsafe {
-	x86_64::instructions::interrupts::without_interrupts(|| {
+	::x86_64::instructions::interrupts::without_interrupts(|| {
 		let storage_ptr: *mut MaybeUninit<InterruptDescriptorTable> =
 			core::ptr::addr_of_mut!(IDT_STORAGE);
 		let idt_ptr = storage_ptr as *mut InterruptDescriptorTable;
@@ -102,20 +104,59 @@ extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame) {
 	println!("EXCEPTION: BREAKPOINT\n{:#?}", stack_frame);
 }
 
-/// Double fault handler.
+extern "x86-interrupt" fn page_fault_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: PageFaultErrorCode
+) {
+    use ::x86_64::registers::control::Cr2;
+
+    let addr = Cr2::read();
+    serial_println!("EXCEPTION: PAGE FAULT");
+    serial_println!("Accessed Address: {:?}", addr);
+    serial_println!("Error Code: {:?}", error_code);
+    serial_println!("{:#?}", stack_frame);
+
+    println!("EXCEPTION: PAGE FAULT");
+    println!("Accessed Address: {:?}", addr);
+    println!("Error Code: {:?}", error_code);
+    println!("{:#?}", stack_frame);
+
+    hlt_loop();
+}
+
+extern "x86-interrupt" fn general_protection_fault_handler(
+    stack_frame: InterruptStackFrame,
+    error_code: u64,
+) {
+    serial_println!("\n\nGENERAL PROTECTION FAULT");
+    serial_println!("Error Code: {}", error_code);
+    serial_println!("StackFrame: {:#?}", stack_frame);
+
+    println!("\n\nGENERAL PROTECTION FAULT");
+    println!("Error Code: {}", error_code);
+    println!("StackFrame: {:#?}", stack_frame);
+
+    panic!("System halted");
+}
+
 extern "x86-interrupt" fn double_fault_handler(
-	stack_frame: InterruptStackFrame,
-	error_code: u64
+    stack_frame: InterruptStackFrame,
+    error_code: u64
 ) -> ! {
-	println!("\n\nDOUBLE FAULT");
-	println!("Error Code: {}", error_code);
-	println!("StackFrame: {:#?}", stack_frame);
-	panic!("System halted");
+    serial_println!("\n\nDOUBLE FAULT");
+    serial_println!("Error Code: {}", error_code);
+    serial_println!("StackFrame: {:#?}", stack_frame);
+
+    println!("\n\nDOUBLE FAULT");
+    println!("Error Code: {}", error_code);
+    println!("StackFrame: {:#?}", stack_frame);
+
+    panic!("System halted");
 }
 
 /// Keyboard interrupt handler.
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
-	use x86_64::instructions::port::Port;
+	use ::x86_64::instructions::port::Port;
 
 	let mut port = Port::new(0x60);
 	let scancode: u8 = unsafe { port.read() };
@@ -139,7 +180,7 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 }
 
 extern "x86-interrupt" fn serial_input_interrupt_handler(_stack_frame: InterruptStackFrame) {
-	use x86_64::instructions::port::Port;
+	use ::x86_64::instructions::port::Port;
 
 	loop {
 		let mut lsb = Port::<u8>::new(0x3FD);
@@ -164,35 +205,6 @@ extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStac
 	// Per x86_64 spec: do NOT send EOI for spurious interrupts
 }
 
-/// Page fault handler.
-extern "x86-interrupt" fn page_fault_handler(
-	stack_frame: InterruptStackFrame,
-	error_code: PageFaultErrorCode
-) {
-	#[cfg(not(feature = "test"))]
-	{
-		use x86_64::registers::control::Cr2;
-
-		println!("EXCEPTION: PAGE FAULT");
-		println!("Accessed Address: {:?}", Cr2::read());
-		println!("Error Code: {:?}", error_code);
-		println!("{:#?}", stack_frame);
-
-		hlt_loop();
-	}
-	#[cfg(feature = "test")]
-	{
-		use x86_64::registers::control::Cr2;
-
-		use crate::qemu_exit;
-
-		serial_println!("EXCEPTION: PAGE FAULT");
-		serial_println!("Accessed Address: {:?}", Cr2::read());
-		serial_println!("Error Code: {:?}", error_code);
-		serial_println!("{:#?}", stack_frame);
-		qemu_exit(1)
-	}
-}
 
 /// APIC Timer Interrupt Handler.
 ///
@@ -221,44 +233,35 @@ extern "x86-interrupt" fn rtc_timer_handler(_stack_frame: InterruptStackFrame) {
 }
 
 // 64-BIT! currently.
+#[unsafe(naked)]
 extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
-	let rax: u32; // syscall number
-	let arg1: u64;
-	let arg2: u64;
-	let arg3: u64;
+    core::arch::naked_asm!(
+        // save what we are about to clobber during the arg shuffle
+        "push rdi",
+        "push rsi",
+        "push rdx",
+        // shuffle (rax, rdi, rsi, rdx) -> (rdi, rsi, rdx, rcx) for SysV inner call
+        "mov rcx, rdx",
+        "mov rdx, rsi",
+        "mov rsi, rdi",
+        "mov edi, eax",
+        // Stack accounting:
+        // CPU pushed 5 qwords (40), we pushed 3 (24), total 64. 64%16=0.
+        // 'call' will push 8 more -> misaligned, so sub 8 first.
+        "sub rsp, 8",
+        "call {inner}",
+        "add rsp, 8",
+        // restore user registers (in reverse)
+        "pop rdx",
+        "pop rsi",
+        "pop rdi",
+        "iretq",
+        inner = sym syscall_handler_inner,
+    )
+}
 
-	// get syscall number and args
-	unsafe {
-		asm!(
-			"mov {rax_out:r}, rax",
-			"mov {rdi_out:r}, rdi",
-			"mov {rsi_out:r}, rsi",
-			"mov {rdx_out:r}, rdx",
-			rax_out = out(reg) rax,
-			rdi_out = out(reg) arg1,
-			rsi_out = out(reg) arg2,
-			rdx_out = out(reg) arg3,
-			options(nostack, nomem),
-		);
-	}
-
-	serial_println!(
-		"rax: {}, arg1: {}, arg2: {}, arg3: {}",
-		rax,
-		arg1,
-		arg2,
-		arg3
-	);
-
-	let ret = unsafe { syscall(rax, arg1, arg2, arg3, 0, 0) };
-
-	unsafe {
-		core::arch::asm!(
-			"mov rax, {0}",
-			in(reg) ret as u64,
-			options(nostack, nomem),
-		);
-	}
+extern "C" fn syscall_handler_inner(num: u32, a1: u64, a2: u64, a3: u64) -> i32 {
+    unsafe { syscall(num, a1, a2, a3, 0, 0) }
 }
 
 // extern "x86-interrupt" fn gsi_interrupt_dispatcher(_stack_frame:

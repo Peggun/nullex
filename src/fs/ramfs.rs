@@ -13,7 +13,7 @@ use core::{fmt, str};
 
 use hashbrown::HashMap;
 
-use crate::fs::init_fs;
+use crate::{fs::init_fs, utils::elf::HELLO_ELF};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// Permission Levels for file access.
@@ -139,7 +139,7 @@ impl FileSystem {
 	/// Creates a new file in the current `FileSystem`, unless one is already created.
 	pub fn create_file(&mut self, path: &str, perm: Permission) -> Result<(), FsError> {
 		let (dir_components, file_name) = Self::split_path(path)?;
-		let dir = self.get_dir_mut_from_components(&dir_components)?;
+		let dir = self.get_dir_mut_from_components(&dir_components.as_slice())?;
 
 		if dir.entries.contains_key(&file_name) {
 			return Err(FsError::AlreadyExists);
@@ -152,7 +152,7 @@ impl FileSystem {
 	/// Creates a new directory in the current `FileSystem`, unless one is already created.
 	pub fn create_dir(&mut self, path: &str, perm: Permission) -> Result<(), FsError> {
 		let (dir_components, dir_name) = Self::split_path(path)?;
-		let dir = self.get_dir_mut_from_components(&dir_components)?;
+		let dir = self.get_dir_mut_from_components(&dir_components.as_slice())?;
 
 		if dir.entries.contains_key(&dir_name) {
 			return Err(FsError::AlreadyExists);
@@ -188,7 +188,7 @@ impl FileSystem {
 	// todo: add read permission checks, forgot to add this before.
 	pub fn read_file(&self, path: &str) -> Result<&[u8], FsError> {
 		let file = self.get_file(path)?;
-		Ok(&file.content)
+		Ok(&file.content.as_slice())
 	}
 
 	// ----- HELPER FUNCTIONS ----- //
@@ -232,7 +232,7 @@ impl FileSystem {
 
 	fn get_dir(&self, path: &str) -> Result<&Directory, FsError> {
 		let components = self.resolve_path(path)?;
-		self.get_dir_from_components(&components)
+		self.get_dir_from_components(&components.as_slice())
 	}
 
 	fn get_dir_from_components(&self, components: &[String]) -> Result<&Directory, FsError> {
@@ -265,10 +265,10 @@ impl FileSystem {
 	/// Get a specific file from a file path.
 	pub fn get_file(&self, path: &str) -> Result<&File, FsError> {
 		let (dir_components, file_name) = Self::split_path(path)?;
-		let dir = self.get_dir_from_components(&dir_components)?;
+		let dir = self.get_dir_from_components(&dir_components.as_slice())?;
 
 		match dir.entries.get(&file_name) {
-			Some(Entry::File(file)) => Ok(file),
+			Some(Entry::File(file)) => Ok(&file),
 			Some(_) => Err(FsError::NotAFile),
 			None => Err(FsError::EntryNotFound)
 		}
@@ -276,7 +276,7 @@ impl FileSystem {
 
 	fn get_file_mut(&mut self, path: &str) -> Result<&mut File, FsError> {
 		let (dir_components, file_name) = Self::split_path(path)?;
-		let dir = self.get_dir_mut_from_components(&dir_components)?;
+		let dir = self.get_dir_mut_from_components(&dir_components.as_slice())?;
 
 		match dir.entries.get_mut(&file_name) {
 			Some(Entry::File(file)) => Ok(&mut *file),
@@ -332,7 +332,7 @@ impl FileSystem {
 	pub fn remove(&mut self, path: &str, del_dir: bool, recursive: bool) -> Result<(), FsError> {
 		// split the path into parent components and the name of the entry.
 		let (parent_components, name) = Self::split_path(path)?;
-		let parent_dir = self.get_dir_mut_from_components(&parent_components)?;
+		let parent_dir = self.get_dir_mut_from_components(&parent_components.as_slice())?;
 		// remove entry from parent's entries to gain ownership.
 		let entry = parent_dir
 			.entries
@@ -409,6 +409,10 @@ impl Default for FileSystem {
 pub fn setup_system_files(mut fs: FileSystem) {
 	fs.create_dir("/logs", Permission::all()).unwrap();
 	fs.create_dir("/proc", Permission::read()).unwrap();
+	fs.create_dir("/apps", Permission::all()).unwrap();
+
+	fs.create_file("/apps/hello.elf", Permission::all()).unwrap();
+	fs.write_file("/apps/hello.elf", HELLO_ELF, true).unwrap();
 
 	init_fs(fs);
 }

@@ -1,4 +1,3 @@
-# Descriptive Makefile Compilation
 arch ?= x86_64
 kernel := build/kernel-$(arch).bin
 iso := build/os-$(arch).iso
@@ -13,7 +12,20 @@ assembly_object_files := $(patsubst src/arch/$(arch)/%.asm, \
 
 CARGO_FLAGS ?=
 
-.PHONY: all clean run iso kernel build test test-ci miri
+PROG_SRCS := $(shell find programs -type f -name '*.c' ! -name '_start.c' 2>/dev/null)
+PROGS := $(patsubst programs/%.c, build/userspace/%.elf, $(PROG_SRCS))
+
+CC ?= x86_64-linux-gnu-gcc
+CFLAGS ?= -m64 -march=x86-64 -O2 -pipe -ffreestanding -fno-builtin \
+          -fno-stack-protector -fno-common -fno-pie -nostdlib -nostartfiles \
+          -static -e _start -Wl,--entry=_start
+
+LDFLAGS ?= -static
+
+USR_LINKER_SCRIPT ?=
+USR_CRT0 := programs/_start.c
+
+.PHONY: all clean run iso kernel build test test-ci miri userspace
 
 all: $(kernel)
 
@@ -58,7 +70,11 @@ run: $(iso)
 
 debug: $(iso)
 	@echo "Starting QEMU in debug mode..."
-	sudo qemu-system-x86_64 -cdrom $(iso) -serial stdio -monitor vc -machine q35 -netdev tap,id=net0,ifname=tap0,script=no,downscript=no -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04; -D ./qemu.log -d int
+	sudo qemu-system-x86_64 -S -s -cdrom $(iso) -serial stdio -monitor vc -machine q35 \
+		-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
+		-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 \
+		-rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+		-D ./qemu.log -d int
 
 build: $(iso)
 
@@ -80,17 +96,34 @@ $(iso): $(kernel) $(grub_cfg)
 	@grub-mkrescue -o $(iso) build/isofiles 2> /dev/null
 	@rm -r build/isofiles
 
-$(kernel): kernel $(rust_os) $(assembly_object_files) $(linker_script)
+$(kernel): userspace kernel $(rust_os) $(assembly_object_files) $(linker_script)
 	@echo "Linking kernel..."
 	@ld -n --gc-sections -T $(linker_script) -o $(kernel) \
 		$(assembly_object_files) $(rust_os)
 
-kernel:
+kernel: userspace
 	@echo "Building kernel with Cargo..."
 	@cargo build --target $(target) $(CARGO_FLAGS)
 
-# compile assembly files
 build/arch/$(arch)/%.o: src/arch/$(arch)/%.asm
 	@echo "Compiling assembly file $<..."
 	@mkdir -p $(shell dirname $@)
 	@nasm -felf64 $< -o $@
+
+userspace: $(PROGS)
+	@echo "Userspace programs built: $(words $(PROGS))"
+
+# Every .elf is compiled from its matching .c plus the shared _start.c
+build/userspace/%.elf: programs/%.c $(USR_CRT0)
+	@echo "Compiling userspace program: $< -> $@"
+	@mkdir -p $(dir $@)
+	@if [ -n "$(USR_LINKER_SCRIPT)" ]; then \
+		$(CC) $(CFLAGS) $(USR_CRT0) -o $@ $< $(LDFLAGS) -Wl,-T,$(USR_LINKER_SCRIPT); \
+	else \
+		$(CC) $(CFLAGS) $(USR_CRT0) -o $@ $< $(LDFLAGS); \
+	fi
+
+ifeq ($(strip $(PROGS)),)
+userspace:
+	@echo "No programs found in programs/ (PROG_SRCS empty)."
+endif

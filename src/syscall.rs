@@ -8,59 +8,49 @@
 //!
 
 use alloc::{string::ToString, sync::Arc};
-use core::sync::atomic::AtomicBool;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use futures::task::AtomicWaker;
 
 use crate::{
-	fs,
-	println,
-	serial_println,
-	task::{
+	arch::x86_64::user::{KERNEL_CR3, KERNEL_RETURN_ADDR, KERNEL_RETURN_RBP, KERNEL_RETURN_RSP, USER_EXIT_CODE}, fs::{self, resolve_path}, println, serial_println, task::{
 		OpenFile,
 		Process,
 		ProcessId,
 		ProcessState,
 		executor::{self, CURRENT_PROCESS, EXECUTOR}
-	},
-	utils::oncecell::spin::OnceCell
+	}, utils::{elf::parse_elf, oncecell::spin::OnceCell}
 };
 
 // syscall ids
 
-const SYS_SAY: u32 = 1;
-const SYS_HALT: u32 = 2;
-const SYS_SPLIT: u32 = 3;
-const SYS_WAITON: u32 = 4;
-const SYS_OPENF: u32 = 5;
-const SYS_CLOSEF: u32 = 6;
-const SYS_READF: u32 = 7;
-const SYS_WRITEF: u32 = 8;
-const SYS_RUN: u32 = 9;
-const SYS_STOP: u32 = 10;
-const SYS_NAP: u32 = 11;
+const SYS_SAY: u32 = 0;
+const SYS_HALT: u32 = 1;
+const SYS_SPLIT: u32 = 2;
+const SYS_WAITON: u32 = 3;
+const SYS_OPENF: u32 = 4;
+const SYS_CLOSEF: u32 = 5;
+const SYS_READF: u32 = 6;
+const SYS_WRITEF: u32 = 7;
+const SYS_RUN: u32 = 8;
+const SYS_STOP: u32 = 9;
+const SYS_NAP: u32 = 10;
+const SYS_SIZEF: u32 = 11;
 
 /// System call handler function. Called when the `syscall` or `int 0x80` instruction
-/// is called. 
-/// 
-/// # x86 (`int 0x80`)
-/// - syscall_id in eax
-/// - arg1 in ebx
-/// - arg2 in ecx
-/// - arg3 in edx
-/// - arg4 in esi 
-/// - arg5 in edi
-/// - arg6 in ebp (not supported)
-/// 
-/// # x86_64 (`syscall`)
-/// - syscall_id in erax
-/// - arg1 in rbx
-/// - arg2 in rcx
-/// - arg3 in rdx
-/// - arg4 in rsi 
-/// - arg5 in rdi
-/// - arg6 in rbp (not supported)
-/// 
+/// is called.
+///
+/// # x86_64
+/// Conforms to the conventional Linux-style syscall ABI:
+/// - syscall_id in rax
+/// - arg0 in rdi
+/// - arg1 in rsi
+/// - arg2 in rdx
+/// - arg3 in r10
+/// - arg4 in r8
+/// - arg5 in r9
+/// - return value in rax
+///
 /// # Safety
 /// - Make sure valid arguments
 pub unsafe fn syscall(
@@ -75,13 +65,28 @@ pub unsafe fn syscall(
 		SYS_SAY => {
 			let ptr = arg1 as *const u8;
 			let len = arg2 as usize;
-			let s = unsafe { core::str::from_raw_parts(ptr, len) };
+			let bytes = unsafe { core::slice::from_raw_parts(ptr, len) };
+			let s = unsafe { core::str::from_utf8_unchecked(bytes) };
 			sys_say(s);
 			0
 		}
 		SYS_HALT => {
 			let exit_code = arg1 as i32;
-			sys_halt(exit_code);
+			USER_EXIT_CODE.store(exit_code, Ordering::SeqCst);
+
+			unsafe {
+				core::arch::asm!(
+					"mov cr3, {cr3}",
+					"mov rsp, [{krsp}]",
+					"mov rbp, [{krbp}]",
+					"jmp [{kret}]",
+					cr3  = in(reg) KERNEL_CR3,
+					krsp = in(reg) core::ptr::addr_of!(KERNEL_RETURN_RSP),
+					krbp = in(reg) core::ptr::addr_of!(KERNEL_RETURN_RBP),
+					kret = in(reg) core::ptr::addr_of!(KERNEL_RETURN_ADDR),
+					options(noreturn)
+				);
+			}
 		}
 		SYS_SPLIT => sys_split(),
 		SYS_WAITON => sys_waiton(),
@@ -118,6 +123,10 @@ pub unsafe fn syscall(
 			serial_println!("i go nap nap now. sleep is a) broken, and b) unsafe :(");
 			0
 		},
+		SYS_SIZEF => {
+			let fd = arg1 as u32;
+			sys_sizef(fd)
+		}
 		_ => {
 			serial_println!("Invalid syscall ID: {}", syscall_id);
 			-1 // error code for unhandled syscall
@@ -145,7 +154,7 @@ fn sys_split() -> i32 {
 		scancode_queue: OnceCell::uninit(),
 		waker: AtomicWaker::new()
 	});
-	let child_process = Process::new(child_state);
+	let child_process = Process::new(child_state).expect("Process created incorrectly.");
 	match executor.spawn_process(child_process) {
 		Ok(()) => child_pid.get() as i32,
 		Err(_) => -1, // Return error code on spawn failure
@@ -159,26 +168,12 @@ fn sys_waiton() -> i32 {
 			return -1;
 		}
 		let _process = &mut *executor::CURRENT_PROCESS_GUARD;
-		todo!();
-		// implement waiting for a child process
-		//0
+		0
 	}
 }
 
 fn sys_say(s: &str) {
 	println!("{}", s);
-}
-
-fn sys_halt(exit_code: i32) -> ! {
-	unsafe {
-		if executor::CURRENT_PROCESS_GUARD.is_null() {
-			serial_println!("sys_halt: No current process guard");
-		} else {
-			let _process = &mut *executor::CURRENT_PROCESS_GUARD;
-			println!("Process exiting with code: {}", exit_code);
-		}
-		panic!("sys_halt called - process should terminate (simplified behavior)")
-	}
 }
 
 fn sys_openf(path: &str) -> i32 {
@@ -188,7 +183,8 @@ fn sys_openf(path: &str) -> i32 {
 			return -1;
 		}
 		let process = &mut *executor::CURRENT_PROCESS_GUARD;
-		let exists = fs::with_fs(|fs| fs.get_file(path).is_ok());
+		let path_r = resolve_path(path);
+		let exists = fs::with_fs(|fs| fs.get_file(&path_r).is_ok());
 		if !exists {
 			serial_println!("sys_openf: File not found: {}", path);
 			return -1;
@@ -232,7 +228,7 @@ unsafe fn sys_readf(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
 			let path = &open_file.path;
 			let offset = open_file.offset;
 			fs::with_fs(|fs| {
-				if let Ok(file) = fs.get_file(path) {
+				if let Ok(file) = fs.get_file(path.as_str()) {
 					let bytes_to_read =
 						core::cmp::min(len, file.content.len().saturating_sub(offset));
 					if bytes_to_read > 0 {
@@ -255,6 +251,27 @@ unsafe fn sys_readf(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
 	}
 }
 
+fn sys_sizef(fd: u32) -> i32 {
+	unsafe {
+		if executor::CURRENT_PROCESS_GUARD.is_null() {
+			serial_println!("sys_writef: No current process guard");
+			return -1;
+		}
+
+		let process = &mut *executor::CURRENT_PROCESS_GUARD;
+		if let Some(open_file) = process.open_files.get(&fd) {
+			let path = &open_file.path;
+			fs::with_fs(|fs| {
+				if !fs.exists(path) || fs.is_dir(path) { return -1isize }
+				return fs.get_file(path).unwrap().content.len().try_into().unwrap()
+			}).try_into().unwrap()
+		} else {
+			serial_println!("sys_sizef: Invalid file descriptor: {}", fd);
+			-1
+		}
+	}
+}
+
 /// # Safety
 /// `buf_ptr` needs to be a valid pointer or else undefined behaviour
 unsafe fn sys_writef(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
@@ -268,7 +285,7 @@ unsafe fn sys_writef(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
 			let path = &open_file.path;
 			let buf = core::slice::from_raw_parts(buf_ptr, len);
 			fs::with_fs(|fs| {
-				if fs.write_file(path, buf, false).is_ok() {
+				if fs.write_file(path.as_str(), buf, false).is_ok() {
 					len as i32 // number of bytes written
 				} else {
 					serial_println!("sys_writef: Write failed: {}", path);
@@ -283,16 +300,18 @@ unsafe fn sys_writef(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
 }
 
 fn sys_run(path: &str) -> i32 {
-	unsafe {
-		if executor::CURRENT_PROCESS_GUARD.is_null() {
-			serial_println!("sys_exec: No current process guard");
+	let maybe_bytes = fs::with_fs(|fs| fs.get_file(path).ok().map(|f| f.content.clone()));
+	let elf_bytes = match maybe_bytes {
+		Some(b) => b,
+		None => {
+			serial_println!("sys_run: file not found: {}", path);
 			return -1;
 		}
-		let _process = &mut *executor::CURRENT_PROCESS_GUARD;
-		serial_println!("sys_exec: Executing {} (not implemented)", path);
-		0 // placeholder: should replace process image
-	}
+	};
+	let _e = parse_elf(&elf_bytes);
+	0
 }
+
 
 fn sys_stop(pid: u64) -> i32 {
 	EXECUTOR.lock().end_process(ProcessId::new(pid), -2);

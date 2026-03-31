@@ -12,3 +12,4 @@
 8   run     # exec / replace process image
 9   stop    # kill / signal
 10  nap     # sleep
+11  sizef   # get the file size

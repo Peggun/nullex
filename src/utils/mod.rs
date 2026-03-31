@@ -9,9 +9,11 @@
 #[allow(unexpected_cfgs)]
 pub mod bitflags;
 pub mod bits;
+pub mod boot;
 #[deprecated]
 pub mod cpu_utils;
 #[allow(unused)]
+#[allow(non_camel_case_types)]
 pub mod elf;
 pub mod endian;
 #[deprecated]

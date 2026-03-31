@@ -5,6 +5,7 @@
 //! 
 
 use alloc::{boxed::Box, sync::Arc};
+use crossbeam_queue::ArrayQueue;
 use core::{future::Future, pin::Pin, sync::atomic::{AtomicBool, Ordering}};
 
 use futures::task::AtomicWaker;
@@ -53,10 +54,27 @@ where
 	});
 
 	// construct the process.
-	let process = Process::new(state);
+	let process = Process::new(state)?;
 	// spawn the process.
 	executor.spawn_process(process)?;
 	Ok(pid)
+}
+
+/// Spawns a new user process with restricted permissions.
+pub fn spawn_user_process(bytes: &[u8], args: &[&str], envs: &[&str]) -> Result<Process, NullexError> {
+	let mut executor = EXECUTOR.lock();
+	let pid = executor.create_pid();
+
+	let state = Arc::new(ProcessState {
+        id: pid,
+        is_child: false,
+        future_fn: Arc::new(|_| Box::pin(async { 0 })),
+        queued: AtomicBool::new(false),
+        scancode_queue: OnceCell::new(ArrayQueue::new(1)),
+        waker: AtomicWaker::new(),
+    });
+
+    Process::from_elf(state, bytes, args, envs)
 }
 
 #[allow(unused)]

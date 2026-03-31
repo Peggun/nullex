@@ -11,18 +11,10 @@
 #![warn(missing_docs)]
 
 #![feature(abi_x86_interrupt)]
-#![feature(step_trait)]
-#![feature(associated_type_defaults)]
 #![feature(alloc_error_handler)]
 #![feature(str_from_raw_parts)]
-#![feature(generic_atomic)]
-#![feature(string_from_utf8_lossy_owned)]
 #![feature(ptr_internals)]
-#![feature(fn_traits)]
-#![feature(macro_metavar_expr_concat)]
 #![feature(new_range_api)]
-#![feature(allocator_api)]
-#![feature(const_convert)]
 
 #[macro_use]
 extern crate alloc;
@@ -83,7 +75,7 @@ use crate::{
 	task::{
 		Process, ProcessId, executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard
 	},
-	utils::{multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process}
+	utils::{boot::init_efer, multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process}
 };
 // Bring in virtio driver registration function explicitly so we can register drivers
 use crate::drivers::virtio::net::virtio_net_driver_init;
@@ -113,6 +105,8 @@ fn hlt_loop() -> ! {
 pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	clear_screen!();
 	println!("[Info] Starting Kernel Init...");
+
+	init_efer();
 
 	// Parse boot info and initialize memory
 	let boot_info = unsafe { parse_multiboot2(mbi_addr) };
