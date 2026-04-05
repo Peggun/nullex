@@ -7,8 +7,10 @@
 pub mod arp;
 pub mod dns;
 pub mod ethernet;
+pub mod http;
 pub mod icmp;
 pub mod ipv4;
+pub mod tcp;
 pub mod udp;
 
 use crate::{drivers::virtio::net::VIRTIO_NET_INSTANCE, error::NullexError, serial_println};

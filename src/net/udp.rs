@@ -65,83 +65,112 @@ pub fn register_handler(port: u16, handler: fn(&[u8])) {
 }
 
 /// Sends a UDP packet to the destination IP
+/// Sends a UDP packet to the destination IP
 pub fn send_udp(
-	dst_ip: [u8; 4],
-	src_port: u16,
-	dst_port: u16,
-	payload: &[u8]
+    dst_ip: [u8; 4],
+    src_port: u16,
+    dst_port: u16,
+    payload: &[u8]
 ) -> Result<(), NullexError> {
-	let dst_mac = match super::get_next_hop_mac(dst_ip) {
-		Ok(mac) => mac,
-		Err(_) => {
-			// resolve next hop
-			let next_hop = if super::is_local_ip(dst_ip) {
-				dst_ip
-			} else {
-				super::GATEWAY_IP
-			};
+    let dst_mac = match super::get_next_hop_mac(dst_ip) {
+        Ok(mac) => mac,
+        Err(_) => {
+            let next_hop = if super::is_local_ip(dst_ip) {
+                dst_ip
+            } else {
+                super::GATEWAY_IP
+            };
 
-			serial_println!(
-				"[UDP] Resolving next hop MAC for {}.{}.{}.{}",
-				next_hop[0],
-				next_hop[1],
-				next_hop[2],
-				next_hop[3]
-			);
-			super::arp::send_arp_request(next_hop)?;
-			return Err(NullexError::MacNotCached);
-		}
-	};
+            serial_println!(
+                "[UDP] Resolving next hop MAC for {}.{}.{}.{}",
+                next_hop[0], next_hop[1], next_hop[2], next_hop[3]
+            );
+            super::arp::send_arp_request(next_hop)?;
+            return Err(NullexError::MacNotCached);
+        }
+    };
 
-	let our_mac = super::get_our_mac().ok_or(NullexError::MissingMacAddress)?;
+    let our_mac = super::get_our_mac().ok_or(NullexError::MissingMacAddress)?;
 
-	let total_len = 14 + 20 + 8 + payload.len();
-	let mut packet = alloc::vec![0u8; total_len];
+    let total_len = 14 + 20 + 8 + payload.len();
+    let mut packet = alloc::vec![0u8; total_len];
 
-	// ethernet header - use next hop MAC (might be gateway)
-	packet[0..6].copy_from_slice(&dst_mac);
-	packet[6..12].copy_from_slice(&our_mac);
-	packet[12..14].copy_from_slice(&super::ethernet::ETHERTYPE_IPV4.to_be_bytes());
+    // --- Ethernet header ---
+    packet[0..6].copy_from_slice(&dst_mac);
+    packet[6..12].copy_from_slice(&our_mac);
+    packet[12..14].copy_from_slice(&super::ethernet::ETHERTYPE_IPV4.to_be_bytes());
 
-	// IPv4 header - use actual destination IP
-	packet[14] = 0x45;
-	packet[15] = 0;
-	let ip_total_len = (20 + 8 + payload.len()) as u16;
-	packet[16..18].copy_from_slice(&ip_total_len.to_be_bytes());
-	packet[18..20].copy_from_slice(&1u16.to_be_bytes());
-	packet[20..22].copy_from_slice(&0u16.to_be_bytes());
-	packet[22] = 64;
-	packet[23] = super::ipv4::IP_PROTO_UDP;
-	packet[26..30].copy_from_slice(&super::OUR_IP);
-	packet[30..34].copy_from_slice(&dst_ip);
+    // --- IPv4 header ---
+    packet[14] = 0x45;                                          // version=4, IHL=5
+    packet[15] = 0;                                             // DSCP/ECN
+    let ip_total_len = (20 + 8 + payload.len()) as u16;
+    packet[16..18].copy_from_slice(&ip_total_len.to_be_bytes()); // total length
+    packet[18..20].copy_from_slice(&1u16.to_be_bytes());         // identification
+    packet[20..22].copy_from_slice(&0u16.to_be_bytes());         // flags/fragment offset
+    packet[22] = 64;                                             // TTL
+    packet[23] = super::ipv4::IP_PROTO_UDP;                      // protocol = UDP
+    // checksum at [24..26] — filled in below after calculation
+    packet[26..30].copy_from_slice(&super::OUR_IP);              // src IP
+    packet[30..34].copy_from_slice(&dst_ip);                     // dst IP
 
-	let ip_checksum = calculate_checksum(&packet[14..34]);
-	packet[24..26].copy_from_slice(&ip_checksum.to_be_bytes());
+    // IPv4 header checksum (covers bytes 14..34)
+    let ip_checksum = calculate_checksum(&packet[14..34]);
+    packet[24..26].copy_from_slice(&ip_checksum.to_be_bytes());
 
-	// UDP header
-	packet[34..36].copy_from_slice(&src_port.to_be_bytes());
-	packet[36..38].copy_from_slice(&dst_port.to_be_bytes());
-	let udp_len = (8 + payload.len()) as u16;
-	packet[38..40].copy_from_slice(&udp_len.to_be_bytes());
-	packet[40..42].copy_from_slice(&0u16.to_be_bytes());
+    // --- UDP header ---
+    let udp_len = (8 + payload.len()) as u16;
+    packet[34..36].copy_from_slice(&src_port.to_be_bytes());    // src port
+    packet[36..38].copy_from_slice(&dst_port.to_be_bytes());    // dst port
+    packet[38..40].copy_from_slice(&udp_len.to_be_bytes());     // length
+    // checksum at [40..42] — filled in below after calculation
 
-	// Payload
-	packet[42..].copy_from_slice(payload);
+    // --- Payload ---
+    packet[42..].copy_from_slice(payload);
 
-	super::send_packet(&packet)?;
-	serial_println!(
-		"[UDP] Sent to {}.{}.{}.{}:{} via MAC {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-		dst_ip[0],
-		dst_ip[1],
-		dst_ip[2],
-		dst_ip[3],
-		dst_port,
-		dst_mac[0],
-		dst_mac[1],
-		dst_mac[2],
-		dst_mac[3],
-		dst_mac[4],
-		dst_mac[5]
-	);
-	Ok(())
+    // --- UDP checksum ---
+    // The checksum covers a pseudo-header + the UDP header + payload.
+    // Pseudo-header layout (12 bytes):
+    //   [0..4]   source IP
+    //   [4..8]   destination IP
+    //   [8]      zero
+    //   [9]      protocol (17 = UDP)
+    //   [10..12] UDP length (header + payload)
+    //
+    // Then the actual UDP segment follows:
+    //   [12..14] src port
+    //   [14..16] dst port
+    //   [16..18] UDP length
+    //   [18..20] checksum (zero during calculation)
+    //   [20..]   payload
+    let udp_checksum = {
+        let pseudo_len = 12 + 8 + payload.len();
+        let mut pseudo = alloc::vec![0u8; pseudo_len];
+
+        // pseudo-header
+        pseudo[0..4].copy_from_slice(&super::OUR_IP);           // src IP
+        pseudo[4..8].copy_from_slice(&dst_ip);                  // dst IP
+        pseudo[8] = 0;                                          // zero byte
+        pseudo[9] = super::ipv4::IP_PROTO_UDP;                  // protocol
+        pseudo[10..12].copy_from_slice(&udp_len.to_be_bytes()); // UDP length
+
+        // UDP header (checksum field left as zero)
+        pseudo[12..14].copy_from_slice(&src_port.to_be_bytes());
+        pseudo[14..16].copy_from_slice(&dst_port.to_be_bytes());
+        pseudo[16..18].copy_from_slice(&udp_len.to_be_bytes());
+        pseudo[18..20].copy_from_slice(&0u16.to_be_bytes());    // checksum = 0
+
+        // payload
+        pseudo[20..].copy_from_slice(payload);
+
+        calculate_checksum(&pseudo)
+    };
+    packet[40..42].copy_from_slice(&udp_checksum.to_be_bytes());
+
+    super::send_packet(&packet)?;
+    serial_println!(
+        "[UDP] Sent to {}.{}.{}.{}:{} via MAC {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+        dst_ip[0], dst_ip[1], dst_ip[2], dst_ip[3], dst_port,
+        dst_mac[0], dst_mac[1], dst_mac[2], dst_mac[3], dst_mac[4], dst_mac[5]
+    );
+    Ok(())
 }

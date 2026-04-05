@@ -5,7 +5,8 @@
 //! 
 
 use alloc::vec::Vec;
-use core::ptr::write_bytes;
+use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
+use core::{intrinsics::copy_nonoverlapping, ptr::write_bytes};
 
 use x86_64::{align_up, structures::idt::InterruptStackFrame};
 
@@ -30,7 +31,7 @@ use crate::{
 		io_read,
 		io_write,
 		pci::{DriverInfo, PciDevice, VIRTIO_PCI_VENDOR_ID, pci_enable_device, register_driver}
-	}, lazy_static, memory::{DmaBuffer, dma_alloc}, serial_println, utils::{
+	}, lazy_static, memory::{DmaBuffer, dma_alloc}, net::receive_packet, serial_println, utils::{
 		endian::{Le16, Le32},
 		mutex::SpinMutex,
 		types::{BYTE, QWORD}
@@ -436,6 +437,83 @@ impl VirtioDevice for VirtioNet {
 
 		serial_println!("[VIRTIO-NET] Device initialized (queues ready, DRIVER_OK not set yet)");
 		Ok(())
+	}
+}
+
+pub struct VirtioRxPacket(Vec<u8>);
+pub struct VirtioTxPacket;
+
+impl RxToken for VirtioRxPacket {
+	fn consume<R, F>(self, f: F) -> R
+	where
+		F: FnOnce(&[u8]) -> R 
+	{
+		f(&self.0)
+	}
+}
+
+impl TxToken for VirtioTxPacket {
+    fn consume<R, F>(self, len: usize, f: F) -> R
+    where
+        F: FnOnce(&mut [u8]) -> R,
+    {
+        let mut buf = vec![0u8; len];
+        let result = f(&mut buf);
+        if let Err(e) = transmit_packet(&buf) {
+            serial_println!("[SMOLTCP] TX error: {:?}", e);
+        }
+        result
+    }
+}
+
+impl Device for VirtioNet {
+	type RxToken<'a> = VirtioRxPacket where Self: 'a;
+	type TxToken<'a> = VirtioTxPacket where Self: 'a;
+
+	fn transmit(&mut self, timestamp: smoltcp::time::Instant) -> Option<Self::TxToken<'_>> {
+		// because smoltcp wants to send the packet, we just give it a token instead
+		Some(VirtioTxPacket)
+	}
+
+	fn receive(&mut self, timestamp: smoltcp::time::Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+		let packet = {
+			let mut rx_queue = RX_QUEUE.lock();
+			rx_queue.pop_used()
+		};
+
+		if let Some((desc_id, len)) = packet {
+			let hdr_len = size_of::<VirtioNetHeader>();
+			let pkt_len = (len as usize).saturating_sub(hdr_len);
+
+			let data = {
+				let rx_buffers = RX_BUFFERS.lock();
+				let buf = rx_buffers.get(desc_id as usize)?.as_ref()?;
+				let mut data = vec![0u8; pkt_len];
+				unsafe {
+					let src = buf.virt.as_ptr::<u8>().add(hdr_len);
+					copy_nonoverlapping(src, data.as_mut_ptr(), pkt_len);
+				}
+				data
+			};
+
+			{
+				let mut rx_queue = RX_QUEUE.lock();
+				rx_queue.push_avail(desc_id);
+				rx_queue.kick();
+			}
+
+			Some((VirtioRxPacket(data), VirtioTxPacket))
+		} else {
+			None
+		}
+	}
+
+	fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
+		let mut caps = DeviceCapabilities::default();
+        caps.medium = Medium::Ethernet;
+        caps.max_transmission_unit = 1514;  // 1500 payload + 14 ethernet header
+        caps.max_burst_size = None;
+        caps
 	}
 }
 

@@ -159,6 +159,16 @@ pub enum NullexError {
     #[error("missing mac address")]
     MissingMacAddress,
 
+    // -- Network Errors -- //
+    #[error("tcp connection failed")]
+    TcpConnectionFailed,
+    #[error("tcp failed to send")]
+    TcpFailedToSend,
+    #[error("tcp failed to receive")]
+    TcpFailedToReceive,
+    #[error("invalid http response")]
+    HttpInvalidResponse,
+
     // --- Serial Output Errors --- //
     /// An unspecified error occurred during serial port communication.
     #[error("generic serial error")]

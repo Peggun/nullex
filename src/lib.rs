@@ -77,7 +77,7 @@ use crate::{
 	},
 	utils::{boot::init_efer, multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process}
 };
-// Bring in virtio driver registration function explicitly so we can register drivers
+
 use crate::drivers::virtio::net::virtio_net_driver_init;
 
 lazy_static! {

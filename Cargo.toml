@@ -12,6 +12,7 @@ hashbrown = { version = "0.15.2", features = ["inline-more"] }
 futures = { version = "0.3", default-features = false }
 thiserror = { version = "2.0.16", default-features = false }
 crossbeam-queue = { version = "0.3.11", default-features = false, features = ["alloc"] }
+smoltcp = { version = "0.13.0", default-features = false, features = ["proto-ipv4", "socket-tcp", "medium-ethernet", "alloc", "log"] }
 
 [profile.dev]
 panic = "abort"

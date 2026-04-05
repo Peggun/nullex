@@ -12,7 +12,7 @@ use crate::{error::NullexError, lazy_static, serial_println, utils::mutex::SpinM
 // quick note here. 10.0.2.3 is the usermode DNS address
 // however we are not in usermode currently, so we send all requests to
 // to the gateway (10.0.2.2)
-const DNS_SERVER: [u8; 4] = [10, 0, 2, 2];
+const DNS_SERVER: [u8; 4] = [8, 8, 8, 8];
 const DNS_TIMEOUT_MS: u32 = 5000;
 
 lazy_static! {
@@ -101,88 +101,81 @@ fn wait_for_dns_response(query_id: u16, hostname: &str) -> Result<[u8; 4], Nulle
 }
 
 fn send_dns_query(hostname: &str) -> Result<u16, NullexError> {
-	use alloc::string::ToString;
+    use alloc::string::ToString;
 
-	let transaction_id = {
-		let mut counter = QUERY_ID_COUNTER.lock();
-		let id = *counter;
-		*counter = counter.wrapping_add(1);
-		id
-	};
+    let transaction_id = {
+        let mut counter = QUERY_ID_COUNTER.lock();
+        let id = *counter;
+        *counter = counter.wrapping_add(1);
+        id
+    };
 
-	{
-		let mut pending = PENDING_QUERIES.lock();
-		pending.insert(transaction_id, hostname.to_string());
-		let mut responses = DNS_RESPONSES.lock();
-		responses.insert(transaction_id, None);
-	}
+    {
+        let mut pending = PENDING_QUERIES.lock();
+        pending.insert(transaction_id, hostname.to_string());
+        let mut responses = DNS_RESPONSES.lock();
+        responses.insert(transaction_id, None);
+    }
 
-	let mut query = Vec::new();
+    let mut query = Vec::new();
 
-	// DNS header
-	query.extend_from_slice(&transaction_id.to_be_bytes());
-	query.extend_from_slice(&0x0100u16.to_be_bytes());
-	query.extend_from_slice(&0x0001u16.to_be_bytes());
-	query.extend_from_slice(&0x0000u16.to_be_bytes());
-	query.extend_from_slice(&0x0000u16.to_be_bytes());
-	query.extend_from_slice(&0x0000u16.to_be_bytes());
+    // DNS header
+    query.extend_from_slice(&transaction_id.to_be_bytes());
+    query.extend_from_slice(&0x0100u16.to_be_bytes()); // standard query, recursion desired
+    query.extend_from_slice(&0x0001u16.to_be_bytes()); // 1 question
+    query.extend_from_slice(&0x0000u16.to_be_bytes()); // 0 answers
+    query.extend_from_slice(&0x0000u16.to_be_bytes()); // 0 authority
+    query.extend_from_slice(&0x0000u16.to_be_bytes()); // 0 additional
 
-	// question section
-	for part in hostname.split('.') {
-		query.push(part.len() as u8);
-		query.extend_from_slice(part.as_bytes());
-	}
-	query.push(0);
+    // question section - QNAME
+    for part in hostname.split('.') {
+        query.push(part.len() as u8);
+        query.extend_from_slice(part.as_bytes());
+    }
+    query.push(0);                                     // null terminator
+    query.extend_from_slice(&0x0001u16.to_be_bytes()); // QTYPE A
+    query.extend_from_slice(&0x0001u16.to_be_bytes()); // QCLASS IN
 
-	query.extend_from_slice(&0x0001u16.to_be_bytes());
-	query.extend_from_slice(&0x0001u16.to_be_bytes());
+    // 10.0.2.3 is a virtual QEMU service — it never responds to ARP.
+    // We must resolve the gateway MAC and inject a static ARP entry
+    // that maps 10.0.2.3 -> gateway MAC so your routing layer can
+    // build the correct Ethernet frame (IP dst = 10.0.2.3, MAC dst = gateway).
+    let gateway_mac = if let Some(mac) = super::arp::get_cached(super::GATEWAY_IP) {
+        serial_println!("[DNS] Using cached gateway MAC");
+        mac
+    } else {
+        serial_println!("[DNS] Resolving gateway MAC via ARP...");
+        super::arp::send_arp_request(super::GATEWAY_IP)?;
+        match super::arp::wait_for_arp(super::GATEWAY_IP, 5000) {
+            Ok(mac) => {
+                serial_println!("[DNS] Gateway MAC resolved");
+                mac
+            }
+            Err(_) => {
+                serial_println!("[DNS] Failed to resolve gateway MAC");
+                let mut pending = PENDING_QUERIES.lock();
+                pending.remove(&transaction_id);
+                let mut responses = DNS_RESPONSES.lock();
+                responses.remove(&transaction_id);
+                return Err(NullexError::FailedToResolve("gateway MAC"));
+            }
+        }
+    };
 
-	// Ensure gateway MAC is resolved and cached for DNS_SERVER
-	let gateway_mac = if let Some(mac) = super::arp::get_cached(super::GATEWAY_IP) {
-		serial_println!("[DNS] Using cached gateway MAC");
-		mac
-	} else {
-		serial_println!("[DNS] Resolving gateway MAC...");
-		super::arp::send_arp_request(super::GATEWAY_IP)?;
-
-		match super::arp::wait_for_arp(super::GATEWAY_IP, 5000) {
-			Ok(mac) => {
-				serial_println!("[DNS] Gateway MAC resolved");
-				mac
-			}
-			Err(e) => {
-				serial_println!("[DNS] Failed to resolve gateway MAC: {}", e);
-				let mut pending = PENDING_QUERIES.lock();
-				pending.remove(&transaction_id);
-				let mut responses = DNS_RESPONSES.lock();
-				responses.remove(&transaction_id);
-				return Err(NullexError::FailedToResolve("gateway MAC"));
-			}
-		}
-	};
-
-	{
-		let mut cache = super::arp::ARP_CACHE.lock();
-		// Remove old entry if exists
-		cache.retain(|(ip, _)| ip != &DNS_SERVER);
-		cache.push((DNS_SERVER, gateway_mac));
-		serial_println!("[DNS] Cached DNS server IP with gateway MAC");
-	}
-
-	match super::udp::send_udp(DNS_SERVER, 12345, 53, &query) {
-		Ok(()) => {
-			serial_println!("[DNS] Query sent for {} (id={})", hostname, transaction_id);
-			Ok(transaction_id)
-		}
-		Err(e) => {
-			serial_println!("[DNS] Failed to send DNS query: {}", e);
-			let mut pending = PENDING_QUERIES.lock();
-			pending.remove(&transaction_id);
-			let mut responses = DNS_RESPONSES.lock();
-			responses.remove(&transaction_id);
-			Err(e)
-		}
-	}
+    match super::udp::send_udp(DNS_SERVER, 12345, 53, &query) {
+        Ok(()) => {
+            serial_println!("[DNS] Query sent for {} (id={})", hostname, transaction_id);
+            Ok(transaction_id)
+        }
+        Err(e) => {
+            serial_println!("[DNS] Failed to send query: {:?}", e);
+            let mut pending = PENDING_QUERIES.lock();
+            pending.remove(&transaction_id);
+            let mut responses = DNS_RESPONSES.lock();
+            responses.remove(&transaction_id);
+            Err(e)
+        }
+    }
 }
 
 fn handle_dns_response(payload: &[u8]) {
