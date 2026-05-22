@@ -1,8 +1,7 @@
 //!
 //! icmp.rs
-//! 
+//!
 //! ICMP packet handling logic for the kernel.
-//! 
 
 use crate::{error::NullexError, serial_println, utils::net::calculate_checksum};
 
@@ -134,7 +133,7 @@ fn send_icmp_reply(
 	}
 }
 
-/// Sends a PING packet to a destination. 
+/// Sends a PING packet to a destination.
 pub fn send_ping(dst_ip: [u8; 4], sequence: u16) -> Result<(), NullexError> {
 	let dst_mac = match super::get_next_hop_mac(dst_ip) {
 		Ok(mac) => mac,

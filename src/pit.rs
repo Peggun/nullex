@@ -1,7 +1,6 @@
 //! pit.rs
-//! 
+//!
 //! Programmable Interval Timer (PIT) module for the kernel
-//! 
 
 // this code mainly comes from here
 // https://github.com/foliagecanine/tritium-os/blob/d8b78298f828c0745a480d309aceb4fd503c421f/kernel/arch/i386/sys/pit.c#L9

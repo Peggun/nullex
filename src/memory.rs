@@ -2,7 +2,6 @@
 //!  memory.rs
 //!
 //! Memory module for the kernel.
-//!
 
 use alloc::{boxed::Box, vec::Vec};
 
@@ -18,12 +17,22 @@ use x86_64::{
 		PageTableFlags,
 		PhysFrame,
 		Size4KiB,
-		Translate, page::PageRange
+		Translate,
+		page::PageRange
 	}
 };
 
 use crate::{
-	PHYS_MEM_OFFSET, allocator::{self, ALLOCATOR_INFO}, arch::x86_64::bootinfo::{MemoryMap, MemoryRegionType}, error::NullexError, kassert, lazy_static, println, serial_println, task::AddressSpace, utils::{
+	PHYS_MEM_OFFSET,
+	allocator::{self, ALLOCATOR_INFO},
+	arch::x86_64::bootinfo::{MemoryMap, MemoryRegionType},
+	error::NullexError,
+	kassert,
+	lazy_static,
+	println,
+	serial_println,
+	task::AddressSpace,
+	utils::{
 		multiboot2::{__link_phys_base, _end, compute_phys_map_offset},
 		mutex::SpinMutex
 	}
@@ -43,18 +52,22 @@ pub struct DmaBuffer {
 	/// The Physical Address of the DMA buffer
 	pub phys: PhysAddr,
 	/// The Virtual Address of the DMA buffer
-	pub virt: VirtAddr,	
+	pub virt: VirtAddr,
 	/// The length of the DMA buffer
 	pub len: usize
 }
 
-/// Initializes the global allocator with the specified strategy in `allocator.rs`
+/// Initializes the global allocator with the specified strategy in
+/// `allocator.rs`
 // todo! eventually kernel config for types of allocators
 pub fn init_global_alloc(
-	mut mapper: OffsetPageTable<'static>,        
-	mut frame_allocator: BootInfoFrameAllocator  
+	mut mapper: OffsetPageTable<'static>,
+	mut frame_allocator: BootInfoFrameAllocator
 ) -> Result<(), NullexError> {
-	kassert!(allocator::init_heap(&mut mapper, &mut frame_allocator).is_ok(), "heap not allocated.");
+	kassert!(
+		allocator::init_heap(&mut mapper, &mut frame_allocator).is_ok(),
+		"heap not allocated."
+	);
 
 	unsafe {
 		allocator::LOCAL_HEAP_ALLOCATOR
@@ -144,7 +157,7 @@ pub struct BootInfoFrameAllocator {
 impl BootInfoFrameAllocator {
 	/// Create a FrameAllocator from the passed memory map.
 	pub fn init(memory_map: &'static MemoryMap) -> Self {
-		BootInfoFrameAllocator { 
+		BootInfoFrameAllocator {
 			memory_map,
 			next: 0
 		}
@@ -201,9 +214,10 @@ pub unsafe fn active_level_4_table(physical_memory_offset: VirtAddr) -> &'static
 }
 
 /// Translates a physical address to a virtual one
-/// 
+///
 /// # Safety
-/// Physical address needs to be mapped, if not, the virtual address returned will be invalid.
+/// Physical address needs to be mapped, if not, the virtual address returned
+/// will be invalid.
 pub unsafe fn phys_to_virt(addr: PhysAddr) -> VirtAddr {
 	VirtAddr::new(addr.as_u64().wrapping_add(*PAGE_OFFSET.lock()))
 }
@@ -218,9 +232,13 @@ pub unsafe fn init(physical_memory_offset: VirtAddr) -> OffsetPageTable<'static>
 /// Allocates a direct memory access block of `size` bytes.
 pub fn dma_alloc(size: usize) -> Result<(VirtAddr, PhysAddr), NullexError> {
 	let mut mapper_binding = ALLOCATOR_INFO.mapper.lock();
-	let mapper_slot = mapper_binding.as_mut().ok_or(NullexError::MapperNotInitialized)?;
+	let mapper_slot = mapper_binding
+		.as_mut()
+		.ok_or(NullexError::MapperNotInitialized)?;
 	let mut frame_binding = ALLOCATOR_INFO.frame_allocator.lock();
-	let frame_slot = frame_binding.as_mut().ok_or(NullexError::FrameAllocatorNotInitialized)?;
+	let frame_slot = frame_binding
+		.as_mut()
+		.ok_or(NullexError::FrameAllocatorNotInitialized)?;
 
 	let page_count = (size + 4095) / 4096;
 
@@ -267,21 +285,31 @@ pub fn dma_alloc(size: usize) -> Result<(VirtAddr, PhysAddr), NullexError> {
 }
 
 /// Maps a range of memory within a `Process`'s `AddressSpace`.
-pub fn map_range(addr_space: &mut AddressSpace, pages: PageRange, flags: PageTableFlags) -> Result<(), NullexError> {
+pub fn map_range(
+	addr_space: &mut AddressSpace,
+	pages: PageRange,
+	flags: PageTableFlags
+) -> Result<(), NullexError> {
 	let mut frame_binding = ALLOCATOR_INFO.frame_allocator.lock();
-	let frame_allocator = frame_binding.as_mut().ok_or(NullexError::FrameAllocatorNotInitialized)?;
+	let frame_allocator = frame_binding
+		.as_mut()
+		.ok_or(NullexError::FrameAllocatorNotInitialized)?;
 
-	// we have to use a new mapper here because: global mapper: a view into whatever page table CR3 is currently using
-	// not the the process's page table
+	// we have to use a new mapper here because: global mapper: a view into whatever
+	// page table CR3 is currently using not the the process's page table
 	let table_ptr = unsafe { phys_to_virt(addr_space.page_table.start_address()) };
-	let mut mapper = unsafe { OffsetPageTable::new(&mut *table_ptr.as_mut_ptr(), *PHYS_MEM_OFFSET.lock()) };
+	let mut mapper =
+		unsafe { OffsetPageTable::new(&mut *table_ptr.as_mut_ptr(), *PHYS_MEM_OFFSET.lock()) };
 
 	for page in pages {
-		let frame = frame_allocator.allocate_frame().ok_or(NullexError::FrameAllocationFailed)?;
+		let frame = frame_allocator
+			.allocate_frame()
+			.ok_or(NullexError::FrameAllocationFailed)?;
 
-		unsafe { mapper.map_to(page, frame, flags, *frame_allocator)?.flush(); }
+		unsafe {
+			mapper.map_to(page, frame, flags, *frame_allocator)?.flush();
+		}
 	}
 
 	Ok(())
 }
-

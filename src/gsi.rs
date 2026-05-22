@@ -1,5 +1,5 @@
 //! gsi.rs
-//! 
+//!
 //! Global System Interrupt module for the kernel.
 
 use alloc::vec::Vec;
@@ -12,8 +12,9 @@ use crate::{ioapic::IoApic, lazy_static, serial_println, utils::mutex::SpinMutex
 /// Global System Interrupt (GSI) information structure.
 ///
 /// Represents configuration and state for a GSI, which is a numbered interrupt
-/// in the system's interrupt controller (typically used in x86 systems via ACPI).
-/// GSIs are used to route hardware interrupts from devices to CPU interrupt vectors.
+/// in the system's interrupt controller (typically used in x86 systems via
+/// ACPI). GSIs are used to route hardware interrupts from devices to CPU
+/// interrupt vectors.
 pub struct GsiInfo {
 	/// GSI configuration flags.
 	pub flags: u16,

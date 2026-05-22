@@ -1,8 +1,7 @@
 //!
 //! completion.rs
-//! 
+//!
 //! Keyboard command completion logic for the kernel.
-//! 
 
 use alloc::{
 	string::{String, ToString},

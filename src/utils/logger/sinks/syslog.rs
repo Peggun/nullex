@@ -1,8 +1,7 @@
 //!
 //! syslog.rs
-//! 
+//!
 //! System Log sink logic for the kernel.
-//! 
 
 use alloc::boxed::Box;
 
@@ -13,7 +12,6 @@ use crate::{
 		traits::{log_formatter::LogFormatter, logger_sink::LoggerSink}
 	}
 };
-
 
 /// The SysLog sink. Logs to files inside of `/logs/syslog`
 pub struct SyslogSink {

@@ -1,8 +1,7 @@
 //!
 //! utils/mod.rs
-//! 
+//!
 //! Utilities module declaration.
-//! 
 
 #[allow(missing_docs)]
 #[allow(unused)]
@@ -16,10 +15,7 @@ pub mod cpu_utils;
 #[allow(non_camel_case_types)]
 pub mod elf;
 pub mod endian;
-#[deprecated]
-#[allow(unused)]
-#[allow(deprecated)]
-pub mod serial_kfunc;
+pub mod httparse;
 pub mod ktest;
 #[allow(missing_docs)]
 #[allow(unused)]
@@ -32,6 +28,10 @@ pub mod net;
 #[allow(missing_docs)]
 pub mod oncecell;
 pub mod process;
+#[deprecated]
+#[allow(unused)]
+#[allow(deprecated)]
+pub mod serial_kfunc;
 #[allow(missing_docs)]
 pub mod spin;
 pub mod types;

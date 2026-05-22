@@ -1,11 +1,11 @@
 //!
-//! src/utils/logger/sinks/mod.rs 
-//! 
+//! src/utils/logger/sinks/mod.rs
+//!
 //! All sink definitions for the kernel's logging framework
-//! 
 
 pub mod stdout;
 pub mod syslog;
+pub mod serial;
 
 use alloc::boxed::Box;
 

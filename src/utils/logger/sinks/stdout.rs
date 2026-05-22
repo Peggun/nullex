@@ -1,8 +1,7 @@
 //!
 //! stdout.rs
-//! 
-//! Standard Output (stdio) sink logic for the kernel.
 //!
+//! Standard Output (stdio) sink logic for the kernel.
 
 use alloc::boxed::Box;
 
@@ -21,7 +20,8 @@ pub struct StdOutSink {
 }
 
 impl StdOutSink {
-	/// Creates a new Standard Output sink (`StdOutSink`) with the provided logging strategy
+	/// Creates a new Standard Output sink (`StdOutSink`) with the provided
+	/// logging strategy
 	pub fn new(formatter: Box<dyn LogFormatter>) -> Self {
 		Self {
 			formatter

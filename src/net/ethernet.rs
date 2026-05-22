@@ -1,8 +1,7 @@
 //!
 //! ethernet.rs
-//! 
+//!
 //! Ethernet frame handling for the kernel.
-//! 
 
 use crate::serial_println;
 

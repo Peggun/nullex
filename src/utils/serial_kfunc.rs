@@ -1,13 +1,11 @@
 //!
 //! serial_kfunc.rs
-//! 
+//!
 //! Serial kernel functions for the kernel.
-//! 
+//!
 //! At the moment this is not needed, and probably not ever. This was a little
 //! idea that I found quickly was completely useless. not removing yet but
 //! most likely will in the future.
-//! 
-
 
 use alloc::{
 	collections::btree_map::BTreeMap,
@@ -16,7 +14,10 @@ use alloc::{
 };
 
 use crate::{
-	apic::APIC_TICK_COUNT, lazy_static, serial_println, utils::{cpu_utils::get_cpu_clock, mutex::SpinMutex}
+	apic::APIC_TICK_COUNT,
+	lazy_static,
+	serial_println,
+	utils::{cpu_utils::get_cpu_clock, mutex::SpinMutex}
 };
 
 type SerialCmdFn = fn(&[&str]);

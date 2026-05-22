@@ -1,8 +1,7 @@
-//! 
+//!
 //! types.rs
-//! 
+//!
 //! Generic type declarations for the kernel.
-//! 
 
 #[allow(non_camel_case_types)]
 /// Represents 8 bits

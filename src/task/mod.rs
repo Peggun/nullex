@@ -1,23 +1,53 @@
 //!
 //! src/task/mod.rs
-//! 
+//!
 //! Module definition for the task handling for the kernel.
-//! 
 
 pub mod executor;
 pub mod keyboard;
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
-use x86_64::{VirtAddr, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, PhysFrame, Size4KiB, Translate}};
 use core::{
-	arch::asm, fmt::Debug, future::Future, pin::Pin, ptr::write_bytes, sync::atomic::AtomicBool, task::{Context, Poll}
+	arch::asm,
+	fmt::Debug,
+	future::Future,
+	pin::Pin,
+	ptr::write_bytes,
+	sync::atomic::AtomicBool,
+	task::{Context, Poll}
 };
 
 use crossbeam_queue::ArrayQueue;
 use futures::task::AtomicWaker;
 use hashbrown::HashMap;
+use x86_64::{
+	VirtAddr,
+	structures::paging::{
+		FrameAllocator,
+		Mapper,
+		OffsetPageTable,
+		Page,
+		PageTable,
+		PageTableFlags,
+		PhysFrame,
+		Size4KiB,
+		Translate
+	}
+};
 
-use crate::{PHYS_MEM_OFFSET, allocator::ALLOCATOR_INFO, arch::x86_64::{bootinfo::MemoryRegion, user::setup_user_stack}, error::NullexError, gdt::{INTERRUPT_STACK_SIZE, interrupt_stack_top, user_code_selector, user_data_selector}, memory::{active_level_4_table, phys_to_virt}, serial_println, utils::{elf::{load_segment, parse_elf}, oncecell::spin::OnceCell}};
+use crate::{
+	PHYS_MEM_OFFSET,
+	allocator::ALLOCATOR_INFO,
+	arch::x86_64::{bootinfo::MemoryRegion, user::setup_user_stack},
+	error::NullexError,
+	gdt::{INTERRUPT_STACK_SIZE, interrupt_stack_top, user_code_selector, user_data_selector},
+	memory::{active_level_4_table, phys_to_virt},
+	serial_println,
+	utils::{
+		elf::{load_segment, parse_elf},
+		oncecell::spin::OnceCell
+	}
+};
 
 const KERNEL_STACK_PAGES_TO_MAP: usize = 8;
 
@@ -37,12 +67,25 @@ impl ProcessId {
 	}
 }
 
+/// Backend for a file.
+pub enum FileBackend {
+	/// File on disk.
+	DiskFile { 
+		/// File path
+		path: String, 
+		/// File offset
+		offset: usize 
+	},
+	/// Standard In file.
+	Stdin,
+	/// Standard out file.
+	Stdout
+}
+
 /// Struct to represent an open file in a process
 pub struct OpenFile {
-	/// The path to the open file.
-	pub path: String,
-	/// The current read offset to the open file.
-	pub offset: usize
+	/// The backend of the open file.
+	pub backend: FileBackend
 }
 
 #[expect(clippy::type_complexity)]
@@ -76,7 +119,7 @@ pub struct Process {
 	/// The File Descriptor to the `OpenFile` mapping.
 	pub open_files: HashMap<u32, OpenFile>,
 	/// The next available file descriptor.
-	pub next_fd: u32,
+	pub next_fd: u32
 }
 
 impl Process {
@@ -94,7 +137,12 @@ impl Process {
 	}
 
 	/// Creates a new process from an ELF binary.
-	pub fn from_elf(state: Arc<ProcessState>, elf_bytes: &[u8], args: &[&str], envs: &[&str]) -> Result<Process, NullexError> {
+	pub fn from_elf(
+		state: Arc<ProcessState>,
+		elf_bytes: &[u8],
+		args: &[&str],
+		envs: &[&str]
+	) -> Result<Process, NullexError> {
 		let elf = parse_elf(elf_bytes)?;
 
 		let mut address_space = AddressSpace::new()?;
@@ -103,16 +151,14 @@ impl Process {
 			load_segment(&mut address_space, elf_bytes, seg)?;
 		}
 
-		let stack_top = unsafe {
-			setup_user_stack(&mut address_space, args, envs)
-		};
+		let stack_top = unsafe { setup_user_stack(&mut address_space, args, envs) };
 
 		let mut context = UserContext::default();
 		context.rip = elf.entry;
-        context.rsp = stack_top;
+		context.rsp = stack_top;
 		context.cs = user_code_selector() as u64;
 		context.ss = user_data_selector() as u64;
-        context.rflags = 0x202;
+		context.rflags = 0x202;
 
 		let future = (state.future_fn)(state.clone());
 
@@ -126,9 +172,10 @@ impl Process {
 		})
 	}
 
-	/// Tries to get the final result and signs the task up for a callback if its still pending.
+	/// Tries to get the final result and signs the task up for a callback if
+	/// its still pending.
 	pub fn poll(&mut self, context: &mut Context) -> core::task::Poll<i32> {
-		self.future.as_mut().poll(context)	
+		self.future.as_mut().poll(context)
 	}
 }
 unsafe impl Send for Process {}
@@ -169,7 +216,7 @@ pub struct UserContext {
 	/// RSP register
 	pub rsp: u64,
 	/// SS register
-	pub ss: u64,
+	pub ss: u64
 }
 
 /// Structure representing the memory region each `Process` has.
@@ -177,104 +224,113 @@ pub struct AddressSpace {
 	/// Physical frame of the memory region.
 	pub page_table: PhysFrame,
 	/// Regions of the memory.
-	pub regions: Vec<MemoryRegion>,
+	pub regions: Vec<MemoryRegion>
 }
 
 impl AddressSpace {
 	/// Creates a new `AddressSpace` from the available memory.
-    pub fn new() -> Result<AddressSpace, NullexError> {
-        let mut frame_binding = ALLOCATOR_INFO.frame_allocator.lock();
-        let frame_allocator = frame_binding
-            .as_mut()
-            .ok_or(NullexError::FrameAllocatorNotInitialized)?;
+	pub fn new() -> Result<AddressSpace, NullexError> {
+		let mut frame_binding = ALLOCATOR_INFO.frame_allocator.lock();
+		let frame_allocator = frame_binding
+			.as_mut()
+			.ok_or(NullexError::FrameAllocatorNotInitialized)?;
 
-        let pml4_frame = frame_allocator
-            .allocate_frame()
-            .ok_or(NullexError::FrameAllocationFailed)?;
+		let pml4_frame = frame_allocator
+			.allocate_frame()
+			.ok_or(NullexError::FrameAllocationFailed)?;
 
-        let table_ptr = unsafe { phys_to_virt(pml4_frame.start_address()) };
-        unsafe { write_bytes(table_ptr.as_mut_ptr::<u8>(), 0, 4096); }
+		let table_ptr = unsafe { phys_to_virt(pml4_frame.start_address()) };
+		unsafe {
+			write_bytes(table_ptr.as_mut_ptr::<u8>(), 0, 4096);
+		}
 
-        let phys_offset = *PHYS_MEM_OFFSET.lock();
-        let kernel_pml4 = unsafe { active_level_4_table(phys_offset) };
-        let new_pml4 = unsafe { &mut *table_ptr.as_mut_ptr::<PageTable>() };
+		let phys_offset = *PHYS_MEM_OFFSET.lock();
+		let kernel_pml4 = unsafe { active_level_4_table(phys_offset) };
+		let new_pml4 = unsafe { &mut *table_ptr.as_mut_ptr::<PageTable>() };
 
-        for i in 216..512 {
-            if kernel_pml4[i].flags().contains(PageTableFlags::PRESENT) {
-                new_pml4[i] = kernel_pml4[i].clone();
-            }
-        }
+		for i in 216..512 {
+			if kernel_pml4[i].flags().contains(PageTableFlags::PRESENT) {
+				new_pml4[i] = kernel_pml4[i].clone();
+			}
+		}
 
-        let mut new_mapper = unsafe { OffsetPageTable::new(new_pml4, phys_offset) };
-        let old_mapper = unsafe { OffsetPageTable::new(kernel_pml4, phys_offset) };
+		let mut new_mapper = unsafe { OffsetPageTable::new(new_pml4, phys_offset) };
+		let old_mapper = unsafe { OffsetPageTable::new(kernel_pml4, phys_offset) };
 
-        let mut map_page = |virt: u64| -> Result<(), NullexError> {
-            let page: Page<Size4KiB> = Page::containing_address(VirtAddr::new(virt));
-            if new_mapper.translate_addr(page.start_address()).is_some() {
-                return Ok(());
-            }
-            if let Some(phys) = old_mapper.translate_addr(page.start_address()) {
-                let frame = PhysFrame::containing_address(phys);
-                unsafe {
-                    new_mapper.map_to(
-                        page,
-                        frame,
-                        PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-                        *frame_allocator,
-                    )
-                    .map_err(|_| NullexError::FrameAllocationFailed)?
-                    .flush();
-                }
-            }
-            Ok(())
-        };
+		let mut map_page = |virt: u64| -> Result<(), NullexError> {
+			let page: Page<Size4KiB> = Page::containing_address(VirtAddr::new(virt));
+			if new_mapper.translate_addr(page.start_address()).is_some() {
+				return Ok(());
+			}
+			if let Some(phys) = old_mapper.translate_addr(page.start_address()) {
+				let frame = PhysFrame::containing_address(phys);
+				unsafe {
+					new_mapper
+						.map_to(
+							page,
+							frame,
+							PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+							*frame_allocator
+						)
+						.map_err(|_| NullexError::FrameAllocationFailed)?
+						.flush();
+				}
+			}
+			Ok(())
+		};
 
-        unsafe extern "C" {
-            static __link_phys_base: u8;
-            static _end: u8;
-        }
-        let kernel_start = core::ptr::addr_of!(__link_phys_base) as u64;
-        let kernel_end   = core::ptr::addr_of!(_end) as u64;
+		unsafe extern "C" {
+			static __link_phys_base: u8;
+			static _end: u8;
+		}
+		let kernel_start = core::ptr::addr_of!(__link_phys_base) as u64;
+		let kernel_end = core::ptr::addr_of!(_end) as u64;
 
-        serial_println!("[INFO] Kernel Addresses: {:#x} .. {:#x}", kernel_start, kernel_end);
+		serial_println!(
+			"[INFO] Kernel Addresses: {:#x} .. {:#x}",
+			kernel_start,
+			kernel_end
+		);
 
-        let mut addr = 0x1000u64;
-        while addr < (kernel_end + 0xFFF) & !0xFFF {
-            map_page(addr)?;
-            addr += 0x1000;
-        }
+		let mut addr = 0x1000u64;
+		while addr < (kernel_end + 0xFFF) & !0xFFF {
+			map_page(addr)?;
+			addr += 0x1000;
+		}
 
 		map_page(0xFEE00000)?;
 
-        let heap_start = crate::allocator::HEAP_START as u64;
-        let heap_size  = crate::allocator::HEAP_SIZE as u64;
-        let mut addr = heap_start & !0xFFF;
-        while addr < (heap_start + heap_size + 0xFFF) & !0xFFF {
-            map_page(addr)?;
-            addr += 0x1000;
-        }
+		let heap_start = crate::allocator::HEAP_START as u64;
+		let heap_size = crate::allocator::HEAP_SIZE as u64;
+		let mut addr = heap_start & !0xFFF;
+		while addr < (heap_start + heap_size + 0xFFF) & !0xFFF {
+			map_page(addr)?;
+			addr += 0x1000;
+		}
 
-        let mut rsp: u64;
-        unsafe { asm!("mov {}, rsp", out(reg) rsp); }
-        for i in 0..KERNEL_STACK_PAGES_TO_MAP {
-            let addr = match rsp.checked_sub((i as u64) * 0x1000) {
-                Some(v) => v,
-                None => break,
-            };
-            map_page(addr)?;
-        }
+		let mut rsp: u64;
+		unsafe {
+			asm!("mov {}, rsp", out(reg) rsp);
+		}
+		for i in 0..KERNEL_STACK_PAGES_TO_MAP {
+			let addr = match rsp.checked_sub((i as u64) * 0x1000) {
+				Some(v) => v,
+				None => break
+			};
+			map_page(addr)?;
+		}
 
-        let int_stack_top = interrupt_stack_top();
-        for i in 0..(INTERRUPT_STACK_SIZE / 4096) {
-            let addr = int_stack_top - 1 - (i as u64) * 0x1000;
-            map_page(addr)?;
-        }
+		let int_stack_top = interrupt_stack_top();
+		for i in 0..(INTERRUPT_STACK_SIZE / 4096) {
+			let addr = int_stack_top - 1 - (i as u64) * 0x1000;
+			map_page(addr)?;
+		}
 
-        Ok(AddressSpace {
-            page_table: pml4_frame,
-            regions: Vec::new(),
-        })
-    }
+		Ok(AddressSpace {
+			page_table: pml4_frame,
+			regions: Vec::new()
+		})
+	}
 }
 /// A future that never completes.
 pub struct ForeverPending;

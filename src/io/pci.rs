@@ -1,13 +1,17 @@
 //!
 //! pci.rs
-//! 
+//!
 //! PCI device handling logic for the kernel.
-//! 
 
 use alloc::vec::Vec;
 
 use crate::{
-	allocator::io_alloc::IO_ALLOC, common::ports::{inl, outb, outl, outq, outw}, error::NullexError, lazy_static, serial_println, utils::{
+	allocator::io_alloc::IO_ALLOC,
+	common::ports::{inl, outb, outl, outq, outw},
+	error::NullexError,
+	lazy_static,
+	serial_println,
+	utils::{
 		mutex::SpinMutex,
 		types::{DWORD, WORD}
 	}
@@ -32,7 +36,8 @@ lazy_static! {
 }
 
 #[derive(Debug, Clone, Copy)]
-/// Structure representing the bus number, device number and function number of a PCI device.
+/// Structure representing the bus number, device number and function number of
+/// a PCI device.
 pub struct Bdf {
 	/// The bus of the PCI device.
 	pub bus: u8,
@@ -106,7 +111,8 @@ impl PciDevice {
 }
 
 #[derive(Debug, Clone, Copy)]
-/// Structure representing all information about the driver running a PCI device.
+/// Structure representing all information about the driver running a PCI
+/// device.
 pub struct DriverInfo {
 	/// Vendor of the driver
 	pub vendor: Option<u16>,
@@ -260,7 +266,11 @@ pub fn discover_pci_devices() {
 			let vendor = match pci_config_read::<WORD>(bdf, 0x00) {
 				Ok(v) => v,
 				Err(_) => {
-					serial_println!("[PCI] Warning: Failed to read vendor ID for {:02x}:{:02x}.0", bus, slot);
+					serial_println!(
+						"[PCI] Warning: Failed to read vendor ID for {:02x}:{:02x}.0",
+						bus,
+						slot
+					);
 					continue;
 				}
 			};
@@ -273,7 +283,11 @@ pub fn discover_pci_devices() {
 			let header_type = match pci_config_read::<WORD>(bdf, 0x0E) {
 				Ok(h) => h,
 				Err(_) => {
-					serial_println!("[PCI] Warning: Failed to read header type for {:02x}:{:02x}.0", bus, slot);
+					serial_println!(
+						"[PCI] Warning: Failed to read header type for {:02x}:{:02x}.0",
+						bus,
+						slot
+					);
 					continue;
 				}
 			};
@@ -285,7 +299,12 @@ pub fn discover_pci_devices() {
 					let vendor = match pci_config_read::<WORD>(bdf, 0x00) {
 						Ok(v) => v,
 						Err(_) => {
-							serial_println!("[PCI] Warning: Failed to read vendor ID for {:02x}:{:02x}.{}", bus, slot, func);
+							serial_println!(
+								"[PCI] Warning: Failed to read vendor ID for {:02x}:{:02x}.{}",
+								bus,
+								slot,
+								func
+							);
 							continue;
 						}
 					};
@@ -304,7 +323,12 @@ fn handle_function(bdf: Bdf, vendor: u16) {
 	let device = match pci_config_read::<WORD>(bdf, 0x02) {
 		Ok(d) => d,
 		Err(_) => {
-			serial_println!("[PCI] Warning: Failed to read device ID for {:02x}:{:02x}.{}", bdf.bus, bdf.device, bdf.func);
+			serial_println!(
+				"[PCI] Warning: Failed to read device ID for {:02x}:{:02x}.{}",
+				bdf.bus,
+				bdf.device,
+				bdf.func
+			);
 			return;
 		}
 	};
@@ -312,7 +336,12 @@ fn handle_function(bdf: Bdf, vendor: u16) {
 	let class_reg = match pci_config_read::<WORD>(bdf, 0x0A) {
 		Ok(c) => c,
 		Err(_) => {
-			serial_println!("[PCI] Warning: Failed to read class register for {:02x}:{:02x}.{}", bdf.bus, bdf.device, bdf.func);
+			serial_println!(
+				"[PCI] Warning: Failed to read class register for {:02x}:{:02x}.{}",
+				bdf.bus,
+				bdf.device,
+				bdf.func
+			);
 			return;
 		}
 	};

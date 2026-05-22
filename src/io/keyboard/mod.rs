@@ -1,8 +1,7 @@
 //!
 //! io/keyboard/mod.rs
-//! 
+//!
 //! I/O keyboard module definition.
-//! 
 
 pub mod completion;
 #[allow(missing_docs)]

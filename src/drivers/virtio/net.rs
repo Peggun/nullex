@@ -1,17 +1,18 @@
 //!
 //! net.rs
-//! 
+//!
 //! VirtIO Network Driver Specification based module for the kernel.
-//! 
 
 use alloc::vec::Vec;
-use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
-use core::{intrinsics::copy_nonoverlapping, ptr::write_bytes};
+use core::ptr::{copy_nonoverlapping, write_bytes};
 
+use smoltcp::phy::{Device, DeviceCapabilities, Medium, RxToken, TxToken};
 use x86_64::{align_up, structures::idt::InterruptStackFrame};
 
 use crate::{
-	apic::send_eoi, common::ports::{inb, inw, outl, outw}, drivers::virtio::{
+	apic::send_eoi,
+	common::ports::{inb, inw, outl, outw},
+	drivers::virtio::{
 		VIRTIO_IO_DEVICE_CFG,
 		VIRTIO_IO_DEVICE_FEATURES,
 		VIRTIO_IO_DEVICE_STATUS,
@@ -27,11 +28,19 @@ use crate::{
 		VirtqueueDescriptor,
 		VirtqueueUsed,
 		virtqueue_size
-	}, error::NullexError, gsi::GSI_TABLE, io::{
+	},
+	error::NullexError,
+	gsi::GSI_TABLE,
+	io::{
 		io_read,
 		io_write,
 		pci::{DriverInfo, PciDevice, VIRTIO_PCI_VENDOR_ID, pci_enable_device, register_driver}
-	}, lazy_static, memory::{DmaBuffer, dma_alloc}, net::receive_packet, serial_println, utils::{
+	},
+	lazy_static,
+	memory::{DmaBuffer, dma_alloc},
+	net::receive_packet,
+	serial_println,
+	utils::{
 		endian::{Le16, Le32},
 		mutex::SpinMutex,
 		types::{BYTE, QWORD}
@@ -70,8 +79,6 @@ const VIRTIO_DEVICE_ID: u8 = 1;
 const VIRTIO_NET_IDT_VECTOR: u8 = 34;
 
 const NET_DRIVER_SUPPORTED_FEATURES: u64 = VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS;
-
-const VIRTIO_NET_RX_BUFFERS: u64 = 256;
 
 // other virtqueues like (2n+1) arent implemented
 
@@ -240,14 +247,19 @@ pub struct VirtioNetHeader {
 	hdr_len: Le16,
 	gso_size: Le16,
 	csum_start: Le16,
-	csum_offset: Le16
-	// pub hash_value: Option<Le16>,
-	// pub hash_report: Option<Le16>,
-	// pub padding_reserved: Option<Le16>
+	csum_offset: Le16 /* pub hash_value: Option<Le16>,
+	                   * pub hash_report: Option<Le16>,
+	                   * pub padding_reserved: Option<Le16> */
 }
 
 // sanity
 const _: () = assert!(core::mem::size_of::<VirtioNetHeader>() == 10);
+
+const ETHERNET_FRAME_LEN: usize = 1514;
+const VIRTIO_NET_RX_BUFFER_SIZE: usize =
+	ETHERNET_FRAME_LEN + core::mem::size_of::<VirtioNetHeader>();
+const VIRTIO_NET_TRACE_TX: bool = false;
+const VIRTIO_NET_TRACE_INTERRUPTS: bool = false;
 
 /// Structure representing the Virtio Network device.
 pub struct VirtioNet {
@@ -268,8 +280,8 @@ pub struct VirtioNet {
 }
 
 impl VirtioNet {
-	/// Creates a new `VirtioNet` device. 
-	pub fn new( 
+	/// Creates a new `VirtioNet` device.
+	pub fn new(
 		io_base: usize,
 		header: VirtioNetHeader,
 		config: VirtioNetConfig,
@@ -406,7 +418,7 @@ impl VirtioDevice for VirtioNet {
 		}
 
 		for _ in 0..rx_queue_size {
-			let buf_size = 1500 + core::mem::size_of::<VirtioNetHeader>();
+			let buf_size = VIRTIO_NET_RX_BUFFER_SIZE;
 			let (virt_addr, phys_addr) = dma_alloc(buf_size).expect("DMA alloc failed");
 			unsafe { write_bytes(virt_addr.as_mut_ptr::<u8>(), 0, buf_size) }
 
@@ -440,122 +452,207 @@ impl VirtioDevice for VirtioNet {
 	}
 }
 
+/// Structure representing a Receive Packet
 pub struct VirtioRxPacket(Vec<u8>);
+/// Structure representing a Transmit packet
 pub struct VirtioTxPacket;
 
 impl RxToken for VirtioRxPacket {
 	fn consume<R, F>(self, f: F) -> R
 	where
-		F: FnOnce(&[u8]) -> R 
+		F: FnOnce(&[u8]) -> R
 	{
 		f(&self.0)
 	}
 }
 
 impl TxToken for VirtioTxPacket {
-    fn consume<R, F>(self, len: usize, f: F) -> R
-    where
-        F: FnOnce(&mut [u8]) -> R,
-    {
-        let mut buf = vec![0u8; len];
-        let result = f(&mut buf);
-        if let Err(e) = transmit_packet(&buf) {
-            serial_println!("[SMOLTCP] TX error: {:?}", e);
-        }
-        result
-    }
+	fn consume<R, F>(self, len: usize, f: F) -> R
+	where
+		F: FnOnce(&mut [u8]) -> R
+	{
+		let mut buf = vec![0u8; len];
+		let result = f(&mut buf);
+
+		if let Err(e) = transmit_packet(&buf) {
+			serial_println!("[SMOLTCP] TX error: {:?}", e);
+		}
+		result
+	}
 }
 
 impl Device for VirtioNet {
-	type RxToken<'a> = VirtioRxPacket where Self: 'a;
-	type TxToken<'a> = VirtioTxPacket where Self: 'a;
+	type RxToken<'a>
+		= VirtioRxPacket
+	where
+		Self: 'a;
+	type TxToken<'a>
+		= VirtioTxPacket
+	where
+		Self: 'a;
 
-	fn transmit(&mut self, timestamp: smoltcp::time::Instant) -> Option<Self::TxToken<'_>> {
-		// because smoltcp wants to send the packet, we just give it a token instead
+	fn transmit(&mut self, _timestamp: smoltcp::time::Instant) -> Option<Self::TxToken<'_>> {
+		if !tx_queue_has_capacity() {
+			return None;
+		}
+
 		Some(VirtioTxPacket)
 	}
 
-	fn receive(&mut self, timestamp: smoltcp::time::Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
-		let packet = {
-			let mut rx_queue = RX_QUEUE.lock();
-			rx_queue.pop_used()
-		};
+	fn receive(
+		&mut self,
+		_timestamp: smoltcp::time::Instant
+	) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+		let hdr_len = core::mem::size_of::<VirtioNetHeader>();
+		if !tx_queue_has_capacity() {
+			return None;
+		}
 
-		if let Some((desc_id, len)) = packet {
-			let hdr_len = size_of::<VirtioNetHeader>();
-			let pkt_len = (len as usize).saturating_sub(hdr_len);
-
-			let data = {
-				let rx_buffers = RX_BUFFERS.lock();
-				let buf = rx_buffers.get(desc_id as usize)?.as_ref()?;
-				let mut data = vec![0u8; pkt_len];
-				unsafe {
-					let src = buf.virt.as_ptr::<u8>().add(hdr_len);
-					copy_nonoverlapping(src, data.as_mut_ptr(), pkt_len);
-				}
-				data
+		loop {
+			// Pop the next completed descriptor. Lock acquired and released here.
+			let maybe_packet = {
+				let mut rx_queue = RX_QUEUE.lock();
+				rx_queue.pop_used()
 			};
 
+			let (desc_id, len) = match maybe_packet {
+				Some(p) => p,
+				None => return None
+			};
+
+			let pkt_len = (len as usize).saturating_sub(hdr_len);
+
+			// Peek at ethertype + IP protocol to decide dispatch.
+			// Lock is held only for this tiny read, then immediately dropped.
+			let (ethertype, ip_proto) = {
+				let rx_buffers = RX_BUFFERS.lock();
+				match rx_buffers.get(desc_id as usize).and_then(|o| o.as_ref()) {
+					Some(buf) if pkt_len >= 24 => unsafe {
+						let p = buf.virt.as_ptr::<u8>().add(hdr_len);
+						let et = u16::from_be_bytes([*p.add(12), *p.add(13)]);
+						let proto = *p.add(23); // IP protocol field (assumes no IP options)
+						(et, proto)
+					},
+					Some(_) if pkt_len >= 14 => {
+						// Long enough for ethertype but not IP header — pass to smoltcp
+						let rx_buffers_inner = rx_buffers; // keep alive
+						let buf = rx_buffers_inner
+							.get(desc_id as usize)
+							.and_then(|o| o.as_ref())
+							.unwrap();
+						unsafe {
+							let p = buf.virt.as_ptr::<u8>().add(hdr_len);
+							let et = u16::from_be_bytes([*p.add(12), *p.add(13)]);
+							(et, 0u8)
+						}
+					}
+					_ => {
+						// Too short or missing buffer — requeue and skip.
+						drop(rx_buffers);
+						serial_println!(
+							"[VIRTIO-NET] WARNING: short/missing buffer desc_id={}, skipping",
+							desc_id
+						);
+						let mut rx_queue = RX_QUEUE.lock();
+						rx_queue.push_avail(desc_id);
+						rx_queue.kick();
+						continue;
+					}
+				}
+			}; // ← RX_BUFFERS lock fully released before any copy
+
+			// UDP: dispatch to kernel network stack, requeue, keep looping.
+			// smoltcp does not handle UDP in this kernel — the kernel stack does.
+			let is_udp = ethertype == 0x0800 && ip_proto == 17;
+			if is_udp {
+				// Copy the packet out before releasing the descriptor.
+				let pkt = copy_rx_packet(desc_id, len, hdr_len);
+
+				// Requeue descriptor so hardware can reuse the buffer.
+				{
+					let mut rx_queue = RX_QUEUE.lock();
+					rx_queue.push_avail(desc_id);
+					rx_queue.kick();
+				}
+
+				if let Some(data) = pkt {
+					if !data.is_empty() {
+						crate::net::receive_packet(data.as_ptr(), data.len());
+					}
+				}
+				continue; // fetch next descriptor
+			}
+
+			// Non-UDP (TCP, ARP, IPv6, etc.): copy out and hand to smoltcp.
+			// Step 1: grab pointer only (lock dropped immediately after).
+			let (pkt_ptr, copy_len) = {
+				let rx_buffers = RX_BUFFERS.lock();
+				match rx_buffers.get(desc_id as usize).and_then(|o| o.as_ref()) {
+					Some(buf) => {
+						let ptr = unsafe { buf.virt.as_ptr::<u8>().add(hdr_len) };
+						(Some(ptr), pkt_len)
+					}
+					None => (None, 0)
+				}
+			}; // ← lock released here
+
+			// Step 2: memcpy with no locks held.
+			let data = match pkt_ptr {
+				Some(ptr) if copy_len > 0 => {
+					let mut data = vec![0u8; copy_len];
+					unsafe {
+						copy_nonoverlapping(ptr, data.as_mut_ptr(), copy_len);
+					}
+					data
+				}
+				_ => {
+					serial_println!(
+						"[VIRTIO-NET] WARNING: no buffer for desc_id={}, skipping",
+						desc_id
+					);
+					let mut rx_queue = RX_QUEUE.lock();
+					rx_queue.push_avail(desc_id);
+					rx_queue.kick();
+					continue;
+				}
+			};
+
+			// Requeue descriptor for hardware.
 			{
 				let mut rx_queue = RX_QUEUE.lock();
 				rx_queue.push_avail(desc_id);
 				rx_queue.kick();
 			}
 
-			Some((VirtioRxPacket(data), VirtioTxPacket))
-		} else {
-			None
+			return Some((VirtioRxPacket(data), VirtioTxPacket));
 		}
 	}
 
 	fn capabilities(&self) -> smoltcp::phy::DeviceCapabilities {
 		let mut caps = DeviceCapabilities::default();
-        caps.medium = Medium::Ethernet;
-        caps.max_transmission_unit = 1514;  // 1500 payload + 14 ethernet header
-        caps.max_burst_size = None;
-        caps
+		caps.medium = Medium::Ethernet;
+		caps.max_transmission_unit = ETHERNET_FRAME_LEN;
+		caps.max_burst_size = None;
+		caps
 	}
+}
+
+fn tx_queue_has_capacity() -> bool {
+	tx_poll();
+	TX_QUEUE.lock().num_free > 0
 }
 
 fn handle_rx_packet(desc_id: u16, len: u32) {
 	let hdr_len = core::mem::size_of::<VirtioNetHeader>();
+	let pkt = copy_rx_packet(desc_id, len, hdr_len).unwrap_or_default();
 
-	let pkt_ptr = {
-		let rx_buffers = RX_BUFFERS.lock();
-		let buf_opt = rx_buffers.get(desc_id as usize).and_then(|o| o.as_ref());
-		if buf_opt.is_none() {
-			serial_println!("[VIRTIO-NET] ERROR: No buffer at desc_id {}", desc_id);
-			return;
-		}
-		let buf = buf_opt.unwrap();
-		unsafe { buf.virt.as_ptr::<u8>().add(hdr_len) }
-	};
-
-	let pkt_len = (len as usize).saturating_sub(hdr_len);
-	serial_println!(
-		"[VIRTIO-NET] RX packet ({} bytes) desc_id={}",
-		pkt_len,
-		desc_id
-	);
-
-	unsafe {
-		if pkt_len >= 14 {
-			let ethertype = u16::from_be_bytes([
-				core::ptr::read(pkt_ptr.add(12)),
-				core::ptr::read(pkt_ptr.add(13))
-			]);
-			serial_println!("[VIRTIO-NET] Ethernet ethertype=0x{:04x}", ethertype);
-		}
+	if !pkt.is_empty() {
+		receive_packet(pkt.as_ptr(), pkt.len());
 	}
 
-	// call network stack
-	crate::net::receive_packet(pkt_ptr, pkt_len);
-
-	{
-		let mut rx_queue = RX_QUEUE.lock();
-		rx_queue.push_avail(desc_id);
-		rx_queue.kick();
-	}
+	let mut rx_queue = RX_QUEUE.lock();
+	rx_queue.push_avail(desc_id);
+	rx_queue.kick();
 }
 
 fn _rx_replenish_one(desc_id: u16, _old_buf: DmaBuffer) {
@@ -567,27 +664,36 @@ fn _rx_replenish_one(desc_id: u16, _old_buf: DmaBuffer) {
 
 /// Transmit a packet to the transport queue (TX)
 pub fn transmit_packet(packet: &[u8]) -> Result<(), NullexError> {
-	serial_println!("[VIRTIO-NET] TX packet ({} bytes)", packet.len());
-	serial_println!("[VIRTIO-NET] Packet contents (Ethernet header):");
-	serial_println!(
-		"  Dst MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-		packet[0],
-		packet[1],
-		packet[2],
-		packet[3],
-		packet[4],
-		packet[5]
-	);
-	serial_println!(
-		"  Src MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
-		packet[6],
-		packet[7],
-		packet[8],
-		packet[9],
-		packet[10],
-		packet[11]
-	);
-	serial_println!("  EtherType: 0x{:02X}{:02X}", packet[12], packet[13]);
+	tx_poll();
+
+	if VIRTIO_NET_TRACE_TX && packet.len() >= 14 {
+		serial_println!("[VIRTIO-NET] TX packet ({} bytes)", packet.len());
+		serial_println!("[VIRTIO-NET] Packet contents (Ethernet header):");
+		serial_println!(
+			"  Dst MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+			packet[0],
+			packet[1],
+			packet[2],
+			packet[3],
+			packet[4],
+			packet[5]
+		);
+		serial_println!(
+			"  Src MAC: {:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}",
+			packet[6],
+			packet[7],
+			packet[8],
+			packet[9],
+			packet[10],
+			packet[11]
+		);
+		serial_println!("  EtherType: 0x{:02X}{:02X}", packet[12], packet[13]);
+	}
+
+	if TX_QUEUE.lock().num_free == 0 {
+		serial_println!("[VIRTIO-NET] TX queue full before DMA allocation");
+		return Err(NullexError::VirtQueueFull);
+	}
 
 	const HEADER_SIZE: usize = core::mem::size_of::<VirtioNetHeader>();
 	let total_size = HEADER_SIZE + packet.len();
@@ -608,24 +714,28 @@ pub fn transmit_packet(packet: &[u8]) -> Result<(), NullexError> {
 		len: total_size
 	};
 
-	let mut tx_inflight = TX_INFLIGHT.lock();
 	let mut tx_queue = TX_QUEUE.lock();
 
 	let desc_id = tx_queue.add_descriptor(phys_addr, total_size as u32, false)?;
+	{
+		let mut tx_inflight = TX_INFLIGHT.lock();
+		while tx_inflight.len() <= desc_id as usize {
+			tx_inflight.push(None);
+		}
+		tx_inflight[desc_id as usize] = Some(tx_buffer);
+	}
+
 	tx_queue.push_avail(desc_id);
 	tx_queue.kick();
 
-	while tx_inflight.len() <= desc_id as usize {
-		tx_inflight.push(None);
+	if VIRTIO_NET_TRACE_TX {
+		serial_println!(
+			"[VIRTIO-NET] TX queued (desc_id={}, phys={:#x}, len={})",
+			desc_id,
+			phys_addr.as_u64(),
+			total_size
+		);
 	}
-	tx_inflight[desc_id as usize] = Some(tx_buffer);
-
-	serial_println!(
-		"[VIRTIO-NET] TX queued (desc_id={}, phys={:#x}, len={})",
-		desc_id,
-		phys_addr.as_u64(),
-		total_size
-	);
 	Ok(())
 }
 
@@ -713,7 +823,7 @@ pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, NullexError> {
 
 	serial_println!("[VIRTIO-NET] DRIVER_OK status set");
 
-	// Verify DRIVER_OK is actually set
+	// verify DRIVER_OK is actually set
 	let status = unsafe { inb((io_base + VIRTIO_IO_DEVICE_STATUS) as u16) };
 	serial_println!("[VIRTIO-NET] Device status register: {:#x}", status);
 	if (status & VirtIODeviceStatus::DRIVER_OK.bits()) == 0 {
@@ -742,7 +852,7 @@ pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, NullexError> {
 		if gsi < 256 {
 			gt[gsi].device_ptr = Some(dev as *const _ as usize);
 			gt[gsi].handler = Some(virtio_net_interrupt_handler);
-			gt[gsi].vector = Some(VIRTIO_NET_IDT_VECTOR); // Store the vector
+			gt[gsi].vector = Some(VIRTIO_NET_IDT_VECTOR);
 			serial_println!("[VIRTIO-NET] Registered handler for GSI {}", gsi);
 		}
 	}
@@ -751,10 +861,10 @@ pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, NullexError> {
 		let mut ioapic = crate::ioapic::IOAPIC.lock();
 
 		let mut entry = crate::ioapic::RedirectionTableEntry::default();
-		entry.set_vector(VIRTIO_NET_IDT_VECTOR); // Use 34, NOT 32+gsi!
+		entry.set_vector(VIRTIO_NET_IDT_VECTOR);
 		entry.set_mode(crate::ioapic::IrqMode::Fixed);
-		entry.set_dest(0); // BSP APIC ID
-		entry.set_flags(crate::ioapic::IrqFlags::empty()); // UNMASKED!
+		entry.set_dest(0);
+		entry.set_flags(crate::ioapic::IrqFlags::empty());
 
 		ioapic.set_table_entry(gsi as u8, entry);
 
@@ -782,7 +892,9 @@ pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, NullexError> {
 
 /// VirtioNet Interrupt Handler.
 pub extern "x86-interrupt" fn virtio_net_interrupt_handler(_stack_frame: InterruptStackFrame) {
-	serial_println!("[VIRTIO-NET] Interrupt!");
+	if VIRTIO_NET_TRACE_INTERRUPTS {
+		serial_println!("[VIRTIO-NET] Interrupt!");
+	}
 
 	let io_base = {
 		let dev = VIRTIO_NET_DEVICE.lock();
@@ -798,11 +910,14 @@ pub extern "x86-interrupt" fn virtio_net_interrupt_handler(_stack_frame: Interru
 	};
 
 	let isr = unsafe { inb(io_base as u16 + VIRTIO_IO_ISR as u16) };
-	serial_println!("[VIRTIO-NET] ISR={:#x}", isr);
+	if VIRTIO_NET_TRACE_INTERRUPTS {
+		serial_println!("[VIRTIO-NET] ISR={:#x}", isr);
+	}
 
 	if (isr & 0x1) != 0 {
-		serial_println!("[VIRTIO-NET] Queue interrupt");
-		rx_poll();
+		if VIRTIO_NET_TRACE_INTERRUPTS {
+			serial_println!("[VIRTIO-NET] Queue interrupt");
+		}
 		tx_poll();
 	}
 
@@ -811,35 +926,61 @@ pub extern "x86-interrupt" fn virtio_net_interrupt_handler(_stack_frame: Interru
 	}
 }
 
+fn copy_rx_packet(desc_id: u16, len: u32, hdr_len: usize) -> Option<Vec<u8>> {
+	let pkt_len = (len as usize).saturating_sub(hdr_len);
+	if pkt_len < 14 {
+		return None;
+	}
+
+	// Lock scope: pointer only.
+	let pkt_ptr = {
+		let rx_buffers = RX_BUFFERS.lock();
+		rx_buffers
+			.get(desc_id as usize)
+			.and_then(|o| o.as_ref())
+			.map(|buf| unsafe { buf.virt.as_ptr::<u8>().add(hdr_len) })
+	}?; // returns None if buffer missing
+
+	// Copy with no locks held.
+	let mut owned = vec![0u8; pkt_len];
+	unsafe {
+		core::ptr::copy_nonoverlapping(pkt_ptr, owned.as_mut_ptr(), pkt_len);
+	}
+	Some(owned)
+}
+
 fn tx_poll() {
 	//serial_println!("[VIRTIO-NET] Polling TX queue");
 
-	let completions = {
-		let mut tx_queue = TX_QUEUE.lock();
-		let mut completions = Vec::new();
-		while let Some((desc_id, _len)) = tx_queue.pop_used() {
-			completions.push(desc_id);
-		}
-		completions
-	};
+	let mut tx_queue = TX_QUEUE.lock();
+	let mut completions = Vec::new();
+	while let Some((desc_id, _len)) = tx_queue.pop_used() {
+		completions.push(desc_id);
+	}
 
 	if !completions.is_empty() {
-		serial_println!(
-			"[VIRTIO-NET] Processing {} TX completions",
-			completions.len()
-		);
+		if VIRTIO_NET_TRACE_TX {
+			serial_println!(
+				"[VIRTIO-NET] Processing {} TX completions",
+				completions.len()
+			);
+		}
 		let mut tx_inflight = TX_INFLIGHT.lock();
 		for desc_id in completions.iter() {
-			serial_println!("[VIRTIO-NET] TX completed desc_id={}", desc_id);
+			if VIRTIO_NET_TRACE_TX {
+				serial_println!("[VIRTIO-NET] TX completed desc_id={}", desc_id);
+			}
 			if (*desc_id as usize) < tx_inflight.len() {
 				tx_inflight[*desc_id as usize] = None;
 			}
+			tx_queue.free_descriptor(*desc_id);
 		}
 	}
 }
 
 /// Poll the receive queue. (RX)
 pub fn rx_poll() {
+	tx_poll();
 	//serial_println!("[VIRTIO-NET] Polling RX queue");
 
 	let packets = {
@@ -856,4 +997,19 @@ pub fn rx_poll() {
 		handle_rx_packet(*desc_id, *len);
 	}
 	//serial_println!("[VIRTIO-NET] Processed {} packets", packets.len());
+}
+
+fn rx_poll_interrupt_safe() {
+	let packets = {
+		let mut rx_queue = RX_QUEUE.lock();
+		let mut packets = Vec::new();
+		while let Some((desc_id, len)) = rx_queue.pop_used() {
+			packets.push((desc_id, len));
+		}
+		packets
+	};
+
+	for (desc_id, len) in packets.iter() {
+		handle_rx_packet(*desc_id, *len);
+	}
 }

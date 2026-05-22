@@ -1,8 +1,7 @@
 //!
 //! src/keyboard/mod.rs
-//! 
+//!
 //! Keyboard module declaration.
-//! 
 
 #[allow(missing_docs)]
 pub mod error;

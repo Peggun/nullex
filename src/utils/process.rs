@@ -1,17 +1,31 @@
 //!
 //! process.rs
-//! 
+//!
 //! Utilities for process handling for the kernel.
-//! 
 
 use alloc::{boxed::Box, sync::Arc};
-use crossbeam_queue::ArrayQueue;
-use core::{future::Future, pin::Pin, sync::atomic::{AtomicBool, Ordering}};
+use core::{
+	future::Future,
+	pin::Pin,
+	sync::atomic::{AtomicBool, Ordering}
+};
 
+use crossbeam_queue::ArrayQueue;
 use futures::task::AtomicWaker;
 
 use crate::{
-	apic::{APIC_TICK_COUNT, APIC_TPS}, error::NullexError, task::{Process, ProcessId, ProcessState, executor::EXECUTOR, yield_now}, utils::oncecell::cell::OnceCell
+	apic::{APIC_TICK_COUNT, APIC_TPS},
+	error::NullexError,
+	task::{
+		FileBackend,
+		OpenFile,
+		Process,
+		ProcessId,
+		ProcessState,
+		executor::EXECUTOR,
+		yield_now
+	},
+	utils::oncecell::cell::OnceCell
 };
 
 /// Spawns a process using the provided future function.
@@ -54,39 +68,52 @@ where
 	});
 
 	// construct the process.
-	let process = Process::new(state)?;
+	let mut process = Process::new(state)?;
+	process.open_files.insert(0, OpenFile {
+		backend: FileBackend::Stdin
+	});
+	process.open_files.insert(1, OpenFile {
+		backend: FileBackend::Stdout
+	});
+	// stderr
+	process.next_fd = 3;
 	// spawn the process.
 	executor.spawn_process(process)?;
 	Ok(pid)
 }
 
 /// Spawns a new user process with restricted permissions.
-pub fn spawn_user_process(bytes: &[u8], args: &[&str], envs: &[&str]) -> Result<Process, NullexError> {
+pub fn spawn_user_process(
+	bytes: &[u8],
+	args: &[&str],
+	envs: &[&str]
+) -> Result<Process, NullexError> {
 	let mut executor = EXECUTOR.lock();
 	let pid = executor.create_pid();
 
 	let state = Arc::new(ProcessState {
-        id: pid,
-        is_child: false,
-        future_fn: Arc::new(|_| Box::pin(async { 0 })),
-        queued: AtomicBool::new(false),
-        scancode_queue: OnceCell::new(ArrayQueue::new(1)),
-        waker: AtomicWaker::new(),
-    });
+		id: pid,
+		is_child: false,
+		future_fn: Arc::new(|_| Box::pin(async { 0 })),
+		queued: AtomicBool::new(false),
+		scancode_queue: OnceCell::new(ArrayQueue::new(1)),
+		waker: AtomicWaker::new()
+	});
 
-    Process::from_elf(state, bytes, args, envs)
+	Process::from_elf(state, bytes, args, envs)
 }
 
 #[allow(unused)]
 /// # Safety
-/// Should NEVER be used in kernel space. only like a API for syscalls and user space later.
+/// Should NEVER be used in kernel space. only like a API for syscalls and user
+/// space later.
 async unsafe fn sleep(ms: u64) {
-    let tps = APIC_TPS.load(Ordering::Relaxed);
-    let now = APIC_TICK_COUNT.load(Ordering::Relaxed);
-    let ticks = (ms * tps) / 1000;
-    let then = now + ticks;
+	let tps = APIC_TPS.load(Ordering::Relaxed);
+	let now = APIC_TICK_COUNT.load(Ordering::Relaxed);
+	let ticks = (ms * tps) / 1000;
+	let then = now + ticks;
 
-    while APIC_TICK_COUNT.load(Ordering::Relaxed) < then {
-        yield_now().await;
-    }
+	while APIC_TICK_COUNT.load(Ordering::Relaxed) < then {
+		yield_now().await;
+	}
 }

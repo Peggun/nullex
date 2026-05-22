@@ -1,7 +1,6 @@
 //! serial.rs
 //!
 //! Serial Interface module for the kernel.
-//!
 
 use alloc::string::String;
 use core::{arch::asm, fmt, hint::spin_loop, task::Poll};
@@ -19,7 +18,7 @@ use crate::{
 	serial_println,
 	serial_raw_print,
 	task::yield_now,
-	utils::{serial_kfunc::run_serial_command, mutex::SpinMutex, oncecell::spin::OnceCell}
+	utils::{mutex::SpinMutex, oncecell::spin::OnceCell, serial_kfunc::run_serial_command}
 };
 
 #[derive(Debug)]
@@ -122,8 +121,9 @@ impl SerialPort {
 		}
 	}
 
-	// this function is only here because eventually is something like kernel config, like Linux KConfig
-	// someone may want serial input. so we keep here for now.
+	// this function is only here because eventually is something like kernel
+	// config, like Linux KConfig someone may want serial input. so we keep here
+	// for now.
 	fn _receive(&mut self) -> u8 {
 		loop {
 			if let Ok(ok) = self._try_receive() {
@@ -134,8 +134,9 @@ impl SerialPort {
 		}
 	}
 
-	// this function is only here because eventually is something like kernel config, like Linux KConfig
-	// someone may want serial input. so we keep here for now.
+	// this function is only here because eventually is something like kernel
+	// config, like Linux KConfig someone may want serial input. so we keep here
+	// for now.
 	fn _try_receive(&mut self) -> Result<u8, SerialPortError> {
 		if self.line_sts().contains(LineStatusFlags::INPUT_FULL) {
 			let data = unsafe { inb(self.port_data()) };
@@ -187,15 +188,17 @@ pub(crate) fn add_byte(byte: u8) {
 		println!("WARNING: scancode queue uninitialized");
 	}
 }
-// this function is only here because eventually is something like kernel config, like Linux KConfig
-// someone may want serial input. so we keep here for now.
+// this function is only here because eventually is something like kernel
+// config, like Linux KConfig someone may want serial input. so we keep here for
+// now.
 #[allow(dead_code)]
 struct SerialScancodeStream {
 	_private: ()
 }
 
-// this function is only here because eventually is something like kernel config, like Linux KConfig
-// someone may want serial input. so we keep here for now.
+// this function is only here because eventually is something like kernel
+// config, like Linux KConfig someone may want serial input. so we keep here for
+// now.
 #[allow(dead_code)]
 impl SerialScancodeStream {
 	fn new() -> Self {
@@ -251,8 +254,9 @@ lazy_static! {
 	};
 }
 
-// this function is only here because eventually is something like kernel config, like Linux KConfig
-// someone may want serial input. so we keep here for now.
+// this function is only here because eventually is something like kernel
+// config, like Linux KConfig someone may want serial input. so we keep here for
+// now.
 async fn _serial_consumer_loop() -> i32 {
 	let mut bytes = SerialScancodeStream::new();
 	let mut line = String::new();
@@ -297,8 +301,9 @@ async fn _serial_consumer_loop() -> i32 {
 	0
 }
 
-// this function is only here because eventually is something like kernel config, like Linux KConfig
-// someone may want serial input. so we keep here for now.
+// this function is only here because eventually is something like kernel
+// config, like Linux KConfig someone may want serial input. so we keep here for
+// now.
 fn _init_serial_input() {
 	use x86_64::instructions::port::Port;
 
@@ -350,7 +355,8 @@ macro_rules! serial_println {
     ($($arg:tt)*) => ($crate::serial_print!("{}\r\n", core::format_args!($($arg)*)));
 }
 
-/// Prints to the host through the serial interface, sending raw bytes with no formatting or checking.
+/// Prints to the host through the serial interface, sending raw bytes with no
+/// formatting or checking.
 #[macro_export]
 macro_rules! serial_raw_print {
 	($bytes:expr) => {

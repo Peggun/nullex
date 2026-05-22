@@ -1,9 +1,8 @@
-//! 
+//!
 //! ata.rs
 //!
 //! ATA disk module for the kernel.
-//!
- 
+
 //
 // Currently not in use. But for the future.
 //

@@ -1,11 +1,12 @@
-//! 
+//!
 //! io/mod.rs
-//! 
+//!
 //! I/O module declaration.
-//! 
 
 use crate::{
-	common::ports::{inb, inl, inq, inw, outb, outl, outq, outw}, error::NullexError, utils::types::{BYTE, DWORD, QWORD, WORD}
+	common::ports::{inb, inl, inq, inw, outb, outl, outq, outw},
+	error::NullexError,
+	utils::types::{BYTE, DWORD, QWORD, WORD}
 };
 
 pub mod keyboard;

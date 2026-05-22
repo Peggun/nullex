@@ -5,10 +5,9 @@
 //!
 //! I have revamped it from phil-opp's blog as there was a bug where you
 //! couldn't change the vga font colour.
-//! 
-//! 
+//!
 
-use core::fmt;
+use core::{array::from_fn, fmt};
 
 use x86_64::instructions::port::Port;
 
@@ -17,24 +16,28 @@ use crate::{
 	utils::{mutex::SpinMutex, volatile::Volatile}
 };
 
-#[used]
-#[unsafe(link_section = ".kernel_tests")]
-#[unsafe(export_name = "__kernel_test_probe_vga")]
-static __KERNEL_TEST_PROBE_VGA: u64 = 0x1122334455667788;
-
 lazy_static! {
 	/// A global `Writer` instance that can is used for printing to the VGA text buffer.
 	///
 	/// Used by the `print!` and `println!` macros.
-	/// 
+	///
 	/// # Safety
 	/// - Buffer has to be able to point to address 0xb8000 without undefined behaviour
-	pub(crate) static ref WRITER: SpinMutex<Writer> = SpinMutex::new(Writer {
-		column_position: 0,
-		current_row: 0,
-		color_code: ColorCode::new(Color::White, Color::Black),
-		buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
-	});
+	pub(crate) static ref WRITER: SpinMutex<Writer> = {
+		let writer =
+			SpinMutex::new(Writer {
+			column_position: 0,
+			current_row: 0,
+			color_code: ColorCode::new(Color::White, Color::Black),
+			buffer: unsafe { &mut *(0xb8000 as *mut Buffer) },
+		});
+
+		writer.lock().enable_cursor();
+
+		writer
+	};
+
+
 }
 
 /// The standard color palette in VGA text mode.
@@ -99,16 +102,16 @@ struct ScreenChar {
 
 impl ScreenChar {
 	fn blank() -> ScreenChar {
-		ScreenChar { 
-			ascii_character: b' ', 
-			color_code: ColorCode::new(Color::White, Color::Black) 
+		ScreenChar {
+			ascii_character: b' ',
+			color_code: ColorCode::new(Color::White, Color::Black)
 		}
 	}
 
 	fn new(character: char, colour_code: ColorCode) -> ScreenChar {
 		ScreenChar {
 			ascii_character: character as u8,
-			color_code: colour_code,
+			color_code: colour_code
 		}
 	}
 }
@@ -122,6 +125,18 @@ const BUFFER_WIDTH: usize = 80;
 pub struct Buffer {
 	/// All screen characters that are currently presented on the screen.
 	chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT]
+}
+
+impl Buffer {
+	/// Creates a blank `Buffer`
+	pub fn blank() -> Self {
+		let chars: [[Volatile<ScreenChar>; BUFFER_WIDTH]; BUFFER_HEIGHT] =
+			from_fn(|_| from_fn(|_| Volatile::new(ScreenChar::blank())));
+
+		Buffer {
+			chars
+		}
+	}
 }
 
 /// A writer type that allows writing ASCII bytes and strings to an underlying
@@ -228,15 +243,15 @@ impl Writer {
 	}
 
 	/// Copies the VGA Buffer into memory for restoration.<br>
-	/// Good for applications (TUI's) where they use fullscreen and then 
+	/// Good for applications (TUI's) where they use fullscreen and then
 	/// want to revert back to the original terminal screen.
 	#[allow(dead_code)]
 	pub(crate) fn copy_vga_buffer(&self) -> Buffer {
 		self.buffer.clone()
 	}
 
-	/// Restores the VGA Buffer from memory. 
-	/// Good for applications (TUI's) where they use fullscreen and then 
+	/// Restores the VGA Buffer from memory.
+	/// Good for applications (TUI's) where they use fullscreen and then
 	/// want to revert back to the original terminal screen.
 	#[allow(dead_code)]
 	pub(crate) fn restore_vga_buffer(&mut self, prev: &Buffer) {
@@ -249,7 +264,7 @@ impl Writer {
 	}
 
 	/// Copies the current cursor position into memory for restoration.
-	/// Good for applications (TUI's) where they use fullscreen and then 
+	/// Good for applications (TUI's) where they use fullscreen and then
 	/// want to revert back to the original terminal screen.
 	#[allow(dead_code)]
 	pub(crate) fn copy_cursor_position(&self) -> (usize, usize) {
@@ -292,14 +307,36 @@ impl Writer {
 	}
 
 	/// Write a sequence of segments, each segment is a tuple: (&str, fg_color,
-	/// bg_color). 
-	/// Example: 
+	/// bg_color).
+	/// Example:
 	/// ```rust
-	/// write_segments(&[("test", Color::Green, Color::Black), ("@nullex", Color::White, Color::Black)]);
+	/// write_segments(&[
+	/// 	("test", Color::Green, Color::Black),
+	/// 	("@nullex", Color::White, Color::Black)
+	/// ]);
 	/// ```
 	pub fn write_segments(&mut self, segments: &[(&str, Color, Color)]) {
 		for (text, fg, bg) in segments {
 			self.write_with_color(text, *fg, *bg);
+		}
+	}
+
+	// yes the cursor is back now :)
+	pub(crate) fn enable_cursor(&self) {
+		let cursor_start = 13;
+		let cursor_end = 14;
+
+		let mut port_3d4 = Port::<u8>::new(0x3D4);
+		let mut port_3d5 = Port::<u8>::new(0x3D5);
+
+		unsafe {
+			// cursor start scanline
+			port_3d4.write(0x0A);
+			port_3d5.write(cursor_start & 0x1F);
+
+			// cursor end scanline
+			port_3d4.write(0x0B);
+        	port_3d5.write(cursor_end & 0x1F);
 		}
 	}
 }
@@ -331,7 +368,6 @@ macro_rules! println {
     ($($arg:tt)*) => ($crate::print!("{}\n", format_args!($($arg)*)));
 }
 
-
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
 	use core::fmt::Write;
@@ -348,8 +384,8 @@ pub fn _print_segments(segments: &[(&str, Color, Color)]) {
 ///
 /// Examples:
 /// ```rust
-/// print_colours!( ("test", Color::Green), ("@nullex", Color::White) );
-/// print_colours!( ("ok: ", Color::Green), ("42\n", Color::White, Color::Blue) );
+/// print_colours!(("test", Color::Green), ("@nullex", Color::White));
+/// print_colours!(("ok: ", Color::Green), ("42\n", Color::White, Color::Blue));
 /// ```
 #[macro_export]
 macro_rules! print_colours {
@@ -375,7 +411,7 @@ macro_rules! print_colours {
 }
 
 #[macro_export]
-/// Clear the current VGA screen of all characters. 
+/// Clear the current VGA screen of all characters.
 macro_rules! clear_screen {
 	() => {
 		use $crate::vga_buffer::WRITER;
@@ -391,7 +427,10 @@ pub mod prelude {
 
 #[cfg(feature = "test")]
 pub mod tests {
-	use crate::{utils::ktest::TestError, vga_buffer::prelude::*};
+	use crate::{
+		utils::ktest::TestError,
+		vga_buffer::{Buffer, prelude::*}
+	};
 
 	pub fn test_screenchar_blank_and_buffer_blank() -> Result<(), TestError> {
 		let sc = ScreenChar::blank();

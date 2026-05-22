@@ -6,7 +6,7 @@
 // Copyright (c) 2019 Kevin Zhao
 // Modifications: Added serial_println! for debugging, modifed for kernel halts.
 // Expanded `RedirectionTableEntry` impl functions to support all of the
-// possible RTE flags. Made `high` & `low` RTE members public. Added tests 
+// possible RTE flags. Made `high` & `low` RTE members public. Added tests
 // Added `lazy_static!` macro call for all modules to use.
 // See THIRD_PARTY_LICENSES.md for full license texts and upstream details.
 

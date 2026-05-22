@@ -1,8 +1,7 @@
 //!
 //! ports.rs
-//! 
+//!
 //! Port accessibility module for the kernel.
-//! 
 
 use core::arch::asm;
 
@@ -10,9 +9,11 @@ use core::arch::asm;
 ///
 /// # Safety
 /// - Uses inline `asm!` and performs port-mapped I/O; only valid on x86/x86_64.
-/// - Caller must ensure the port is accessible and that performing the write is allowed
-///   (privilege level, device readiness, etc.). Undefined behaviour may occur otherwise.
-/// - This function is `unsafe` because it performs hardware I/O with side effects.
+/// - Caller must ensure the port is accessible and that performing the write is
+///   allowed (privilege level, device readiness, etc.). Undefined behaviour may
+///   occur otherwise.
+/// - This function is `unsafe` because it performs hardware I/O with side
+///   effects.
 ///
 /// # Parameters
 /// - `port`: 16-bit port address.
@@ -36,8 +37,8 @@ pub unsafe fn outb(port: u16, val: u8) {
 ///
 /// # Safety
 /// - Uses inline `asm!` and performs port-mapped I/O; only valid on x86/x86_64.
-/// - Caller must ensure the port is readable and that reading it is permitted in the current
-///   execution context (privilege level, device state).
+/// - Caller must ensure the port is readable and that reading it is permitted
+///   in the current execution context (privilege level, device state).
 ///
 /// # Parameters
 /// - `port`: 16-bit port address.
@@ -149,10 +150,12 @@ pub unsafe fn inl(port: u16) -> u32 {
 /// Write a 64-bit value to two consecutive I/O ports (low dword first).
 ///
 /// # Safety
-/// - Performs two `outl` calls: writes the low 32 bits to `port` and the high 32 bits to `port + 4`.
-/// - Not atomic: devices that expect an atomic 64-bit write may be left in an intermediate state.
-/// - Caller must ensure ordering and that writing two dwords to consecutive ports is the correct
-///   protocol for the target device.
+/// - Performs two `outl` calls: writes the low 32 bits to `port` and the high
+///   32 bits to `port + 4`.
+/// - Not atomic: devices that expect an atomic 64-bit write may be left in an
+///   intermediate state.
+/// - Caller must ensure ordering and that writing two dwords to consecutive
+///   ports is the correct protocol for the target device.
 ///
 /// # Parameters
 /// - `port`: 16-bit base port address.
@@ -168,10 +171,13 @@ pub unsafe fn outq(port: u16, val: u64) {
 /// Read a 64-bit value from two consecutive I/O ports (low dword first).
 ///
 /// # Safety
-/// - Performs two `inl` calls: reads low 32 bits from `port` and high 32 bits from `port + 4`.
-/// - Not atomic: the value may change between the two reads; caller must handle this if atomicity
-///   is required (e.g., by device-specific locking or repeated-read checks).
-/// - Caller must ensure the device supports this layout (low dword at `port`, high dword at `port+4`).
+/// - Performs two `inl` calls: reads low 32 bits from `port` and high 32 bits
+///   from `port + 4`.
+/// - Not atomic: the value may change between the two reads; caller must handle
+///   this if atomicity is required (e.g., by device-specific locking or
+///   repeated-read checks).
+/// - Caller must ensure the device supports this layout (low dword at `port`,
+///   high dword at `port+4`).
 ///
 /// # Parameters
 /// - `port`: 16-bit base port address.

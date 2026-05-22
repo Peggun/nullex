@@ -1,8 +1,7 @@
 //!
 //! net/mod.rs
-//! 
+//!
 //! Network module declaration.
-//! 
 
 pub mod arp;
 pub mod dns;

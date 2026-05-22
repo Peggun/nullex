@@ -1,26 +1,47 @@
 //!
 //! elf.rs
-//! 
+//!
 //! ELF binary helpers for the kernel.
-//! 
 
 // https://codebrowser.dev/linux/include/elf.h.html
 
-use core::{arch::asm, ptr::{copy_nonoverlapping, write_bytes}};
-
 use alloc::{sync::Arc, vec::Vec};
-use x86_64::{VirtAddr, registers::control::{Cr3, Cr3Flags}, structures::paging::{FrameAllocator, Mapper, OffsetPageTable, Page, PageTable, PageTableFlags, page::PageRange}};
+use core::{
+	arch::asm,
+	ptr::{copy_nonoverlapping, write_bytes}
+};
 
-use crate::{allocator::ALLOCATOR_INFO, arch::x86_64::user::{enter_user_process, setup_user_stack}, error::NullexError, fs::{self, resolve_path}, memory::{map_range, phys_to_virt}, println, serial_println, task::{AddressSpace, Process, ProcessState, UserContext}, utils::process::{spawn_process, spawn_user_process}};
+use x86_64::{
+	VirtAddr,
+	registers::control::{Cr3, Cr3Flags},
+	structures::paging::{
+		FrameAllocator,
+		Mapper,
+		OffsetPageTable,
+		Page,
+		PageTable,
+		PageTableFlags,
+		page::PageRange
+	}
+};
+
+use crate::{
+	allocator::ALLOCATOR_INFO,
+	arch::x86_64::user::{enter_user_process, setup_user_stack},
+	error::NullexError,
+	fs::{self, resolve_path},
+	memory::{map_range, phys_to_virt},
+	println,
+	serial_println,
+	task::{AddressSpace, Process, ProcessState, UserContext},
+	utils::process::{spawn_process, spawn_user_process}
+};
 
 const ELF_MAGIC: [u8; 4] = [0x7f, b'E', b'L', b'F'];
 
 const EI_NIDENT: usize = 16;
 
-pub(crate) const HELLO_ELF: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/build/userspace/hello/hello.elf"));
-//pub const BARE_ELF: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/build/userspace/bare/bare.elf"));
-
-// these are the same for 32bit and 64-bit. 
+// these are the same for 32bit and 64-bit.
 // so its probably concise to use a generic name
 // naming-wise, probably Elf32 and Elf64 are better i guess.
 type ElfHalf = u16;
@@ -59,7 +80,7 @@ pub struct Elf64Ehdr {
 	e_phnum: ElfHalf,
 	e_shentsize: ElfHalf,
 	e_shnum: ElfHalf,
-	e_shstrrndx: ElfHalf,
+	e_shstrrndx: ElfHalf
 }
 
 /// ELF file section header
@@ -89,7 +110,7 @@ pub struct Elf64Phdr {
 	p_paddr: Elf64Addr,
 	p_filesz: ElfXword,
 	p_memsz: ElfXword,
-	p_align: ElfXword,
+	p_align: ElfXword
 }
 #[repr(C)]
 /// A PT_LOAD Segment of a ELF binary.
@@ -98,7 +119,7 @@ pub struct LoadSegment {
 	offset: u64,
 	filesz: u64,
 	memsz: u64,
-	flags: u32,
+	flags: u32
 }
 
 /// Structure representing a ELF binary.
@@ -136,7 +157,7 @@ pub fn parse_elf(bytes: &[u8]) -> Result<ElfImage, NullexError> {
 				core::ptr::copy_nonoverlapping(
 					bytes.as_ptr().add(start),
 					&mut phdr as *mut Elf64Phdr as *mut u8,
-					phdr_size.min(e_header.e_phentsize as usize),
+					phdr_size.min(e_header.e_phentsize as usize)
 				);
 			}
 
@@ -146,7 +167,7 @@ pub fn parse_elf(bytes: &[u8]) -> Result<ElfImage, NullexError> {
 					offset: phdr.p_offset,
 					filesz: phdr.p_filesz,
 					memsz: phdr.p_memsz,
-					flags: phdr.p_flags,
+					flags: phdr.p_flags
 				});
 			}
 		}
@@ -154,7 +175,7 @@ pub fn parse_elf(bytes: &[u8]) -> Result<ElfImage, NullexError> {
 
 	Ok(ElfImage {
 		entry: e_header.e_entry,
-		segments: load_segs,
+		segments: load_segs
 	})
 }
 
@@ -167,13 +188,11 @@ pub fn pelf(args: &[&str]) {
 
 	let path = resolve_path(args[0]);
 
-	let process = fs::with_fs(|fs| {
-		match fs.read_file(path.as_str()) {
-			Ok(bytes) => spawn_user_process(bytes, args, &[""]),
-			Err(_) => {
-				println!("pelf: file not found: {}", args[0]);
-				return Err(NullexError::FileNotFound);
-			}
+	let process = fs::with_fs(|fs| match fs.read_file(path.as_str()) {
+		Ok(bytes) => spawn_user_process(bytes, args, &[""]),
+		Err(_) => {
+			println!("pelf: file not found: {}", args[0]);
+			return Err(NullexError::FileNotFound);
 		}
 	});
 
@@ -189,56 +208,56 @@ pub fn pelf(args: &[&str]) {
 				.load(core::sync::atomic::Ordering::SeqCst);
 			println!("Process exited with code {}", code);
 		}
-		Err(_) => println!("pelf: failed to spawn process"),
+		Err(_) => println!("pelf: failed to spawn process")
 	}
 }
 
 /// Load a ELF binary segment into memory.
 pub fn load_segment(
-    address_space: &mut AddressSpace,
-    elf_bytes: &[u8],
-    seg: &LoadSegment,
+	address_space: &mut AddressSpace,
+	elf_bytes: &[u8],
+	seg: &LoadSegment
 ) -> Result<(), NullexError> {
-    if seg.memsz == 0 {
-        return Ok(());
-    }
+	if seg.memsz == 0 {
+		return Ok(());
+	}
 
-    let file_start = seg.offset as usize;
-    let file_end = seg
-        .offset
-        .checked_add(seg.filesz)
-        .ok_or(NullexError::ElfMagicIncorrect)? as usize;
+	let file_start = seg.offset as usize;
+	let file_end = seg
+		.offset
+		.checked_add(seg.filesz)
+		.ok_or(NullexError::ElfMagicIncorrect)? as usize;
 
-    if file_end > elf_bytes.len() {
-        return Err(NullexError::ElfMagicIncorrect);
-    }
+	if file_end > elf_bytes.len() {
+		return Err(NullexError::ElfMagicIncorrect);
+	}
 
-    let seg_start = seg.vaddr as usize;
-    let seg_end = seg_start
-        .checked_add(seg.memsz as usize)
-        .ok_or(NullexError::ElfMagicIncorrect)?;
+	let seg_start = seg.vaddr as usize;
+	let seg_end = seg_start
+		.checked_add(seg.memsz as usize)
+		.ok_or(NullexError::ElfMagicIncorrect)?;
 
-    let start_page = Page::containing_address(VirtAddr::new(seg_start as u64));
-    let end_page = Page::containing_address(VirtAddr::new((seg_end - 1) as u64));
+	let start_page = Page::containing_address(VirtAddr::new(seg_start as u64));
+	let end_page = Page::containing_address(VirtAddr::new((seg_end - 1) as u64));
 
-    let mut fa_guard = ALLOCATOR_INFO.frame_allocator.lock();
-    let fa = fa_guard
-        .as_mut()
-        .ok_or(NullexError::FrameAllocatorNotInitialized)?;
+	let mut fa_guard = ALLOCATOR_INFO.frame_allocator.lock();
+	let fa = fa_guard
+		.as_mut()
+		.ok_or(NullexError::FrameAllocatorNotInitialized)?;
 
-    let table_ptr = unsafe { phys_to_virt(address_space.page_table.start_address()) };
-    let pml4 = unsafe { &mut *table_ptr.as_mut_ptr::<PageTable>() };
-    let mut mapper = unsafe { OffsetPageTable::new(pml4, *crate::PHYS_MEM_OFFSET.lock()) };
+	let table_ptr = unsafe { phys_to_virt(address_space.page_table.start_address()) };
+	let pml4 = unsafe { &mut *table_ptr.as_mut_ptr::<PageTable>() };
+	let mut mapper = unsafe { OffsetPageTable::new(pml4, *crate::PHYS_MEM_OFFSET.lock()) };
 
-    let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
+	let mut flags = PageTableFlags::PRESENT | PageTableFlags::USER_ACCESSIBLE;
 
-    if seg.flags & PF_W != 0 {
-        flags |= PageTableFlags::WRITABLE;
-    }
+	if seg.flags & PF_W != 0 {
+		flags |= PageTableFlags::WRITABLE;
+	}
 
-    if seg.flags & PF_X == 0 {
-        flags |= PageTableFlags::NO_EXECUTE;
-    }
+	if seg.flags & PF_X == 0 {
+		flags |= PageTableFlags::NO_EXECUTE;
+	}
 
 	serial_println!(
 		"segment vaddr={:#x} memsz={:#x} filesz={:#x} pages={}",
@@ -248,10 +267,12 @@ pub fn load_segment(
 		(seg.memsz + 0xFFF) / 0x1000
 	);
 
-    for page in Page::range_inclusive(start_page, end_page) {
-        let frame = fa.allocate_frame().ok_or(NullexError::FrameAllocationFailed)?;
+	for page in Page::range_inclusive(start_page, end_page) {
+		let frame = fa
+			.allocate_frame()
+			.ok_or(NullexError::FrameAllocationFailed)?;
 
-        match unsafe { mapper.map_to(page, frame, flags, *fa) } {
+		match unsafe { mapper.map_to(page, frame, flags, *fa) } {
 			Ok(flush) => flush.flush(),
 			Err(e) => {
 				serial_println!("map_to failed: {:?}", e);
@@ -259,32 +280,32 @@ pub fn load_segment(
 			}
 		}
 
-        let frame_virt = unsafe { phys_to_virt(frame.start_address()).as_mut_ptr::<u8>() };
+		let frame_virt = unsafe { phys_to_virt(frame.start_address()).as_mut_ptr::<u8>() };
 
-        unsafe {
-            write_bytes(frame_virt, 0, 4096);
-        }
+		unsafe {
+			write_bytes(frame_virt, 0, 4096);
+		}
 
-        let page_start = page.start_address().as_u64() as usize;
-        let page_end = page_start + 4096;
+		let page_start = page.start_address().as_u64() as usize;
+		let page_end = page_start + 4096;
 
-        let copy_start = core::cmp::max(seg_start, page_start);
-        let copy_end = core::cmp::min(seg_end, page_end);
+		let copy_start = core::cmp::max(seg_start, page_start);
+		let copy_end = core::cmp::min(seg_end, page_end);
 
-        if copy_start < copy_end {
-            let src_off = file_start + (copy_start - seg_start);
-            let dst_off = copy_start - page_start;
-            let len = copy_end - copy_start;
+		if copy_start < copy_end {
+			let src_off = file_start + (copy_start - seg_start);
+			let dst_off = copy_start - page_start;
+			let len = copy_end - copy_start;
 
-            unsafe {
-                copy_nonoverlapping(
-                    elf_bytes.as_ptr().add(src_off),
-                    frame_virt.add(dst_off),
-                    len,
-                );
-            }
-        }
-    }
+			unsafe {
+				copy_nonoverlapping(
+					elf_bytes.as_ptr().add(src_off),
+					frame_virt.add(dst_off),
+					len
+				);
+			}
+		}
+	}
 
-    Ok(())
+	Ok(())
 }

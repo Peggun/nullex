@@ -48,7 +48,7 @@ typedef signed long long int64_t;
  */
 static inline int32_t ksyscall(uint32_t num, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
     int32_t ret;
-    register uint64_t r10 __asm__("r10") = a3; // r10 is special, can't be a constraint
+    register uint64_t r10 __asm__("r10") = a3;
     register uint64_t r8  __asm__("r8")  = a4;
     register uint64_t r9  __asm__("r9")  = a5;
 
@@ -210,4 +210,24 @@ static inline int32_t nap(/* todo */) {
 
 static inline int32_t sizef(uint64_t fd) {
     return ksyscall(SYS_SIZEF, fd, 0, 0, 0, 0, 0);
-}   
+}
+
+/*
+ * input() - read a line from stdin into a caller-provided buffer.
+ *
+ * Fixed: the old version returned a pointer to a local stack buffer,
+ * which is undefined behaviour once the function returns. The caller
+ * now owns the buffer and its lifetime.
+ *
+ * Usage:
+ *   char buf[256];
+ *   input("What is your name? ", buf, sizeof(buf));
+ *   say(buf);
+ */
+static inline int32_t input(const char* msg, char* buffer, size_t len) {
+    say(msg);
+    int32_t bytes_read = readf(0, (uint8_t*)buffer, len - 1);
+    if (bytes_read < 0) bytes_read = 0;
+    buffer[bytes_read] = '\0'; // null terminate
+    return bytes_read;
+}

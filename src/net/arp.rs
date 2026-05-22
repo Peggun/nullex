@@ -1,8 +1,7 @@
 //!
 //! arp.rs
-//! 
+//!
 //! ARP protocol handling for the kernel.
-//! 
 
 use alloc::vec::Vec;
 

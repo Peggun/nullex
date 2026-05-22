@@ -1,8 +1,7 @@
 //!
 //! executor.rs
-//! 
+//!
 //! Process execution logic for the kernel.
-//! 
 
 use alloc::{collections::BTreeMap, sync::Arc, task::Wake};
 use core::{sync::atomic::Ordering, task::Waker};
@@ -45,7 +44,6 @@ impl Executor {
 		}
 	}
 
-
 	/// Spawns a new process.
 	pub fn spawn_process(&mut self, process: Process) -> Result<(), NullexError> {
 		let pid = process.state.id;
@@ -53,7 +51,9 @@ impl Executor {
 		if self.processes.insert(pid, process_arc).is_some() {
 			return Err(NullexError::ProcessAlreadyExists);
 		}
-		self.process_queue.push(pid).map_err(|_| NullexError::ProcessQueueFull)?;
+		self.process_queue
+			.push(pid)
+			.map_err(|_| NullexError::ProcessQueueFull)?;
 		Ok(())
 	}
 

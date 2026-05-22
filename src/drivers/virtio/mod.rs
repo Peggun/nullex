@@ -1,14 +1,13 @@
 //!
-//! drivers/virtio/mod.rs 
-//! 
+//! drivers/virtio/mod.rs
+//!
 //! Virtio driver defintions.
-//! 
 
 #[allow(unused)]
 pub mod net;
 
 use core::{
-	ptr::null_mut,
+	ptr::{null_mut, read_volatile, write_volatile},
 	sync::atomic::{Ordering, fence}
 };
 
@@ -134,8 +133,9 @@ pub struct VirtqueueUsed {
 // makes computing the size easier.
 // more important stuff like this will get more documentation.
 /// Structure representing a VirtQueue.
-/// Represents a VirtIO queue used for communication between the driver and device.
-/// 
+/// Represents a VirtIO queue used for communication between the driver and
+/// device.
+///
 /// A VirtQueue consists of three main components:
 /// - Descriptor table: describes memory buffers
 /// - Available ring: index of buffers available to the device
@@ -217,12 +217,14 @@ impl VirtQueue {
 
 		unsafe {
 			let desc = &mut *self.desc.add(idx as usize);
-			self.free_head = desc.next;
+
+			let next_free = desc.next;
 
 			desc.addr = phys_addr.as_u64();
 			desc.len = len;
 			desc.flags = if device_writes { VIRTQ_DESC_F_WRITE } else { 0 };
-			desc.next = 0;
+
+			self.free_head = next_free;
 		}
 
 		self.num_free -= 1;
@@ -240,14 +242,17 @@ impl VirtQueue {
 
 	fn push_avail(&mut self, desc_index: u16) {
 		let avail = unsafe { &mut *self.avail };
+		let avail_idx = unsafe { read_volatile(&avail.idx) };
 		let ring_ptr = unsafe {
 			(avail as *mut _ as *mut u8)
 				.add(core::mem::size_of::<VirtqueueAvailable>())
-				.add((avail.idx % self.size) as usize * 2) as *mut u16
+				.add((avail_idx % self.size) as usize * 2) as *mut u16
 		};
-		unsafe { ring_ptr.write(desc_index) };
+		unsafe { write_volatile(ring_ptr, desc_index) };
 		fence(Ordering::Release);
-		avail.idx = avail.idx.wrapping_add(1);
+		unsafe {
+			write_volatile(&mut avail.idx, avail_idx.wrapping_add(1));
+		}
 	}
 
 	fn kick(&self) {
@@ -262,9 +267,10 @@ impl VirtQueue {
 	fn pop_used(&mut self) -> Option<(u16, u32)> {
 		let used = unsafe { &*self.used };
 
+		let used_idx = unsafe { read_volatile(&used.idx) };
 		fence(Ordering::Acquire);
 
-		if self.last_used == used.idx {
+		if self.last_used == used_idx {
 			return None;
 		}
 
@@ -274,7 +280,7 @@ impl VirtQueue {
 			let ring = (used as *const _ as *const u8).add(core::mem::size_of::<VirtqueueUsed>())
 				as *const VirtqueueUsedElement;
 
-			&*ring.add(index)
+			read_volatile(ring.add(index))
 		};
 
 		self.last_used = self.last_used.wrapping_add(1);
@@ -291,9 +297,14 @@ fn virtqueue_size(qsize: usize) -> Result<usize, NullexError> {
 	let used_size = core::mem::size_of::<VirtqueueUsed>()
 		+ qsize * core::mem::size_of::<VirtqueueUsedElement>();
 
-	let used_offset = align_up((desc_size + avail_size).try_into()
-		.map_err(|_| NullexError::Io("Queue offset overflow"))?, 4096);
-	(used_offset as u64 + used_size as u64).try_into()
+	let used_offset = align_up(
+		(desc_size + avail_size)
+			.try_into()
+			.map_err(|_| NullexError::Io("Queue offset overflow"))?,
+		4096
+	);
+	(used_offset as u64 + used_size as u64)
+		.try_into()
 		.map_err(|_| NullexError::Io("Queue memory overflow"))
 }
 

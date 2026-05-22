@@ -1,8 +1,8 @@
 //!
 //! cpu_utils.rs
-//! 
+//!
 //! Utilites for the CPU.
-//! Currently not in use. To be removed later. 
+//! Currently not in use. To be removed later.
 
 use core::arch::asm;
 

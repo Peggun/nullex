@@ -1,9 +1,8 @@
 //!
 //! mutex.rs
-//! 
+//!
 //! An implementation for a Mutually Exclusive thread-safe type.
-//! 
-//! 
+//!
 
 use core::{
 	cell::UnsafeCell,
@@ -62,7 +61,8 @@ impl<T> SpinMutex<T> {
 		}
 	}
 
-	/// Forces the SpinMutex to unlock, regardless if another thread is trying to use it.
+	/// Forces the SpinMutex to unlock, regardless if another thread is trying
+	/// to use it.
 	pub unsafe fn force_unlock(&self) {
 		self.locked.store(false, Ordering::Release);
 	}

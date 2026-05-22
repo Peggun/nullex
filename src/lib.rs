@@ -1,15 +1,12 @@
-//! 
+//!
 //! lib.rs
 //!
 //! Kernel module for the kernel.
-//!
 
 #![no_std]
 #![no_main]
-
 #![allow(internal_features)]
 #![warn(missing_docs)]
-
 #![feature(abi_x86_interrupt)]
 #![feature(alloc_error_handler)]
 #![feature(str_from_raw_parts)]
@@ -64,21 +61,25 @@ use crate::{
 	allocator::ALLOCATOR_INFO,
 	apic::{APIC_BASE, APIC_TPS},
 	common::ports::outb,
+	drivers::virtio::net::virtio_net_driver_init,
 	fs::ramfs::{FileSystem, setup_system_files},
 	interrupts::APIC_TIMER_VECTOR,
 	io::{
 		keyboard::line_editor::print_keypresses,
 		pci::{self, discover_pci_devices}
 	},
-	ioapic::{IOAPIC, dump_gsi},
+	ioapic::{IOAPIC, IrqMode, RedirectionTableEntry, dump_gsi},
 	memory::{BootInfoFrameAllocator, init_global_alloc},
 	task::{
-		Process, ProcessId, executor::{self, CURRENT_PROCESS, EXECUTOR}, keyboard
+		Process,
+		ProcessId,
+		executor::{self, CURRENT_PROCESS, EXECUTOR},
+		keyboard
 	},
-	utils::{boot::init_efer, multiboot2::parse_multiboot2, mutex::SpinMutex, process::spawn_process}
+	utils::{
+		boot::init_efer, elf::pelf, logger::init_logging, multiboot2::parse_multiboot2, mutex::SpinMutex, process::{spawn_process, spawn_user_process}
+	}
 };
-
-use crate::drivers::virtio::net::virtio_net_driver_init;
 
 lazy_static! {
 	/// Static reference to the physical memory offset for the kernel.
@@ -107,8 +108,9 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	println!("[Info] Starting Kernel Init...");
 
 	init_efer();
+	init_logging();
 
-	// Parse boot info and initialize memory
+	// parse boot info and initialize memory
 	let boot_info = unsafe { parse_multiboot2(mbi_addr) };
 	let pmo_val = *PHYS_MEM_OFFSET.lock();
 	let mapper = unsafe { memory::init(pmo_val) };
@@ -119,16 +121,18 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 		panic!("Global Allocator Initialization failed: {}", e);
 	}
 
-	// Initialize GDT and IDT
+	// init gdt and idt
 	crate::init();
 
-	// Setup APIC and IOAPIC
+	// setup apic and ioapic
 	{
 		let mut m_lock = ALLOCATOR_INFO.mapper.lock();
 		let mut f_lock = ALLOCATOR_INFO.frame_allocator.lock();
-		let mapper = m_lock.as_mut()
+		let mapper = m_lock
+			.as_mut()
 			.expect("FATAL: Mapper not initialized during APIC setup");
-		let frame_allocator = f_lock.as_mut()
+		let frame_allocator = f_lock
+			.as_mut()
 			.expect("FATAL: Frame allocator not initialized during APIC setup");
 
 		*APIC_BASE.lock() = pmo_val.as_u64() as usize + 0xFEE0_0000usize;
@@ -154,11 +158,6 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 		Err(e) => serial_println!("APIC calibration failed: {}", e)
 	}
 
-	let mut ioapic = IOAPIC.lock();
-	let lapic_id = unsafe { (apic::read_register(apic::APIC_ID) >> 24) as u8 };
-	unsafe { ioapic.init(32, lapic_id) };
-	drop(ioapic);
-
 	// Mask legacy PIC
 	unsafe {
 		outb(0x21, 0xFF);
@@ -182,6 +181,12 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 		link_isos();
 	}
 
+	let mut ioapic = IOAPIC.lock();
+	let lapic_id = unsafe { (apic::read_register(apic::APIC_ID) >> 24) as u8 };
+	unsafe { ioapic.init(32, lapic_id) };
+	unsafe { ioapic.enable_irq(8) };
+	drop(ioapic);
+
 	serial_println!("[INIT] Finalizing all PCI devices...");
 	if let Err(e) = pci::finalize_all_devices() {
 		panic!("Failed to finalize PCI devices: {}", e);
@@ -191,7 +196,7 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	enable();
 	serial_println!("[INIT] Interrupts enabled successfully!");
 
-	dump_gsi(11);
+	dump_gsi(8);
 
 	// network init
 	crate::net::init();
@@ -242,7 +247,16 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 
 	WRITER.lock().clear_everything();
 
+	#[cfg(feature = "test")]
+	{
+		use crate::utils::ktest::run_all_tests;
+
+		run_all_tests();
+	}
+
 	// Spawn processes
+
+	// TODO: replace this with like a ELF binary that runs on boot.
 	let _cmds_pid = match spawn_process(
 		|_state| {
 			Box::pin(async move {

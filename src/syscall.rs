@@ -5,7 +5,6 @@
 //!
 //! Using custom system call commands as I would love this kernel to be unique
 //! to me and others without resembling too much of UNIX/Linux
-//!
 
 use alloc::{string::ToString, sync::Arc};
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -13,13 +12,26 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use futures::task::AtomicWaker;
 
 use crate::{
-	arch::x86_64::user::{KERNEL_CR3, KERNEL_RETURN_ADDR, KERNEL_RETURN_RBP, KERNEL_RETURN_RSP, USER_EXIT_CODE}, fs::{self, resolve_path}, println, serial_println, task::{
+	arch::x86_64::user::{
+		KERNEL_CR3,
+		KERNEL_RETURN_ADDR,
+		KERNEL_RETURN_RBP,
+		KERNEL_RETURN_RSP,
+		USER_EXIT_CODE
+	},
+	fs::{self, resolve_path},
+	io::keyboard::line_editor::{LINE_READY, PROGRAM_WAITING, STDIN_BUFFER},
+	println,
+	serial_println,
+	task::{
+		FileBackend,
 		OpenFile,
 		Process,
 		ProcessId,
 		ProcessState,
-		executor::{self, CURRENT_PROCESS, EXECUTOR}
-	}, utils::{elf::parse_elf, oncecell::spin::OnceCell}
+		executor::{self, CURRENT_PROCESS, EXECUTOR},
+	},
+	utils::{elf::parse_elf, oncecell::spin::OnceCell}
 };
 
 // syscall ids
@@ -37,8 +49,8 @@ const SYS_STOP: u32 = 9;
 const SYS_NAP: u32 = 10;
 const SYS_SIZEF: u32 = 11;
 
-/// System call handler function. Called when the `syscall` or `int 0x80` instruction
-/// is called.
+/// System call handler function. Called when the `syscall` or `int 0x80`
+/// instruction is called.
 ///
 /// # x86_64
 /// Conforms to the conventional Linux-style syscall ABI:
@@ -122,14 +134,14 @@ pub unsafe fn syscall(
 		SYS_NAP => {
 			serial_println!("i go nap nap now. sleep is a) broken, and b) unsafe :(");
 			0
-		},
+		}
 		SYS_SIZEF => {
 			let fd = arg1 as u32;
 			sys_sizef(fd)
 		}
 		_ => {
 			serial_println!("Invalid syscall ID: {}", syscall_id);
-			-1 // error code for unhandled syscall
+			-1
 		}
 	}
 }
@@ -157,7 +169,7 @@ fn sys_split() -> i32 {
 	let child_process = Process::new(child_state).expect("Process created incorrectly.");
 	match executor.spawn_process(child_process) {
 		Ok(()) => child_pid.get() as i32,
-		Err(_) => -1, // Return error code on spawn failure
+		Err(_) => -1
 	}
 }
 
@@ -191,8 +203,10 @@ fn sys_openf(path: &str) -> i32 {
 		}
 		let fd = process.next_fd;
 		process.open_files.insert(fd, OpenFile {
-			path: path.to_string(),
-			offset: 0
+			backend: FileBackend::DiskFile {
+				path: path.to_string(),
+				offset: 0
+			}
 		});
 		process.next_fd += 1;
 		fd as i32
@@ -207,10 +221,10 @@ fn sys_closef(fd: u32) -> i32 {
 		}
 		let process = &mut *executor::CURRENT_PROCESS_GUARD;
 		if process.open_files.remove(&fd).is_some() {
-			0 // success
+			0
 		} else {
 			serial_println!("sys_closef: Invalid file descriptor: {}", fd);
-			-1 // invalid fd
+			-1
 		}
 	}
 }
@@ -224,29 +238,79 @@ unsafe fn sys_readf(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
 			return -1;
 		}
 		let process = &mut *executor::CURRENT_PROCESS_GUARD;
-		if let Some(open_file) = process.open_files.get_mut(&fd) {
-			let path = &open_file.path;
-			let offset = open_file.offset;
-			fs::with_fs(|fs| {
-				if let Ok(file) = fs.get_file(path.as_str()) {
-					let bytes_to_read =
-						core::cmp::min(len, file.content.len().saturating_sub(offset));
-					if bytes_to_read > 0 {
-						let buf = core::slice::from_raw_parts_mut(buf_ptr, bytes_to_read);
-						buf.copy_from_slice(&file.content[offset..offset + bytes_to_read]);
-						open_file.offset += bytes_to_read;
-						bytes_to_read as i32
-					} else {
-						0 // eof
-					}
+
+		if fd != 0 && fd != 1 && fd != 2 {
+			// regular file read
+			if let Some(open_file) = process.open_files.get_mut(&fd) {
+				if let FileBackend::DiskFile {
+					ref path,
+					ref mut offset
+				} = open_file.backend
+				{
+					fs::with_fs(|fs| {
+						if let Ok(file_len) = fs.file_len(path.as_str()) {
+							let bytes_to_read =
+								core::cmp::min(len, file_len.saturating_sub(*offset));
+							if bytes_to_read > 0 {
+								let buf = core::slice::from_raw_parts_mut(buf_ptr, bytes_to_read);
+								let bytes_read =
+									fs.read_file_at(path.as_str(), *offset, buf).unwrap_or(0);
+								*offset += bytes_read;
+								bytes_read as i32
+							} else {
+								0 // eof
+							}
+						} else {
+							serial_println!("sys_readf: File not found: {}", path);
+							-1
+						}
+					})
 				} else {
-					serial_println!("sys_readf: File not found: {}", path);
-					-1 // file not found
+					-1
 				}
-			})
+			} else {
+				serial_println!("sys_readf: Invalid file descriptor: {}", fd);
+				-1
+			}
+		} else if fd == 0 {
+			// stdin
+			{
+				let mut stdin = STDIN_BUFFER.lock();
+				stdin.clear();
+			}
+			LINE_READY.store(false, Ordering::SeqCst);
+
+			PROGRAM_WAITING.store(true, Ordering::SeqCst);
+
+			serial_println!("sys_readf: waiting for stdin");
+
+			// sleep until the line is ready
+			while !LINE_READY.load(Ordering::SeqCst) {
+				x86_64::instructions::interrupts::enable_and_hlt();
+			}
+
+			serial_println!("sys_readf: got line, draining buffer");
+
+			PROGRAM_WAITING.store(false, Ordering::SeqCst);
+
+			let mut stdin = STDIN_BUFFER.lock();
+			let bytes_to_read = core::cmp::min(len, stdin.len());
+			for i in 0..bytes_to_read {
+				if let Some(byte) = stdin.pop_front() {
+					*buf_ptr.add(i) = byte;
+				}
+			}
+			if stdin.is_empty() {
+				LINE_READY.store(false, Ordering::SeqCst);
+			}
+
+			serial_println!("sys_readf: returning {} bytes", bytes_to_read);
+			stdin.clear();
+
+			bytes_to_read as i32
 		} else {
-			serial_println!("sys_readf: Invalid file descriptor: {}", fd);
-			-1 // invalid fd
+			serial_println!("sys_readf: fd {} is not readable", fd);
+			-1
 		}
 	}
 }
@@ -254,17 +318,33 @@ unsafe fn sys_readf(fd: u32, buf_ptr: *mut u8, len: usize) -> i32 {
 fn sys_sizef(fd: u32) -> i32 {
 	unsafe {
 		if executor::CURRENT_PROCESS_GUARD.is_null() {
-			serial_println!("sys_writef: No current process guard");
+			serial_println!("sys_sizef: No current process guard");
+			return -1;
+		}
+
+		if fd == 0 || fd == 1 || fd == 2 {
+			serial_println!("sys_sizef: fd is either stdin, stdout, or stderr.");
 			return -1;
 		}
 
 		let process = &mut *executor::CURRENT_PROCESS_GUARD;
 		if let Some(open_file) = process.open_files.get(&fd) {
-			let path = &open_file.path;
-			fs::with_fs(|fs| {
-				if !fs.exists(path) || fs.is_dir(path) { return -1isize }
-				return fs.get_file(path).unwrap().content.len().try_into().unwrap()
-			}).try_into().unwrap()
+			if let FileBackend::DiskFile {
+				ref path,
+				offset: _
+			} = open_file.backend
+			{
+				fs::with_fs(|fs| {
+					if !fs.exists(path) || fs.is_dir(path) {
+						return -1isize
+					}
+					return fs.file_len(path).unwrap().try_into().unwrap()
+				})
+				.try_into()
+				.unwrap()
+			} else {
+				unreachable!()
+			}
 		} else {
 			serial_println!("sys_sizef: Invalid file descriptor: {}", fd);
 			-1
@@ -280,27 +360,35 @@ unsafe fn sys_writef(fd: u32, buf_ptr: *const u8, len: usize) -> i32 {
 			serial_println!("sys_writef: No current process guard");
 			return -1;
 		}
+
 		let process = &mut *executor::CURRENT_PROCESS_GUARD;
 		if let Some(open_file) = process.open_files.get(&fd) {
-			let path = &open_file.path;
-			let buf = core::slice::from_raw_parts(buf_ptr, len);
-			fs::with_fs(|fs| {
-				if fs.write_file(path.as_str(), buf, false).is_ok() {
-					len as i32 // number of bytes written
-				} else {
-					serial_println!("sys_writef: Write failed: {}", path);
-					-1 // write failed
-				}
-			})
+			if let FileBackend::DiskFile {
+				ref path,
+				offset: _
+			} = open_file.backend
+			{
+				let buf = core::slice::from_raw_parts(buf_ptr, len);
+				fs::with_fs(|fs| {
+					if fs.write_file(path.as_str(), buf, false).is_ok() {
+						len as i32
+					} else {
+						serial_println!("sys_writef: Write failed: {}", path);
+						-1
+					}
+				})
+			} else {
+				0
+			}
 		} else {
 			serial_println!("sys_writef: Invalid file descriptor: {}", fd);
-			-1 // invalid fd
+			-1
 		}
 	}
 }
 
 fn sys_run(path: &str) -> i32 {
-	let maybe_bytes = fs::with_fs(|fs| fs.get_file(path).ok().map(|f| f.content.clone()));
+	let maybe_bytes = fs::with_fs(|fs| fs.read_file_to_vec(path).ok());
 	let elf_bytes = match maybe_bytes {
 		Some(b) => b,
 		None => {
@@ -312,8 +400,7 @@ fn sys_run(path: &str) -> i32 {
 	0
 }
 
-
 fn sys_stop(pid: u64) -> i32 {
 	EXECUTOR.lock().end_process(ProcessId::new(pid), -2);
-	0 // placeholder: should terminate the specified process
+	0
 }

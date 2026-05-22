@@ -1,8 +1,7 @@
 //!
 //! fs/mod.rs
-//! 
+//!
 //! Top level filesystem module declaration.
-//! 
 
 #[allow(missing_docs)]
 pub mod ata;

@@ -1,15 +1,11 @@
 //!
 //! ktest.rs
-//! 
+//!
 //! Kernel testing framework module for nullex.
-//! 
 
 use core::{slice::from_raw_parts, str::from_utf8_unchecked};
 
 use crate::{println, serial_println};
-
-#[cfg(feature = "test")]
-include!(concat!(env!("OUT_DIR"), "/tests_registry.rs"));
 
 #[derive(Debug)]
 // todo! expand error types.
@@ -18,16 +14,19 @@ pub enum TestError {
 	/// A generic error.
 	Error
 }
- 
+
 type TestFn = fn() -> Result<(), TestError>;
 
 #[repr(C)]
 /// Structure representing all data needed for locating
 /// and running tests.
 pub struct TestDescriptor {
-	name_ptr: *const u8,
-	name_len: usize,
-	func: TestFn
+	/// The pointer to the name of the test
+	pub name_ptr: *const u8,
+	/// The length of the name of the test
+	pub name_len: usize,
+	/// The actual test code.
+	pub func: TestFn
 }
 
 unsafe impl Send for TestDescriptor {}
@@ -48,14 +47,16 @@ impl TestDescriptor {
 
 /// Creates a test descriptor for kernel tests.
 ///
-/// This macro generates a `TestDescriptor` static variable that registers a test function
-/// with the kernel test framework. The test is placed in the `.kernel_tests` section for
-/// discovery and execution by the test harness.
+/// This macro generates a `TestDescriptor` static variable that registers a
+/// test function with the kernel test framework. The test is placed in the
+/// `.kernel_tests` section for discovery and execution by the test harness.
 ///
 /// # Syntax
 ///
-/// - `create_test!(function_name)` - Registers a test function in the current module
-/// - `create_test!(path::to::function)` - Registers a test function at a specific path
+/// - `create_test!(function_name)` - Registers a test function in the current
+///   module
+/// - `create_test!(path::to::function)` - Registers a test function at a
+///   specific path
 ///
 /// # Examples
 ///
@@ -76,9 +77,11 @@ impl TestDescriptor {
 ///
 /// # Notes
 ///
-/// - The macro automatically handles name mangling using `__kernel_test_` prefix
+/// - The macro automatically handles name mangling using `__kernel_test_`
+///   prefix
 /// - Test descriptors are marked with `#[used]` to prevent linker removal
-/// - The first variant suppresses warnings for non-snake-case identifiers and non-upper-case globals
+/// - The first variant suppresses warnings for non-snake-case identifiers and
+///   non-upper-case globals
 macro_rules! create_test {
 	($fn_ident:ident) => {
 		#[allow(non_snake_case)]
@@ -86,7 +89,6 @@ macro_rules! create_test {
 		mod $fn_ident {
 			#[used]
 			#[unsafe(link_section = ".kernel_tests")]
-			#[unsafe(export_name = concat!("__kernel_test_", stringify!($fn_ident), "_", line!()))]
 			pub static TEST_DESCRIPTOR: $crate::utils::ktest::TestDescriptor =
 				$crate::utils::ktest::TestDescriptor {
 					name_ptr: concat!(stringify!($fn_ident), "\0").as_ptr() as *const u8,
@@ -98,7 +100,6 @@ macro_rules! create_test {
 	($fn_path:path) => {
 		#[used]
 		#[unsafe(link_section = ".kernel_tests")]
-		#[unsafe(export_name = concat!("__kernel_test_", line!()))]
 		pub static TEST_DESCRIPTOR: $crate::utils::ktest::TestDescriptor =
 			$crate::utils::ktest::TestDescriptor {
 				name_ptr: concat!(stringify!($fn_path), "\0").as_ptr() as *const u8,
@@ -120,30 +121,53 @@ unsafe extern "C" {
 pub fn run_all_tests() {
 	#[cfg(feature = "test")]
 	{
-		use crate::{
-			qemu_exit,
-			utils::ktest::__generated_test_registry::__kernel_test_registry_refs
+		use crate::{qemu_exit, serial_println};
+
+		let tests: &[TestDescriptor] = unsafe {
+			let start = &__start_kernel_tests as *const u8 as *const TestDescriptor;
+			let end = &__stop_kernel_tests as *const u8 as *const TestDescriptor;
+
+			// the section is page-aligned and may have padding at the end,
+			// so use offset_from to get the exact count
+			let count = end.offset_from(start) as usize;
+			core::slice::from_raw_parts(start, count)
 		};
 
-		// deref the wrapper newtype to get the array of pointers
-		let ptrs = &__kernel_test_registry_refs.0;
-
-		println!("Running {} tests...", ptrs.len());
-		serial_println!("Running {} tests...", ptrs.len());
+		println!("Running {} tests...", tests.len());
+		serial_println!("Running {} tests...", tests.len());
 
 		let mut passed = 0;
 		let mut failed = 0;
 
-		for (i, ptr) in ptrs.iter().enumerate() {
-			// deref the pointer to get the TestDescriptor
-			let desc = unsafe { &**ptr };
+		unsafe {
+			let start = &__start_kernel_tests as *const u8 as usize;
+			let end = &__stop_kernel_tests as *const u8 as usize;
+			let size = end - start;
+			serial_println!(
+				"kernel_tests section: start={:#x} end={:#x} size={} sizeof(TestDescriptor)={} count={}",
+				start,
+				end,
+				size,
+				core::mem::size_of::<TestDescriptor>(),
+				size / core::mem::size_of::<TestDescriptor>()
+			);
+		}
+
+		for (i, desc) in tests.iter().enumerate() {
+			if desc.name_ptr.is_null() || desc.func as usize == 0 {
+				break;
+			}
+			serial_println!(
+				"test {} ptr={:p} len={}",
+				i + 1,
+				desc.name_ptr,
+				desc.name_len
+			);
 			let name = desc.name();
-
-			println!("test {} ({})... ", i + 1, name);
 			serial_println!("test {} ({})... ", i + 1, name);
+			println!("test {} ({})... ", i + 1, name);
 
-			let result = (desc.func)();
-			match result {
+			match (desc.func)() {
 				Ok(_) => {
 					println!("ok");
 					serial_println!("ok");
@@ -167,7 +191,7 @@ pub fn run_all_tests() {
 		} else {
 			println!("test result: ok");
 			serial_println!("test result: ok");
-			qemu_exit(0)
+			qemu_exit(0);
 		}
 	}
 

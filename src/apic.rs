@@ -2,7 +2,6 @@
 
 //!
 //! APIC timer and register definitions.
-//!
 
 use core::{
 	ptr::{read_volatile, write_volatile},
@@ -12,7 +11,7 @@ use core::{
 use x86_64::instructions::interrupts;
 
 use crate::{
-	error::NullexError, interrupts::APIC_TIMER_VECTOR, rtc::read_rtc_time, utils::mutex::SpinMutex
+	common::ports::{inb, outb}, error::NullexError, interrupts::APIC_TIMER_VECTOR, rtc::{CMOS_DATA, CMOS_INDEX, NMI_BIT, REG_C, read_rtc_time}, utils::mutex::SpinMutex
 };
 
 /// The base address of the APIC Timer
@@ -77,7 +76,7 @@ const LVT_MODE_PERIODIC: u32 = 1 << 17;
 #[inline(always)]
 unsafe fn apic_reg_ptr(offset: usize) -> *mut u32 {
 	let base = *APIC_BASE.lock();
-	// Verify APIC_BASE is initialized (must be within APIC memory range)
+
 	if base == 0 || base < 0xFED0_0000 {
 		panic!("APIC_BASE not initialized or invalid: {:#x}", base);
 	}
@@ -213,7 +212,9 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), NullexError> {
 
 	let ticks_per_second = start_count.wrapping_sub(end_count) as u64;
 	if ticks_per_second == 0 {
-		return Err(NullexError::CalibrationFailed("measured zero ticks per second."));
+		return Err(NullexError::CalibrationFailed(
+			"measured zero ticks per second."
+		));
 	}
 
 	let initial_count_u64 = ticks_per_second / (target_hz as u64);
@@ -225,6 +226,11 @@ pub fn calibrate(target_hz: u32) -> Result<(u64, u32), NullexError> {
 	unsafe {
 		mask_timer(true);
 		configure_lvt_timer(APIC_TIMER_VECTOR, true, true); // keep masked; set periodic
+	}
+
+	unsafe {
+		outb(CMOS_INDEX, REG_C | NMI_BIT);
+		let _ = inb(CMOS_DATA);
 	}
 
 	// still safe to return while interrupts remain disabled

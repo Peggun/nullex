@@ -52,6 +52,7 @@ SECTIONS
         KEEP(*(.kernel_tests))
         KEEP(*(.kernel_tests.*))
         KEEP(*(.kernel_tests.*.*))
+        KEEP(*(.kernel_tests.*.*.*))
         __stop_kernel_tests = .;
         . = ALIGN(0x1000);
     }

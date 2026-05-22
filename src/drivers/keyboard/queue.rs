@@ -2,21 +2,29 @@
 
 //!
 //! drivers/keyboard/queue.rs
-//! 
+//!
 //! Scancode queue logic and definitions for the kernel.
-//! 
 
-use core::task::Poll;
+use core::{sync::atomic::Ordering, task::Poll};
 
 use crossbeam_queue::ArrayQueue;
 use futures::{Stream, task::AtomicWaker};
 
-use crate::{println, utils::oncecell::spin::OnceCell};
+use crate::{
+	io::keyboard::line_editor::{PROGRAM_WAITING, process_scancode_for_stdin},
+	println,
+	utils::oncecell::spin::OnceCell
+};
 
 static SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();
 static WAKER: AtomicWaker = AtomicWaker::new();
 
 pub(crate) fn add_scancode(scancode: u8) {
+	if PROGRAM_WAITING.load(Ordering::SeqCst) {
+		process_scancode_for_stdin(scancode);
+		return;
+	}
+
 	if let Ok(queue) = SCANCODE_QUEUE.try_get() {
 		if queue.push(scancode).is_err() {
 			println!(

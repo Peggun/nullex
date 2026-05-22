@@ -2,7 +2,6 @@
 
 //!
 //! Heap allocator module for the kernel.
-//! 
 
 use core::{
 	alloc::{self, GlobalAlloc},
@@ -13,7 +12,7 @@ use core::{
 use linked_list::LinkedListAllocator;
 
 // allow missing documentation because otherwise
-// it will also be unused as there is only one type of 
+// it will also be unused as there is only one type of
 // allocator strategy for the kernel.
 #[allow(missing_docs, deprecated)]
 pub mod buddy;
@@ -26,7 +25,6 @@ pub mod io_alloc;
 #[allow(missing_docs, deprecated)]
 pub mod linked_list;
 
-
 use x86_64::structures::paging::{
 	FrameAllocator,
 	Mapper,
@@ -34,11 +32,18 @@ use x86_64::structures::paging::{
 	Page,
 	PageSize,
 	PageTableFlags,
-	Size4KiB,
+	Size4KiB
 };
 
 use crate::{
-	bail, ensure, error::NullexError, kassert, lazy_static, memory::BootInfoFrameAllocator, println, utils::{
+	bail,
+	ensure,
+	error::NullexError,
+	kassert,
+	lazy_static,
+	memory::BootInfoFrameAllocator,
+	println,
+	utils::{
 		mutex::{SpinMutex, SpinMutexGuard},
 		spin::rwlock::RwLock
 	}
@@ -47,7 +52,7 @@ use crate::{
 /// The starting address of the kernel's heap memory.
 pub const HEAP_START: usize = 0x_4444_4444_0000;
 /// The size of the kernel's heap memory.
-pub const HEAP_SIZE: usize = 2 * 1024 * 1024;
+pub const HEAP_SIZE: usize = 8 * 1024 * 1024;
 
 /// The structure for representing the current Allocator and all information
 /// with it.
@@ -76,7 +81,8 @@ lazy_static! {
 			size: PhantomData
 		};
 }
-/// A generic starting off kernel allocator. This is just to allocate the global allocator.
+/// A generic starting off kernel allocator. This is just to allocate the global
+/// allocator.
 #[allow(deprecated)]
 pub static LOCAL_HEAP_ALLOCATOR: Locked<LinkedListAllocator> =
 	Locked::new(LinkedListAllocator::new());
@@ -137,7 +143,10 @@ pub fn init_heap(
 		.and_then(|v| v.checked_sub(1))
 		.ok_or(NullexError::InitFailed("HEAP_START + HEAP_SIZE overflow"))?;
 
-	ensure!(VirtAddr::try_new(heap_start_u64).is_ok(), NullexError::NonCanonicalAddress(unsafe { VirtAddr::new_unsafe(heap_start_u64) }));
+	ensure!(
+		VirtAddr::try_new(heap_start_u64).is_ok(),
+		NullexError::NonCanonicalAddress(unsafe { VirtAddr::new_unsafe(heap_start_u64) })
+	);
 
 	let start_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_start_u64));
 	let end_page = Page::<Size4KiB>::containing_address(VirtAddr::new(heap_end_u64));

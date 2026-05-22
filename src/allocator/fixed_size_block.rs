@@ -76,8 +76,8 @@ unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
 				}
 			},
 			None => {
-				// NOTE: GlobalAlloc trait requires returning *mut u8. Size exceeds all available
-				// block sizes, must use fallback allocator (not yet implemented).
+				// NOTE: GlobalAlloc trait requires returning *mut u8. Size exceeds all
+				// available block sizes, must use fallback allocator (not yet implemented).
 				panic!("alloc error")
 			}
 		}
@@ -91,8 +91,14 @@ unsafe impl GlobalAlloc for Locked<FixedSizeBlockAllocator> {
 					next: allocator.list_heads[index].take()
 				};
 				// verify that block has size and alignment required for storing node
-				kassert!(mem::size_of::<ListNode>() <= BLOCK_SIZES[index], "size of `ListNode` is bigger that BLOCK_SIZE");
-				kassert!(mem::align_of::<ListNode>() <= BLOCK_SIZES[index], "alignment of `ListNode` is bigger that BLOCK_SIZE");
+				kassert!(
+					mem::size_of::<ListNode>() <= BLOCK_SIZES[index],
+					"size of `ListNode` is bigger that BLOCK_SIZE"
+				);
+				kassert!(
+					mem::align_of::<ListNode>() <= BLOCK_SIZES[index],
+					"alignment of `ListNode` is bigger that BLOCK_SIZE"
+				);
 				let new_node_ptr = ptr as *mut ListNode;
 				unsafe { new_node_ptr.write(new_node) };
 				allocator.list_heads[index] = Some(unsafe { &mut *new_node_ptr });

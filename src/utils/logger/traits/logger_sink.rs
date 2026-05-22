@@ -1,8 +1,7 @@
 //!
 //! logger_sink.rs
-//! 
+//!
 //! Trait definition for all types that are a sink.
-//! 
 
 use crate::utils::logger::levels::LogLevel;
 

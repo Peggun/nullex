@@ -1,8 +1,7 @@
 //!
 //! endian.rs
-//! 
+//!
 //! Type declarations for different endian types.
-//! 
 
 // TODO: expand types to big endian, and probably a struct wrapper.
 /// Little Endian u8

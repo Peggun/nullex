@@ -1,8 +1,7 @@
 //!
 //! src/task/keyboard/mod.rs
-//! 
+//!
 //! Task keyboard handling module defintion.
-//! 
 
 pub mod commands;
 

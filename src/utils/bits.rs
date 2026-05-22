@@ -1,8 +1,7 @@
-//! 
+//!
 //! bits.rs
-//! 
+//!
 //! Bitwise operation helpers for the kernel.
-//! 
 
 use alloc::vec::Vec;
 use core::range::Range;
@@ -20,13 +19,14 @@ pub trait BitsExt {
 	/// Sets a bit from a type which implements `BitsExt`
 	fn set_bit(&self, index: usize, value: bool) -> Self;
 	/// Sets a range of bits from a type which implements `BitsExt`
-	fn set_bits(&self, from: usize, to: usize, value: usize) -> Self;	
+	fn set_bits(&self, from: usize, to: usize, value: usize) -> Self;
 }
 
 /// Implements the `BitsExt` trait for integer types.
 ///
-/// This macro generates bitwise operation methods for unsigned and signed integer types,
-/// including `get_bit`, `set_bit`, `get_bits`, and `set_bits` operations.
+/// This macro generates bitwise operation methods for unsigned and signed
+/// integer types, including `get_bit`, `set_bit`, `get_bits`, and `set_bits`
+/// operations.
 ///
 /// # Example
 ///
@@ -170,7 +170,8 @@ impl BitMap {
 		self.table[idx]
 	}
 
-	/// Gets a range of indexes `idxs` and returns a `Vec` with either on (`true`) or off (`false`) for each index.
+	/// Gets a range of indexes `idxs` and returns a `Vec` with either on
+	/// (`true`) or off (`false`) for each index.
 	pub fn get_idxs(&self, idxs: Range<usize>) -> Vec<bool> {
 		let mut indexs = Vec::new();
 		for idx in idxs {

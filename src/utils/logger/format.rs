@@ -1,8 +1,7 @@
 //!
 //! format.rs
-//! 
+//!
 //! Definitions for formatting settings for the kernel's logging framework
-//! 
 
 use alloc::string::String;
 

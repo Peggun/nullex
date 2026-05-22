@@ -2,7 +2,6 @@
 //! ramfs.rs
 //!
 //! RamFS implementation for the kernel.
-//!
 
 use alloc::{
 	boxed::Box,
@@ -13,7 +12,9 @@ use core::{fmt, str};
 
 use hashbrown::HashMap;
 
-use crate::{fs::init_fs, utils::elf::HELLO_ELF};
+use crate::fs::init_fs;
+
+include!(concat!(env!("OUT_DIR"), "/userspace_registry.rs"));
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 /// Permission Levels for file access.
@@ -51,6 +52,7 @@ impl Permission {
 pub struct File {
 	/// Content in bytes.
 	pub content: Vec<u8>,
+	chunked_content: Option<ChunkedContent>,
 	/// Permission level for the file.
 	pub permission: Permission
 }
@@ -59,8 +61,107 @@ impl File {
 	fn new(permission: Permission) -> Self {
 		Self {
 			content: Vec::new(),
+			chunked_content: None,
 			permission
 		}
+	}
+
+	fn with_capacity(permission: Permission, capacity: usize) -> Self {
+		Self {
+			content: Vec::with_capacity(capacity),
+			chunked_content: None,
+			permission
+		}
+	}
+
+	fn chunked(permission: Permission) -> Self {
+		Self {
+			content: Vec::new(),
+			chunked_content: Some(ChunkedContent::new()),
+			permission
+		}
+	}
+
+	/// Length of the file in bytes.
+	pub fn len(&self) -> usize {
+		match &self.chunked_content {
+			Some(content) => content.len,
+			None => self.content.len()
+		}
+	}
+
+	/// Returns true when the file has no content.
+	pub fn is_empty(&self) -> bool {
+		self.len() == 0
+	}
+
+	/// Copies bytes from `offset` into `out`.
+	pub fn read_at(&self, offset: usize, out: &mut [u8]) -> usize {
+		match &self.chunked_content {
+			Some(content) => content.read_at(offset, out),
+			None => {
+				let available = self.content.len().saturating_sub(offset);
+				let bytes_to_read = core::cmp::min(out.len(), available);
+				if bytes_to_read > 0 {
+					out[..bytes_to_read]
+						.copy_from_slice(&self.content[offset..offset + bytes_to_read]);
+				}
+				bytes_to_read
+			}
+		}
+	}
+}
+
+const FILE_CHUNK_SIZE: usize = 4096;
+
+#[derive(Debug)]
+struct ChunkedContent {
+	chunks: Vec<Vec<u8>>,
+	len: usize
+}
+
+impl ChunkedContent {
+	fn new() -> Self {
+		Self {
+			chunks: Vec::new(),
+			len: 0
+		}
+	}
+
+	fn append(&mut self, mut data: &[u8]) {
+		while !data.is_empty() {
+			let take = core::cmp::min(FILE_CHUNK_SIZE, data.len());
+			self.chunks.push(data[..take].to_vec());
+			self.len += take;
+			data = &data[take..];
+		}
+	}
+
+	fn read_at(&self, offset: usize, out: &mut [u8]) -> usize {
+		if offset >= self.len || out.is_empty() {
+			return 0;
+		}
+
+		let mut remaining = core::cmp::min(out.len(), self.len - offset);
+		let mut file_offset = 0usize;
+		let mut out_offset = 0usize;
+
+		for chunk in &self.chunks {
+			let chunk_end = file_offset + chunk.len();
+			if offset < chunk_end {
+				let start = offset.saturating_sub(file_offset);
+				let take = core::cmp::min(remaining, chunk.len() - start);
+				out[out_offset..out_offset + take].copy_from_slice(&chunk[start..start + take]);
+				out_offset += take;
+				remaining -= take;
+				if remaining == 0 {
+					break;
+				}
+			}
+			file_offset = chunk_end;
+		}
+
+		out_offset
 	}
 }
 
@@ -136,7 +237,8 @@ impl FileSystem {
 		}
 	}
 
-	/// Creates a new file in the current `FileSystem`, unless one is already created.
+	/// Creates a new file in the current `FileSystem`, unless one is already
+	/// created.
 	pub fn create_file(&mut self, path: &str, perm: Permission) -> Result<(), FsError> {
 		let (dir_components, file_name) = Self::split_path(path)?;
 		let dir = self.get_dir_mut_from_components(&dir_components.as_slice())?;
@@ -149,7 +251,41 @@ impl FileSystem {
 		Ok(())
 	}
 
-	/// Creates a new directory in the current `FileSystem`, unless one is already created.
+	/// Creates a new file with reserved content capacity.
+	pub fn create_file_with_capacity(
+		&mut self,
+		path: &str,
+		perm: Permission,
+		capacity: usize
+	) -> Result<(), FsError> {
+		let (dir_components, file_name) = Self::split_path(path)?;
+		let dir = self.get_dir_mut_from_components(&dir_components.as_slice())?;
+
+		if dir.entries.contains_key(&file_name) {
+			return Err(FsError::AlreadyExists);
+		}
+
+		dir.entries
+			.insert(file_name, Entry::File(File::with_capacity(perm, capacity)));
+		Ok(())
+	}
+
+	/// Creates a file backed by fixed-size chunks.
+	pub fn create_chunked_file(&mut self, path: &str, perm: Permission) -> Result<(), FsError> {
+		let (dir_components, file_name) = Self::split_path(path)?;
+		let dir = self.get_dir_mut_from_components(&dir_components.as_slice())?;
+
+		if dir.entries.contains_key(&file_name) {
+			return Err(FsError::AlreadyExists);
+		}
+
+		dir.entries
+			.insert(file_name, Entry::File(File::chunked(perm)));
+		Ok(())
+	}
+
+	/// Creates a new directory in the current `FileSystem`, unless one is
+	/// already created.
 	pub fn create_dir(&mut self, path: &str, perm: Permission) -> Result<(), FsError> {
 		let (dir_components, dir_name) = Self::split_path(path)?;
 		let dir = self.get_dir_mut_from_components(&dir_components.as_slice())?;
@@ -175,6 +311,16 @@ impl FileSystem {
 		if !file.permission.write {
 			return Err(FsError::PermissionDenied);
 		}
+
+		if let Some(chunked_content) = file.chunked_content.as_mut() {
+			if overwrite {
+				chunked_content.chunks.clear();
+				chunked_content.len = 0;
+			}
+			chunked_content.append(content);
+			return Ok(());
+		}
+
 		// append the new content instead of overwriting
 		if overwrite {
 			file.content = content.to_vec();
@@ -184,11 +330,63 @@ impl FileSystem {
 		Ok(())
 	}
 
+	/// Appends to a chunked file, creating small fixed-size allocations only.
+	pub fn write_file_chunked(&mut self, path: &str, content: &[u8]) -> Result<(), FsError> {
+		let file = self.get_file_mut(path)?;
+		if !file.permission.write {
+			return Err(FsError::PermissionDenied);
+		}
+
+		let chunked_content = file.chunked_content.get_or_insert_with(ChunkedContent::new);
+		chunked_content.append(content);
+		Ok(())
+	}
+
 	/// Read the current file.
 	// todo: add read permission checks, forgot to add this before.
 	pub fn read_file(&self, path: &str) -> Result<&[u8], FsError> {
 		let file = self.get_file(path)?;
+		if file.chunked_content.is_some() {
+			return Err(FsError::NotAFile);
+		}
 		Ok(&file.content.as_slice())
+	}
+
+	/// Returns the file length without requiring contiguous storage.
+	pub fn file_len(&self, path: &str) -> Result<usize, FsError> {
+		Ok(self.get_file(path)?.len())
+	}
+
+	/// Reads bytes from a file into `out` without requiring contiguous storage.
+	pub fn read_file_at(
+		&self,
+		path: &str,
+		offset: usize,
+		out: &mut [u8]
+	) -> Result<usize, FsError> {
+		Ok(self.get_file(path)?.read_at(offset, out))
+	}
+
+	/// Copies a file into a vector. Prefer `read_file_at` for large files.
+	pub fn read_file_to_vec(&self, path: &str) -> Result<Vec<u8>, FsError> {
+		let file = self.get_file(path)?;
+		match &file.chunked_content {
+			Some(_) => {
+				let mut out = Vec::new();
+				let mut offset = 0usize;
+				let mut buf = [0u8; FILE_CHUNK_SIZE];
+				loop {
+					let n = file.read_at(offset, &mut buf);
+					if n == 0 {
+						break;
+					}
+					out.extend_from_slice(&buf[..n]);
+					offset += n;
+				}
+				Ok(out)
+			}
+			None => Ok(file.content.clone())
+		}
 	}
 
 	// ----- HELPER FUNCTIONS ----- //
@@ -411,8 +609,15 @@ pub fn setup_system_files(mut fs: FileSystem) {
 	fs.create_dir("/proc", Permission::read()).unwrap();
 	fs.create_dir("/apps", Permission::all()).unwrap();
 
-	fs.create_file("/apps/hello.elf", Permission::all()).unwrap();
-	fs.write_file("/apps/hello.elf", HELLO_ELF, true).unwrap();
+	for elf in USERSPACE_ELFS {
+		let path = "/apps/".to_string() + elf.name + ".elf";
+
+		if !fs.exists(&path) {
+			fs.create_file(&path, Permission::all()).unwrap();
+		}
+
+		fs.write_file(&path, elf.bytes, true).unwrap();
+	}
 
 	init_fs(fs);
 }

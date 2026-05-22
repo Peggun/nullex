@@ -38,9 +38,26 @@ run: $(iso)
 	@echo "Starting QEMU with ISO image..."; \
 	if [ -n "$(CI)" ]; then \
 	  mkdir -p build; \
-	  sudo qemu-system-x86_64 -cdrom $(iso) -serial stdio -monitor vc -machine q35 -netdev tap,id=net0,ifname=tap0,script=no,downscript=no -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04; \
+	  sudo qemu-system-x86_64 \
+		-cdrom $(iso) \
+		-serial stdio \
+		-monitor vc \
+		-machine q35 \
+		-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
+		-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3,csum=off,guest_csum=off,guest_tso4=off,guest_tso6=off,guest_ecn=off,guest_ufo=off \
+		-rtc base=localtime \
+		-device isa-debug-exit,iobase=0xf4,iosize=0x04; \
 	else \
-	  sudo qemu-system-x86_64 -cdrom $(iso) -serial stdio -monitor vc -machine q35 -netdev tap,id=net0,ifname=tap0,script=no,downscript=no -device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 -rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04; \
+	  sudo qemu-system-x86_64 \
+		-cdrom $(iso) \
+		-serial stdio \
+		-monitor vc \
+		-machine q35 \
+		-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
+		-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3,csum=off,guest_csum=off,guest_tso4=off,guest_tso6=off,guest_ecn=off,guest_ufo=off \
+		-object filter-dump,id=f1,netdev=net0,file=dump.pcap \
+		-rtc base=localtime \
+		-device isa-debug-exit,iobase=0xf4,iosize=0x04; \
 	fi; \
 	EXIT=$$?; \
 	echo "QEMU host exit code: $$EXIT"; \
@@ -99,7 +116,8 @@ $(iso): $(kernel) $(grub_cfg)
 $(kernel): userspace kernel $(rust_os) $(assembly_object_files) $(linker_script)
 	@echo "Linking kernel..."
 	@ld -n --gc-sections -T $(linker_script) -o $(kernel) \
-		$(assembly_object_files) $(rust_os)
+		$(assembly_object_files) \
+		--whole-archive $(rust_os) --no-whole-archive
 
 kernel: userspace
 	@echo "Building kernel with Cargo..."

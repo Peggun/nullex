@@ -1,8 +1,7 @@
 //!
 //! multiboot2.rs
-//! 
+//!
 //! Multiboot2 module for the kernel.
-//! 
 
 // https://cgit.git.savannah.gnu.org/cgit/grub.git/tree/doc/multiboot2.h?h=multiboot2
 // https://cgit.git.savannah.gnu.org/cgit/grub.git/tree/doc/kernel.c?h=multiboot2
@@ -434,7 +433,7 @@ struct MultibootInfoHeader {
 	reserved: u32
 }
 
-/// Structure representing the boot-time information 
+/// Structure representing the boot-time information
 /// provided to us by Multiboot2
 pub struct BootInformation {
 	/// The kernel's physical memory offset.
@@ -694,7 +693,7 @@ pub unsafe fn parse_multiboot2(mbi_addr: usize) -> BootInformation {
 				_ => println!("Unknown multiboot tag.")
 			}
 
-		tag = (tag as *const u8).add((((*tag).size + 7) & !7).try_into().unwrap_or(0))
+			tag = (tag as *const u8).add((((*tag).size + 7) & !7).try_into().unwrap_or(0))
 				as *const MultibootTag;
 			let total = (tag as *const u8 as usize).wrapping_sub(mbi_addr);
 			println!("Total mbi size: 0x{:X}", total);
@@ -706,8 +705,8 @@ pub unsafe fn parse_multiboot2(mbi_addr: usize) -> BootInformation {
 
 /// Computes the physical memory map offset with symbols from the linker script.
 /// # Safety
-/// The symbols need to be there, and need to be valid in order for the computation
-/// to be accurate.
+/// The symbols need to be there, and need to be valid in order for the
+/// computation to be accurate.
 pub unsafe fn compute_phys_map_offset() -> u64 {
 	unsafe {
 		let phys_base = &__link_phys_base as *const u8 as u64;

@@ -1,9 +1,9 @@
 //! rtc.rs
-//! 
+//!
 //! RTC (Real Time Clock) module for the kernel.
-//! 
 
 use alloc::string::String;
+use smoltcp::time::Instant;
 use core::{
 	fmt,
 	sync::atomic::{AtomicU64, Ordering}
@@ -12,8 +12,9 @@ use core::{
 use x86_64::instructions::interrupts;
 
 use crate::{
-	apic::{PIC1_DATA, PIC2_DATA, send_eoi},
+	apic::send_eoi,
 	common::ports::{inb, io_wait, outb},
+	ioapic::IOAPIC,
 	serial_println
 };
 
@@ -39,7 +40,7 @@ pub const REG_A: u8 = 0x0A;
 /// Register B of the CMOS/RTC<br>
 /// Controls the RTC's operating modes and interrupts
 pub const REG_B: u8 = 0x0B;
-/// **READ_ONLY**<br> 
+/// **READ_ONLY**<br>
 /// Register C of the CMOS/RTC<br>
 /// Indicates which interrupt has occurred.
 pub const REG_C: u8 = 0x0C;
@@ -60,6 +61,8 @@ pub static RTC_TICKS: AtomicU64 = AtomicU64::new(0);
 #[derive(Copy, Clone)]
 /// A structure representing the time which is returned by the RTC
 pub struct RtcTime {
+	/// The number of milliseconds
+	pub millis: u8,
 	/// The number of seconds
 	pub sec: u8,
 	/// The number of minutes
@@ -104,7 +107,7 @@ impl fmt::Display for RtcTime {
 
 /// Get RTC tick count
 pub fn rtc_ticks() -> u64 {
-	RTC_TICKS.load(Ordering::Relaxed)
+	RTC_TICKS.load(Ordering::Acquire)
 }
 
 #[inline]
@@ -115,49 +118,40 @@ fn bcd_to_bin(b: u8) -> u8 {
 #[inline(always)]
 /// Read a value from a CMOS register.
 fn cmos_read(reg: u8) -> u8 {
-	unsafe {
-		outb(CMOS_INDEX, reg);
-		io_wait();
-		let val = inb(CMOS_DATA);
-		io_wait();
-		val
-	}
+	x86_64::instructions::interrupts::without_interrupts(|| {
+        unsafe {
+            outb(CMOS_INDEX, reg);
+            io_wait();
+            let val = inb(CMOS_DATA);
+            io_wait();
+            val
+        }
+    })
 }
 
 #[inline(always)]
 /// Write a value into a CMOS register.
 fn cmos_write(reg: u8, value: u8) {
+	x86_64::instructions::interrupts::without_interrupts(|| {
+        unsafe {
+            outb(CMOS_INDEX, reg);
+            io_wait();
+            outb(CMOS_DATA, value);
+            io_wait();
+        }
+    })
+}
+
+/// Unmask RTC GSI 8 on the IOAPIC.
+pub fn unmask_rtc_gsi8() {
 	unsafe {
-		outb(CMOS_INDEX, reg);
-		io_wait();
-		outb(CMOS_DATA, value);
-		io_wait();
+		let mut ioapic = IOAPIC.lock();
+		ioapic.enable_irq(8);
 	}
 }
 
-/// Unmask IRQ8 on PIC
-fn unmask_pic_irq8() {
-	unsafe {
-		serial_println!("unmasking");
-
-		// read masks
-		let master_mask = inb(PIC1_DATA);
-		let slave_mask = inb(PIC2_DATA);
-		serial_println!("read masks");
-
-		// clear bit 2 on master and bit 0 on slave
-		let new_master = master_mask & !(1 << 2);
-		let new_slave = slave_mask & !(1 << 0);
-		serial_println!("set clear bit");
-
-		outb(PIC1_DATA, new_master);
-		outb(PIC2_DATA, new_slave);
-		serial_println!("done");
-	}
-}
-
-/// Returns the (secs, mins, hours, days, months, years) in the RTC clock raw.
-fn read_rtc_raw() -> (u8, u8, u8, u8, u8, u8) {
+/// Returns the (millis, secs, mins, hours, days, months, years) in the RTC clock raw.
+fn read_rtc_raw() -> (u8, u8, u8, u8, u8, u8, u8) {
 	loop {
 		// wait for any update in progress to finish
 		while (cmos_read(REG_A) & REG_A_UIP) != 0 {}
@@ -180,10 +174,16 @@ fn read_rtc_raw() -> (u8, u8, u8, u8, u8, u8) {
 		let y2 = cmos_read(REG_YEAR);
 
 		if s1 == s2 && m1 == m2 && h1 == h2 && d1 == d2 && mo1 == mo2 && y1 == y2 {
-			return (s1, m1, h1, d1, mo1, y1);
+			let ms = rtc_millis();
+			return (ms.try_into().unwrap(), s1, m1, h1, d1, mo1, y1);
 		}
 		// else try again
 	}
+}
+
+fn rtc_millis() -> u64 {
+	let ticks = rtc_ticks();
+	((ticks % 1024) * 1000) / 1024
 }
 
 /// Read RTC values to calculate the time/calendar.
@@ -192,7 +192,7 @@ pub fn read_rtc_time() -> RtcTime {
 	let bin_mode = (reg_b & REG_B_DM) != 0; // binary_mode. needs bcd -> bin
 	let is_24hr = (reg_b & 0x02) != 0;
 
-	let (s, m, h_raw, d, mo, y) = read_rtc_raw();
+	let (ms, s, m, h_raw, d, mo, y) = read_rtc_raw();
 
 	let hour = if is_24hr {
 		h_raw & 0x7F
@@ -201,7 +201,7 @@ pub fn read_rtc_time() -> RtcTime {
 		let pm = (h_raw & 0x80) != 0;
 		let mut h12 = h_raw & 0x7F;
 		if h12 == 12 {
-			// 12AM => 0 || 12 PM => 12
+			// 12AM => 0 || 12 PM => 12	
 			if !pm {
 				h12 = 0;
 			}
@@ -225,6 +225,7 @@ pub fn read_rtc_time() -> RtcTime {
 	};
 
 	RtcTime {
+		millis: ms,
 		sec,
 		min,
 		hour,
@@ -234,10 +235,16 @@ pub fn read_rtc_time() -> RtcTime {
 	}
 }
 
-/// Initializes the Real Time Clock (RTC) 
+/// Get the `RTC` time as a `Instant`
+pub fn rtc_instant() -> Instant {
+	let ms = rtc_ticks().saturating_mul(1000) / 1024;
+	Instant::from_millis(ms as i64)
+}
+
+/// Initializes the Real Time Clock (RTC)
 pub fn init_rtc() {
+	let saved = interrupts::are_enabled();
 	interrupts::disable();
-	unmask_pic_irq8();
 
 	// set rate
 	let prev_a = cmos_read(REG_A);
@@ -249,6 +256,10 @@ pub fn init_rtc() {
 
 	// clear pending interrupts
 	let _ = cmos_read(REG_C);
+
+	if saved {
+		interrupts::enable();
+	}
 }
 
 /// Send a End of Interrupt (EOI) signal to the CPU for the RTC.
