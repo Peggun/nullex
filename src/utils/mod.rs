@@ -28,12 +28,14 @@ pub mod net;
 #[allow(missing_docs)]
 pub mod oncecell;
 pub mod process;
+pub mod rng;
 #[deprecated]
 #[allow(unused)]
 #[allow(deprecated)]
 pub mod serial_kfunc;
 #[allow(missing_docs)]
 pub mod spin;
+pub mod time;
 pub mod types;
 #[allow(missing_docs)]
 pub mod volatile;

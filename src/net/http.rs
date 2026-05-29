@@ -1,10 +1,9 @@
 //!
 //! net/http.rs
-//! 
+//!
 //! HTTP network request handling.
-//! 
 
-use alloc::{borrow::ToOwned, string::String, vec::Vec};
+use alloc::{string::String, vec::Vec};
 use core::{
 	hint::spin_loop,
 	sync::atomic::{AtomicU16, Ordering}
@@ -19,22 +18,22 @@ use smoltcp::{
 use crate::{
 	drivers::virtio::net::VirtioNet,
 	error::NullexError,
-	fs,
-	net::{dns::resolve, tcp::TcpConnection},
+	net::{dns::resolve, https::do_https_fetch_once, tcp::TcpConnection},
 	serial_println,
-	utils::httparse::{
-		chunked::decode_chunked,
-		headers::ResponseHeaders,
-		response::{
-			HttpResult,
-			ResponseKind,
-			classify,
-			is_text_type,
-			resolve_filename,
-			url_looks_like_download
+	utils::{
+		httparse::{
+			chunked::decode_chunked,
+			headers::ResponseHeaders,
+			response::{
+				HttpResult,
+				ResponseKind,
+				classify,
+				resolve_filename,
+			},
+			url::{ParsedUrl, Scheme},
+			writer::{DownloadedFileWriter, FileSystemDownloadedFileWriter}
 		},
-		url::{ParsedUrl, Scheme},
-		writer::{DownloadedFileWriter, FileSystemDownloadedFileWriter}
+		time::elapsed_ms
 	}
 };
 
@@ -49,21 +48,25 @@ pub struct HttpResponse {
 	pub body: Vec<u8>
 }
 
-enum FetchStep {
+/// Enum stating the current stage a fetch is in.
+pub enum FetchStep {
+	/// The fetch has been completed
 	Complete(HttpResult),
+	/// The fetch resolves to a redirect
 	Redirect(String)
 }
 
-const HTTP_RECV_CHUNK_SIZE: usize = 4096;
-const CONNECT_TIMEOUT_MS: i64 = 10_000;
-const CONNECT_LOG_INTERVAL_MS: i64 = 1000;
-const RESPONSE_STALL_TIMEOUT_MS: i64 = 30_000;
+/// HTTP(S) receive chunk size.
+pub const HTTP_RECV_CHUNK_SIZE: usize = 4096;
+/// HTTP(S) connection timeout.
+pub const CONNECT_TIMEOUT_MS: i64 = 10_000;
+/// HTTP(S) connection log interval.
+pub const CONNECT_LOG_INTERVAL_MS: i64 = 1000;
+/// HTTP(S) response stall timeout.
+pub const RESPONSE_STALL_TIMEOUT_MS: i64 = 30_000;
 
-fn elapsed_ms(start: Instant, now: Instant) -> i64 {
-	now.total_millis().saturating_sub(start.total_millis())
-}
-
-fn next_src_port() -> u16 {
+/// Returns the next available HTTP source port.
+pub fn next_src_port() -> u16 {
 	loop {
 		let port = NEXT_EPHEMERAL_PORT.fetch_add(1, Ordering::Relaxed);
 		if port >= 65535 {
@@ -85,6 +88,7 @@ pub fn fetch(
 ) -> Result<HttpResult, NullexError> {
 	let mut current = ParsedUrl::parse(url)?;
 	let mut redirects = 0u8;
+	let mut https = current.scheme == Scheme::Https;
 
 	loop {
 		if redirects > 5 {
@@ -92,111 +96,36 @@ pub fn fetch(
 		}
 
 		let dst_ip = resolve(&current.host)?;
-		match do_fetch_once(iface, device, sockets, &current, dst_ip, now)? {
-			FetchStep::Complete(result) => return Ok(result),
-			FetchStep::Redirect(location) => {
-				serial_println!("[HTTP] redirect to {}", location);
-				current = current.resolve_redirect(&location)?;
+		if !https {
+			match do_fetch_once(iface, device, sockets, &current, dst_ip, now)? {
+				FetchStep::Complete(result) => return Ok(result),
+				FetchStep::Redirect(location) => {
+					serial_println!("[HTTP] redirect to {}", location);
+					current = current.resolve_redirect(&location)?;
 
-				if current.scheme == Scheme::Https {
-					serial_println!("[HTTP] Redirect requires HTTPS, not yet supported");
-					return Err(NullexError::HttpsNotSupported);
-				}
+					if current.scheme == Scheme::Https {
+						serial_println!("[HTTP] Redirect requires HTTPS");
+						https = true;
+					}
 
-				redirects += 1;
-			}
-		}
-	}
-}
-
-#[allow(dead_code)]
-fn fetch_buffered_legacy(
-	iface: &mut Interface,
-	device: &mut VirtioNet,
-	sockets: &mut SocketSet<'_>,
-	url: &str,
-	now: Instant
-) -> Result<HttpResult, NullexError> {
-	let mut current = ParsedUrl::parse(url)?;
-	let mut redirects = 0u8;
-
-	loop {
-		if redirects > 5 {
-			return Err(NullexError::TooManyRedirects);
-		}
-
-		let dst_ip = resolve(&current.host)?;
-		let (status_code, headers_raw, body) = do_request(
-			iface,
-			device,
-			sockets,
-			dst_ip,
-			current.port,
-			&current.host,
-			&current.path,
-			now
-		)?;
-
-		if matches!(status_code, 301 | 302 | 303 | 307 | 308) {
-			let location =
-				find_header(&headers_raw, "location").ok_or(NullexError::HttpInvalidResponse)?;
-			serial_println!("[HTTP] {} → {}", status_code, location);
-			current = current.resolve_redirect(&location)?;
-
-			if current.scheme == Scheme::Https {
-				serial_println!("[HTTP] Redirect requires HTTPS — not yet supported");
-				return Err(NullexError::HttpsNotSupported);
-			}
-
-			redirects += 1;
-			continue;
-		}
-
-		let content_type = find_header(&headers_raw, "content-type");
-		let disposition = find_header(&headers_raw, "content-disposition");
-		let is_attachment = disposition
-			.as_deref()
-			.map(|d| d.to_ascii_lowercase().starts_with("attachment"))
-			.unwrap_or(false);
-
-		let is_download = is_attachment
-			|| match content_type.as_deref() {
-				Some(ct) => !is_text_type(ct),
-				None => url_looks_like_download(&current.path)
-			};
-
-		if is_download {
-			let response_headers = ResponseHeaders::parse(&headers_raw.as_bytes())?;
-			let filename = resolve_filename(&response_headers, &current);
-			serial_println!("[HTTP] Download → writing to '{}'", filename);
-
-			fs::with_fs(|fs| {
-				fs.write_file(&filename, &body, false)
-					.map_err(|_| NullexError::FsWriteError)
-			})?;
-
-			if let Some(expected) = find_content_length(&headers_raw) {
-				if body.len() != expected {
-					serial_println!(
-						"[HTTP] Content-Length mismatch: expected {} got {}",
-						expected,
-						body.len()
-					);
-					return Err(NullexError::DownloadIncomplete);
+					redirects += 1;
 				}
 			}
-
-			return Ok(HttpResult::Download {
-				status_code,
-				filename: filename.to_owned(),
-				bytes_written: body.len()
-			});
 		} else {
-			let text = String::from_utf8(body).map_err(|_| NullexError::HttpInvalidResponse)?;
-			return Ok(HttpResult::Page {
-				status_code,
-				body: text
-			});
+			match do_https_fetch_once(iface, device, sockets, &current, dst_ip, now)? {
+				FetchStep::Complete(result) => return Ok(result),
+				FetchStep::Redirect(location) => {
+					serial_println!("[HTTPS] redirect to {}", location);
+					current = current.resolve_redirect(&location)?;
+
+					if current.scheme == Scheme::Http {
+						serial_println!("[HTTPS] Redirect requires HTTP");
+						https = false;
+					}
+
+					redirects += 1
+				}
+			}
 		}
 	}
 }
@@ -260,7 +189,7 @@ fn do_fetch_once(
 	);
 	conn.send(sockets, request.as_bytes())?;
 	serial_println!(
-		"[HTTP] Request sent ({} bytes): GET {} HTTP/1.1",
+		"[HTTP] Request sent ({} bytes): GET {} HTTP/1.1gg",
 		request.len(),
 		current.path
 	);

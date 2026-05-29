@@ -130,11 +130,6 @@ extern "x86-interrupt" fn page_fault_handler(
 	serial_println!("Error Code: {:?}", error_code);
 	serial_println!("{:#?}", stack_frame);
 
-	println!("EXCEPTION: PAGE FAULT");
-	println!("Accessed Address: {:?}", addr);
-	println!("Error Code: {:?}", error_code);
-	println!("{:#?}", stack_frame);
-
 	hlt_loop();
 }
 
@@ -146,10 +141,6 @@ extern "x86-interrupt" fn general_protection_fault_handler(
 	serial_println!("Error Code: {}", error_code);
 	serial_println!("StackFrame: {:#?}", stack_frame);
 
-	println!("\n\nGENERAL PROTECTION FAULT");
-	println!("Error Code: {}", error_code);
-	println!("StackFrame: {:#?}", stack_frame);
-
 	panic!("System halted");
 }
 
@@ -160,10 +151,6 @@ extern "x86-interrupt" fn double_fault_handler(
 	serial_println!("\n\nDOUBLE FAULT");
 	serial_println!("Error Code: {}", error_code);
 	serial_println!("StackFrame: {:#?}", stack_frame);
-
-	println!("\n\nDOUBLE FAULT");
-	println!("Error Code: {}", error_code);
-	println!("StackFrame: {:#?}", stack_frame);
 
 	panic!("System halted");
 }

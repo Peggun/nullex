@@ -20,6 +20,17 @@ rustflags = [
   "-C", "link-arg=--no-whole-archive",
   "-C", "relocation-model=static",
   "-C", "code-model=kernel",
+  "-C", "target-feature=-mmx,-sse,+soft-float",
+  "--cfg", "getrandom_backend=\"custom\"",
+]
+
+[target.'cfg(target_arch = "x86_64")']
+rustflags = [
+  "--cfg", 'curve25519_dalek_backend="serial"',
+  "--cfg", 'curve25519_dalek_bits="64"',
+  "--cfg", "aes_force_soft",
+  "--cfg", "aes_compact",
+  "--cfg", "polyval_force_soft",
 ]
 
 [env]

@@ -22,6 +22,8 @@ CFLAGS ?= -m64 -march=x86-64 -O2 -pipe -ffreestanding -fno-builtin \
 
 LDFLAGS ?= -static
 
+CI ?= false
+
 USR_LINKER_SCRIPT ?=
 USR_CRT0 := programs/_start.c
 
@@ -46,6 +48,8 @@ run: $(iso)
 		-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
 		-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3,csum=off,guest_csum=off,guest_tso4=off,guest_tso6=off,guest_ecn=off,guest_ufo=off \
 		-rtc base=localtime \
+		-cpu max \
+		-D ./qemu.log -d int \
 		-device isa-debug-exit,iobase=0xf4,iosize=0x04; \
 	else \
 	  sudo qemu-system-x86_64 \
@@ -57,6 +61,7 @@ run: $(iso)
 		-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3,csum=off,guest_csum=off,guest_tso4=off,guest_tso6=off,guest_ecn=off,guest_ufo=off \
 		-object filter-dump,id=f1,netdev=net0,file=dump.pcap \
 		-rtc base=localtime \
+		-cpu qemu64,+rdrand \
 		-device isa-debug-exit,iobase=0xf4,iosize=0x04; \
 	fi; \
 	EXIT=$$?; \
@@ -91,7 +96,7 @@ debug: $(iso)
 		-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
 		-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 \
 		-rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
-		-D ./qemu.log -d int
+		-cpu qemu64,+rdrand -D ./qemu.log -d int -accel tcg
 
 build: $(iso)
 

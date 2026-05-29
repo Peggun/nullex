@@ -48,6 +48,11 @@ const SYS_RUN: u32 = 8;
 const SYS_STOP: u32 = 9;
 const SYS_NAP: u32 = 10;
 const SYS_SIZEF: u32 = 11;
+const SYS_CSOCKET: u32 = 12;
+const SYS_CONNSOCK: u32 = 13;
+const SYS_SEND: u32 = 14;
+const SYS_RECV: u32 = 15;
+const SYS_CLOSESOCK: u32 = 16;
 
 /// System call handler function. Called when the `syscall` or `int 0x80`
 /// instruction is called.
@@ -402,5 +407,9 @@ fn sys_run(path: &str) -> i32 {
 
 fn sys_stop(pid: u64) -> i32 {
 	EXECUTOR.lock().end_process(ProcessId::new(pid), -2);
+	0
+}
+
+fn sys_csocket() -> i32 {
 	0
 }

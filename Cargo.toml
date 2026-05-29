@@ -14,6 +14,11 @@ thiserror = { version = "2.0.16", default-features = false }
 crossbeam-queue = { version = "0.3.11", default-features = false, features = ["alloc"] }
 smoltcp = { version = "0.13.0", default-features = false, features = ["proto-ipv4", "socket-tcp", "medium-ethernet", "alloc", "log"] }
 log = "0.4.29"
+embedded-tls = { version = "0.18.0", default-features = false, features = ["log", "alloc"] }
+getrandom = "0.4.2"
+rand_core = "0.6"
+embedded-io = "0.7.1"
+sha2 = { version = "0.10.9", default-features = false, features = ["force-soft-compact"] }
 
 [profile.dev]
 panic = "abort"

@@ -185,6 +185,9 @@ pub enum NullexError {
 	/// The source sent and invalid HTTP response.
 	#[error("invalid http response")]
 	HttpInvalidResponse,
+	/// The Tls Connection has failed.
+	#[error("tls failed to connect")]
+	TlsFailed,
 
 	// --- Serial Output Errors --- //
 	/// An unspecified error occurred during serial port communication.
@@ -256,6 +259,12 @@ pub enum NullexError {
 	#[error("http error code: {0}")]
 	HttpErrorStatus(u16),
 
+	// --- RNG Errors --- //
+	// TODO: extend this more.
+	/// The kernel entropy failed.
+	#[error("rng entropy failed")]
+	EntropyFailed,
+
 	// non-panicking errors.
 	/// A non-panicking failure occurred during a component's initialization
 	/// phase.
@@ -276,6 +285,12 @@ impl From<MapToError<Size4KiB>> for NullexError {
 			MapToError::ParentEntryHugePage => NullexError::ParentEntryHugePage,
 			MapToError::PageAlreadyMapped(f) => NullexError::PageAlreadyMapped(f)
 		}
+	}
+}
+
+impl embedded_io::Error for NullexError {
+	fn kind(&self) -> embedded_io::ErrorKind {
+		embedded_io::ErrorKind::Other // for now
 	}
 }
 

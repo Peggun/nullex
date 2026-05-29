@@ -16,7 +16,6 @@
 #[macro_use]
 extern crate alloc;
 extern crate core;
-
 pub mod acpi;
 pub mod allocator;
 pub mod apic;
@@ -43,8 +42,11 @@ pub mod task;
 pub mod utils;
 pub mod vga_buffer;
 
+const _: () = assert!(cfg!(getrandom_backend = "custom"));
+
 use alloc::boxed::Box;
 use core::{
+	arch::x86_64::_rdrand64_step,
 	future::Future,
 	pin::Pin,
 	sync::atomic::Ordering,
@@ -77,7 +79,13 @@ use crate::{
 		keyboard
 	},
 	utils::{
-		boot::init_efer, elf::pelf, logger::init_logging, multiboot2::parse_multiboot2, mutex::SpinMutex, process::{spawn_process, spawn_user_process}
+		boot::init_efer,
+		elf::pelf,
+		logger::init_logging,
+		multiboot2::parse_multiboot2,
+		mutex::SpinMutex,
+		process::{spawn_process, spawn_user_process},
+		rng::kernel_entropy_fill
 	}
 };
 
@@ -360,4 +368,17 @@ fn qemu_exit(code: u32) -> ! {
 fn panic(info: &core::panic::PanicInfo) -> ! {
 	println!("{}", info);
 	crate::hlt_loop();
+}
+
+#[unsafe(no_mangle)]
+unsafe extern "Rust" fn __getrandom_v03_custom(
+	dest: *mut u8,
+	len: usize
+) -> Result<(), getrandom::Error> {
+	if len == 0 {
+		return Ok(());
+	}
+
+	let buf = unsafe { core::slice::from_raw_parts_mut(dest, len) };
+	kernel_entropy_fill(buf)
 }
