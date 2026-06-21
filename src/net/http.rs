@@ -24,12 +24,7 @@ use crate::{
 		httparse::{
 			chunked::decode_chunked,
 			headers::ResponseHeaders,
-			response::{
-				HttpResult,
-				ResponseKind,
-				classify,
-				resolve_filename,
-			},
+			response::{HttpResult, ResponseKind, classify, resolve_filename},
 			url::{ParsedUrl, Scheme},
 			writer::{DownloadedFileWriter, FileSystemDownloadedFileWriter}
 		},

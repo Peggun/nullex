@@ -15,6 +15,7 @@ pub mod cpu_utils;
 #[allow(non_camel_case_types)]
 pub mod elf;
 pub mod endian;
+pub mod ffi;
 pub mod httparse;
 pub mod ktest;
 #[allow(missing_docs)]

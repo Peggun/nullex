@@ -1,8 +1,7 @@
 //!
 //! https.rs
-//! 
+//!
 //! HTTPS network request handling.
-//! 
 
 use alloc::{string::String, vec::Vec};
 use core::hint::spin_loop;
@@ -45,7 +44,7 @@ use crate::{
 
 const TLS_RECORD_BUFFER_SIZE: usize = 16_640;
 
-/// 
+///
 pub fn do_https_fetch_once(
 	iface: &mut Interface,
 	device: &mut VirtioNet,

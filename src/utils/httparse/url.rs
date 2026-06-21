@@ -1,8 +1,7 @@
 //!
 //! utils/httparse/url.rs
-//! 
+//!
 //! Utilities for handling the URL
-//! 
 
 use alloc::string::String;
 

@@ -243,7 +243,7 @@ pub unsafe fn link_isos() {
 		let mut entry_ptr = start;
 		let mut iso_count = 0;
 
-		// First pass: Record all ISOs in the GSI table
+		// record all ISOs in the GSI table
 		serial_println!("[ACPI] First pass: Recording ISOs...");
 		while (entry_ptr as usize) < (end as usize) {
 			let entry_hdr = entry_ptr as *const MadtTableEntry;
@@ -293,7 +293,7 @@ pub unsafe fn link_isos() {
 
 		serial_println!("[ACPI] Found {} ISOs in first pass", iso_count);
 
-		// Second pass: For each ISO with a handler, allocate vector and program IOAPIC
+		// second pass for each ISO with a handler, allocate vector and program IOAPIC
 		serial_println!("[ACPI] Second pass: Programming IOAPICs...");
 		let mut programmed_count = 0;
 
@@ -309,7 +309,7 @@ pub unsafe fn link_isos() {
 
 			serial_println!("[ACPI] Processing GSI {}: has_handler={}", gsi, has_handler);
 
-			// If no handler yet, try to bind a device driver
+			// if no handler yet, try to bind a device driver
 			if !has_handler {
 				serial_println!(
 					"[ACPI] No handler for GSI {}, attempting device binding...",
@@ -323,14 +323,13 @@ pub unsafe fn link_isos() {
 				}
 			}
 
-			// Re-check if we now have a handler
+			// recheck if we now have a handler
 			let (maybe_handler, existing_vector) = {
 				let gt = GSI_TABLE.lock();
 				(gt[gsi].handler, gt[gsi].vector)
 			};
 
 			if let Some(handler_fn) = maybe_handler {
-				// CRITICAL FIX: Check if vector already exists (from driver probe)
 				let vector = if let Some(existing) = existing_vector {
 					serial_println!(
 						"[ACPI] GSI {} already has vector {}, reusing it",
@@ -339,7 +338,7 @@ pub unsafe fn link_isos() {
 					);
 					existing as usize
 				} else {
-					// Only allocate a new vector if one doesn't exist
+					// only allocate a new vector if one doesn't exist
 					serial_println!("[ACPI] Allocating new vector for GSI {}...", gsi);
 					match allocate_and_register_vector(handler_fn) {
 						Ok(v) => {

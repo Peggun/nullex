@@ -46,7 +46,6 @@ const _: () = assert!(cfg!(getrandom_backend = "custom"));
 
 use alloc::boxed::Box;
 use core::{
-	arch::x86_64::_rdrand64_step,
 	future::Future,
 	pin::Pin,
 	sync::atomic::Ordering,
@@ -67,7 +66,7 @@ use crate::{
 	fs::ramfs::{FileSystem, setup_system_files},
 	interrupts::APIC_TIMER_VECTOR,
 	io::{
-		keyboard::line_editor::print_keypresses,
+		keyboard::line_editor::{print_keypresses, print_keypresses_cmds},
 		pci::{self, discover_pci_devices}
 	},
 	ioapic::{IOAPIC, IrqMode, RedirectionTableEntry, dump_gsi},
@@ -79,7 +78,7 @@ use crate::{
 		keyboard
 	},
 	utils::{
-		boot::init_efer,
+		boot::{enable_sse, init_efer},
 		elf::pelf,
 		logger::init_logging,
 		multiboot2::parse_multiboot2,
@@ -116,6 +115,7 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	println!("[Info] Starting Kernel Init...");
 
 	init_efer();
+	enable_sse();
 	init_logging();
 
 	// parse boot info and initialize memory
@@ -264,22 +264,21 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 
 	// Spawn processes
 
-	// TODO: replace this with like a ELF binary that runs on boot.
-	let _cmds_pid = match spawn_process(
-		|_state| {
-			Box::pin(async move {
-				crate::keyboard::commands::init_commands();
-				0
-			}) as Pin<Box<dyn Future<Output = i32>>>
-		},
-		false
-	) {
-		Ok(pid) => pid,
-		Err(e) => {
-			serial_println!("[ERROR] Failed to spawn commands process: {}", e);
-			ProcessId::new(0)
-		}
-	};
+	// let _cmds_pid = match spawn_process(
+	// 	|_state| {
+	// 		Box::pin(async move {
+	// 			crate::keyboard::commands::init_commands();
+	// 			0
+	// 		}) as Pin<Box<dyn Future<Output = i32>>>
+	// 	},
+	// 	false
+	// ) {
+	// 	Ok(pid) => pid,
+	// 	Err(e) => {
+	// 		serial_println!("[ERROR] Failed to spawn commands process: {}", e);
+	// 		ProcessId::new(0)
+	// 	}
+	// };
 
 	let _keyboard_pid = match spawn_process(
 		|_state| Box::pin(print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>,
@@ -291,6 +290,30 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 			ProcessId::new(0)
 		}
 	};
+
+	let _nush_pid = fs::with_fs(|fs| match fs.read_file("/init/nush.elf") {
+		Ok(bytes) => match spawn_user_process(bytes, &[""], &[""]) {
+			Ok(proc) => {
+				let pid = proc.state.id;
+				{
+					let mut executor = EXECUTOR.lock();
+					if let Err(e) = executor.spawn_process(proc) {
+						serial_println!("[ERROR] Failed to queue NUSH process: {}", e);
+						return ProcessId::new(0);
+					}
+				}
+				pid
+			}
+			Err(e) => {
+				serial_println!("[ERROR] Failed to spawn NUSH process: {}", e);
+				ProcessId::new(0)
+			}
+		},
+		Err(_) => {
+			serial_println!("[ERROR] NUSH is missing!");
+			ProcessId::new(0)
+		}
+	});
 
 	// Main executor loop
 	let process_queue = EXECUTOR.lock().process_queue.clone();

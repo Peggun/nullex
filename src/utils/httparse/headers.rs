@@ -1,8 +1,7 @@
 //!
-//! utils/httparse/headers.rs 
-//! 
+//! utils/httparse/headers.rs
+//!
 //! Utilities for parsing HTTP response headers.
-//! 
 
 use alloc::string::String;
 use core::str::from_utf8;
@@ -21,7 +20,7 @@ pub struct ResponseHeaders {
 	/// The filename of the HTTP response.
 	pub filename: Option<String>,
 	/// If the HTTP response is an attachment.
-    pub is_attachment: bool,
+	pub is_attachment: bool,
 	/// If the HTTP response is chunked.
 	pub transfer_encoding_chunked: bool,
 	/// The location of the HTTP response.
@@ -44,7 +43,7 @@ impl ResponseHeaders {
 		let mut content_length = None;
 		let mut content_type = None;
 		let mut filename = None;
-        let mut is_attachment = false;
+		let mut is_attachment = false;
 		let mut transfer_encoding_chunked = false;
 		let mut location = None;
 
@@ -61,7 +60,7 @@ impl ResponseHeaders {
 				&mut content_length,
 				&mut content_type,
 				&mut filename,
-                &mut is_attachment,
+				&mut is_attachment,
 				&mut transfer_encoding_chunked,
 				&mut location
 			);
@@ -72,7 +71,7 @@ impl ResponseHeaders {
 			content_length,
 			content_type,
 			filename,
-            is_attachment,
+			is_attachment,
 			transfer_encoding_chunked,
 			location
 		})
@@ -91,7 +90,7 @@ fn match_header(
 	content_length: &mut Option<usize>,
 	content_type: &mut Option<String>,
 	filename: &mut Option<String>,
-    is_attachment: &mut bool,
+	is_attachment: &mut bool,
 	transfer_encoding_chunked: &mut bool,
 	location: &mut Option<String>
 ) {
@@ -115,10 +114,10 @@ fn match_header(
 			*location = Some(String::from(value));
 		}
 		"content-disposition" => {
-            let lower = value.to_ascii_lowercase();
-            if lower.starts_with("attachment") {
-                *is_attachment = true;
-            }
+			let lower = value.to_ascii_lowercase();
+			if lower.starts_with("attachment") {
+				*is_attachment = true;
+			}
 			*filename = parse_filename(value);
 		}
 		_ => {}

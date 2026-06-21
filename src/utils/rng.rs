@@ -2,7 +2,6 @@
 //! rng.rs
 //!
 //! RNG system handling for the kernel
-//! 
 
 use core::num::NonZeroU32;
 

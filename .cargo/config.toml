@@ -21,7 +21,6 @@ rustflags = [
   "-C", "relocation-model=static",
   "-C", "code-model=kernel",
   "-C", "target-feature=-mmx,-sse,+soft-float",
-  "--cfg", "getrandom_backend=\"custom\"",
 ]
 
 [target.'cfg(target_arch = "x86_64")']
@@ -31,10 +30,15 @@ rustflags = [
   "--cfg", "aes_force_soft",
   "--cfg", "aes_compact",
   "--cfg", "polyval_force_soft",
+  "--cfg", "getrandom_backend=\"custom\"",
 ]
 
-[env]
-AS = "x86_64-elf-as"
-CC_x86_64_unknown_none = "x86_64-elf-gcc"
-AR_x86_64_unknown_none = "x86_64-elf-ar"
-LD_x86_64_unknown_none = "x86_64-elf-ld"
+[target.'cfg(target_arch = "aarch64")']
+rustflags = [
+  "--cfg", 'curve25519_dalek_backend="serial"',
+  "--cfg", 'curve25519_dalek_bits="64"',
+  "--cfg", "aes_force_soft",
+  "--cfg", "aes_compact",
+  "--cfg", "polyval_force_soft",
+  "--cfg", "getrandom_backend=\"custom\"",
+]

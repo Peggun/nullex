@@ -2,7 +2,6 @@
 //! mutex.rs
 //!
 //! An implementation for a Mutually Exclusive thread-safe type.
-//!
 
 use core::{
 	cell::UnsafeCell,

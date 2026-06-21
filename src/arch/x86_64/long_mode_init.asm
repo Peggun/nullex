@@ -1,3 +1,5 @@
+.intel_syntax noprefix
+
 global long_mode_start
 extern kernel_main
 

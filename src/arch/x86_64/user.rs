@@ -185,6 +185,8 @@ pub unsafe fn setup_user_stack(
 }
 
 pub unsafe fn enter_user_process(process: &Process) {
+	serial_println!("process: {}", process.state.id.get());
+
 	let address_space = process
 		.address_space
 		.as_ref()

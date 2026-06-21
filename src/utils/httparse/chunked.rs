@@ -1,8 +1,7 @@
 //!
 //! utils/httparse/chunked.rs
-//! 
+//!
 //! Utilities for decoding chunked HTTP replies.
-//! 
 
 use alloc::vec::Vec;
 use core::str::from_utf8;

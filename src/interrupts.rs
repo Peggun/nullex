@@ -25,6 +25,7 @@ use crate::{
 	println,
 	rtc::{CMOS_DATA, CMOS_INDEX, REG_C, RTC_TICKS, send_rtc_eoi},
 	serial::add_byte,
+	serial_print,
 	serial_println,
 	syscall::syscall,
 	utils::{bits::BitMap, mutex::SpinMutex}
@@ -52,6 +53,7 @@ lazy_static! {
 
 /// Initializes the IDT (Interrupt Descriptor Table)
 pub unsafe fn init_idt() {
+	#[cfg(target_arch = "x86_64")]
 	unsafe {
 		::x86_64::instructions::interrupts::disable();
 
@@ -67,6 +69,9 @@ pub unsafe fn init_idt() {
 		local_idt
 			.general_protection_fault
 			.set_handler_fn(general_protection_fault_handler);
+		local_idt
+			.invalid_opcode
+			.set_handler_fn(invalid_opcode_handler);
 
 		// driver handlers
 		local_idt[APIC_TIMER_VECTOR as usize].set_handler_fn(apic_timer_handler);
@@ -93,9 +98,15 @@ pub unsafe fn init_idt() {
 
 		IDT_INITED.store(true, Ordering::SeqCst);
 	}
+
+	#[cfg(target_arch = "aarch64")]
+	unsafe {
+		// todo
+	}
 }
 
 /// Adds an IDT entry and sets a handler function.
+#[cfg(target_arch = "x86_64")]
 pub unsafe fn add_idt_entry(
 	vector: usize,
 	handler: extern "x86-interrupt" fn(InterruptStackFrame)
@@ -114,10 +125,12 @@ pub unsafe fn add_idt_entry(
 }
 
 /// Breakpoint exception handler.
+#[cfg(target_arch = "x86_64")]
 extern "x86-interrupt" fn breakpoint_handler(stack_frame: InterruptStackFrame) {
 	println!("EXCEPTION: BREAKPOINT\n{:#?}", stack_frame);
 }
 
+#[cfg(target_arch = "x86_64")]
 extern "x86-interrupt" fn page_fault_handler(
 	stack_frame: InterruptStackFrame,
 	error_code: PageFaultErrorCode
@@ -133,6 +146,7 @@ extern "x86-interrupt" fn page_fault_handler(
 	hlt_loop();
 }
 
+#[cfg(target_arch = "x86_64")]
 extern "x86-interrupt" fn general_protection_fault_handler(
 	stack_frame: InterruptStackFrame,
 	error_code: u64
@@ -144,6 +158,7 @@ extern "x86-interrupt" fn general_protection_fault_handler(
 	panic!("System halted");
 }
 
+#[cfg(target_arch = "x86_64")]
 extern "x86-interrupt" fn double_fault_handler(
 	stack_frame: InterruptStackFrame,
 	error_code: u64
@@ -156,6 +171,7 @@ extern "x86-interrupt" fn double_fault_handler(
 }
 
 /// Keyboard interrupt handler.
+#[cfg(target_arch = "x86_64")]
 extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStackFrame) {
 	use ::x86_64::instructions::port::Port;
 
@@ -169,6 +185,7 @@ extern "x86-interrupt" fn keyboard_interrupt_handler(_stack_frame: InterruptStac
 	}
 }
 
+#[cfg(target_arch = "x86_64")]
 extern "x86-interrupt" fn serial_input_interrupt_handler(_stack_frame: InterruptStackFrame) {
 	use ::x86_64::instructions::port::Port;
 
@@ -190,6 +207,7 @@ extern "x86-interrupt" fn serial_input_interrupt_handler(_stack_frame: Interrupt
 }
 
 /// Spurious interrupt handler (vector 0xFF).
+#[cfg(target_arch = "x86_64")]
 extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStackFrame) {
 	serial_println!("[WARNING] Spurious interrupt received (vector 0xFF)");
 	// Per x86_64 spec: do NOT send EOI for spurious interrupts
@@ -198,6 +216,7 @@ extern "x86-interrupt" fn spurious_interrupt_handler(_stack_frame: InterruptStac
 /// APIC Timer Interrupt Handler.
 ///
 /// This handler is invoked when the APIC timer fires.
+#[cfg(target_arch = "x86_64")]
 extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) {
 	APIC_TICK_COUNT.fetch_add(1, Ordering::Relaxed);
 	unsafe {
@@ -205,6 +224,7 @@ extern "x86-interrupt" fn apic_timer_handler(_stack_frame: InterruptStackFrame) 
 	}
 }
 
+#[cfg(target_arch = "x86_64")]
 extern "x86-interrupt" fn rtc_timer_handler(_stack_frame: InterruptStackFrame) {
 	// ack
 	unsafe {
@@ -223,6 +243,7 @@ extern "x86-interrupt" fn rtc_timer_handler(_stack_frame: InterruptStackFrame) {
 
 // 64-BIT! currently.
 #[unsafe(naked)]
+#[cfg(target_arch = "x86_64")]
 extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 	core::arch::naked_asm!(
 		// save what we are about to clobber during the arg shuffle
@@ -249,10 +270,31 @@ extern "x86-interrupt" fn syscall_handler(_stack_frame: InterruptStackFrame) {
 	)
 }
 
-extern "C" fn syscall_handler_inner(num: u32, a1: u64, a2: u64, a3: u64) -> i32 {
-	unsafe { syscall(num, a1, a2, a3, 0, 0) }
+#[cfg(target_arch = "x86_64")]
+extern "x86-interrupt" fn invalid_opcode_handler(stack_frame: InterruptStackFrame) {
+	serial_println!("\n\nINVALID OPCODE (#UD)");
+	serial_println!("RIP: {:?}", stack_frame.instruction_pointer);
+	serial_println!("StackFrame: {:#?}", stack_frame);
+
+	let rip = stack_frame.instruction_pointer.as_u64() as *const u8;
+
+	serial_print!("Bytes at RIP: ");
+	unsafe {
+		for i in 0..16 {
+			let byte = core::ptr::read_volatile(rip.add(i));
+			serial_print!("{:02x} ", byte);
+		}
+	}
+	serial_println!("");
+
+	panic!("System halted");
 }
 
+extern "C" fn syscall_handler_inner(num: u32, a1: u64, a2: u64, a3: u64) -> i32 {
+	unsafe { syscall(num, a1, a2, a3, 0, 0, 0) }
+}
+
+//#[cfg(target_arch = "x86_64")]
 // extern "x86-interrupt" fn gsi_interrupt_dispatcher(_stack_frame:
 // InterruptStackFrame) { 	let mut handled = false;
 // 	{
@@ -283,6 +325,7 @@ extern "C" fn syscall_handler_inner(num: u32, a1: u64, a2: u64, a3: u64) -> i32 
 // }
 
 /// Allocates and registers a vector to the IOAPIC
+#[cfg(target_arch = "x86_64")]
 pub fn allocate_and_register_vector(
 	handler: extern "x86-interrupt" fn(InterruptStackFrame)
 ) -> Result<usize, NullexError> {

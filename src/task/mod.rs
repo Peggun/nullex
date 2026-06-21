@@ -13,7 +13,7 @@ use core::{
 	future::Future,
 	pin::Pin,
 	ptr::write_bytes,
-	sync::atomic::AtomicBool,
+	sync::atomic::{AtomicBool, Ordering},
 	task::{Context, Poll}
 };
 
@@ -38,7 +38,10 @@ use x86_64::{
 use crate::{
 	PHYS_MEM_OFFSET,
 	allocator::ALLOCATOR_INFO,
-	arch::x86_64::{bootinfo::MemoryRegion, user::setup_user_stack},
+	arch::x86_64::{
+		bootinfo::MemoryRegion,
+		user::{USER_EXIT_CODE, USER_EXIT_REQUESTED, enter_user_process, setup_user_stack}
+	},
 	error::NullexError,
 	gdt::{INTERRUPT_STACK_SIZE, interrupt_stack_top, user_code_selector, user_data_selector},
 	memory::{active_level_4_table, phys_to_virt},
@@ -68,14 +71,17 @@ impl ProcessId {
 }
 
 /// Backend for a file.
+#[derive(Debug)]
 pub enum FileBackend {
 	/// File on disk.
-	DiskFile { 
+	DiskFile {
 		/// File path
-		path: String, 
+		path: String,
 		/// File offset
-		offset: usize 
+		offset: usize
 	},
+	/// Directory on disk.
+	Directory { path: String },
 	/// Standard In file.
 	Stdin,
 	/// Standard out file.
@@ -83,9 +89,24 @@ pub enum FileBackend {
 }
 
 /// Struct to represent an open file in a process
+#[derive(Debug)]
 pub struct OpenFile {
 	/// The backend of the open file.
 	pub backend: FileBackend
+}
+
+impl OpenFile {
+	pub fn path(&self) -> Option<&str> {
+		match &self.backend {
+			FileBackend::DiskFile {
+				path, ..
+			}
+			| FileBackend::Directory {
+				path
+			} => Some(path),
+			FileBackend::Stdin | FileBackend::Stdout => None
+		}
+	}
 }
 
 #[expect(clippy::type_complexity)]
@@ -132,7 +153,7 @@ impl Process {
 			context: UserContext::default(),
 			address_space: None,
 			open_files: HashMap::new(),
-			next_fd: 0 // start file descriptors at 0
+			next_fd: 3 // start file descriptors at 3 because 0 - stdin, 1 - stdout and 2 - stderr
 		})
 	}
 
@@ -160,7 +181,7 @@ impl Process {
 		context.ss = user_data_selector() as u64;
 		context.rflags = 0x202;
 
-		let future = (state.future_fn)(state.clone());
+		let future = Box::pin(UserProcessFuture);
 
 		Ok(Process {
 			state,
@@ -168,7 +189,7 @@ impl Process {
 			context,
 			address_space: Some(address_space),
 			open_files: HashMap::new(),
-			next_fd: 0
+			next_fd: 3
 		})
 	}
 
@@ -369,4 +390,28 @@ pub async fn yield_now() {
 		yielded: false
 	}
 	.await
+}
+
+pub struct UserProcessFuture;
+
+impl Future for UserProcessFuture {
+	type Output = i32;
+
+	fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		unsafe {
+			if executor::CURRENT_PROCESS_GUARD.is_null() {
+				return Poll::Ready(-1);
+			}
+
+			enter_user_process(&*executor::CURRENT_PROCESS_GUARD);
+		}
+
+		if USER_EXIT_REQUESTED.load(Ordering::SeqCst) {
+			USER_EXIT_REQUESTED.store(false, Ordering::SeqCst);
+			Poll::Ready(USER_EXIT_CODE.load(Ordering::SeqCst))
+		} else {
+			cx.waker().wake_by_ref();
+			Poll::Pending
+		}
+	}
 }

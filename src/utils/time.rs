@@ -1,8 +1,7 @@
 //!
 //! time.rs
-//! 
+//!
 //! Time handling module for the kernel.
-//! 
 
 use smoltcp::time::Instant;
 

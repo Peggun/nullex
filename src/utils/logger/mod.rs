@@ -12,6 +12,8 @@ pub mod traits;
 
 pub static LOGGER: SerialLogger = SerialLogger;
 
-pub fn init_logging () {
-    log::set_logger(&LOGGER).map(|()| log::set_max_level(log::LevelFilter::Trace)).unwrap();
+pub fn init_logging() {
+	log::set_logger(&LOGGER)
+		.map(|()| log::set_max_level(log::LevelFilter::Trace))
+		.unwrap();
 }

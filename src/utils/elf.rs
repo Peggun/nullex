@@ -222,6 +222,10 @@ pub fn load_segment(
 		return Ok(());
 	}
 
+	if seg.filesz > seg.memsz {
+		return Err(NullexError::ElfMagicIncorrect);
+	}
+
 	let file_start = seg.offset as usize;
 	let file_end = seg
 		.offset
@@ -289,8 +293,11 @@ pub fn load_segment(
 		let page_start = page.start_address().as_u64() as usize;
 		let page_end = page_start + 4096;
 
+		let file_backed_end = seg_start
+			.checked_add(seg.filesz as usize)
+			.ok_or(NullexError::ElfMagicIncorrect)?;
 		let copy_start = core::cmp::max(seg_start, page_start);
-		let copy_end = core::cmp::min(seg_end, page_end);
+		let copy_end = core::cmp::min(file_backed_end, page_end);
 
 		if copy_start < copy_end {
 			let src_off = file_start + (copy_start - seg_start);

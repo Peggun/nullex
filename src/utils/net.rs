@@ -2,7 +2,6 @@
 //! net.rs
 //!
 //! Utilities for the handling of the network for the kernel.
-//!
 
 /// Calculate Internet checksum (RFC 1071)
 pub fn calculate_checksum(data: &[u8]) -> u16 {

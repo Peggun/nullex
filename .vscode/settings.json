@@ -11,6 +11,7 @@
     "-Zunstable-options",
     "-Zjson-target-spec"
   ],
+  "rust-analyzer.cargo.features": "all",
   "files.watcherExclude": {
     "**/target/**": true,
     "**/node_modules/**": true

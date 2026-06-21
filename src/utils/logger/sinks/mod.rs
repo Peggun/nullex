@@ -3,9 +3,9 @@
 //!
 //! All sink definitions for the kernel's logging framework
 
+pub mod serial;
 pub mod stdout;
 pub mod syslog;
-pub mod serial;
 
 use alloc::boxed::Box;
 

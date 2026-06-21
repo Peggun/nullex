@@ -2,7 +2,6 @@
 //! dns.rs
 //!
 //! DNS Protocol handling for the kernel.
-//! 
 
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
@@ -13,7 +12,7 @@ use crate::{error::NullexError, lazy_static, serial_println, utils::mutex::SpinM
 // however we are not in usermode currently, so we send all requests to
 // to the gateway (10.0.2.2)
 // we are using google because that works rather than the QEMU one
-const DNS_SERVER: [u8; 4] = [8,8,8,8];
+const DNS_SERVER: [u8; 4] = [8, 8, 8, 8];
 const DNS_TIMEOUT_MS: u32 = 5000;
 
 lazy_static! {

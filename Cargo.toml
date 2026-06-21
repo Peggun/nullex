@@ -7,10 +7,12 @@ edition = "2024"
 crate-type = ["staticlib"]
 
 [dependencies]
-x86_64 = { version = "0.14.2", features = ["instructions"] }
 hashbrown = { version = "0.15.2", features = ["inline-more"] }
+
 futures = { version = "0.3", default-features = false }
+
 thiserror = { version = "2.0.16", default-features = false }
+
 crossbeam-queue = { version = "0.3.11", default-features = false, features = ["alloc"] }
 smoltcp = { version = "0.13.0", default-features = false, features = ["proto-ipv4", "socket-tcp", "medium-ethernet", "alloc", "log"] }
 log = "0.4.29"
@@ -19,6 +21,15 @@ getrandom = "0.4.2"
 rand_core = "0.6"
 embedded-io = "0.7.1"
 sha2 = { version = "0.10.9", default-features = false, features = ["force-soft-compact"] }
+
+ruspiro-mailbox = { path = "src/utils/ruspiro-mailbox/", features = ["ruspiro_pi3"] }
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+x86_64 = { version = "0.14.2", features = ["instructions"] }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+aarch64 = "0.0.14"
+aarch64-cpu = "11.2.0"
 
 [profile.dev]
 panic = "abort"
@@ -30,3 +41,6 @@ panic = "abort"
 
 [features]
 test = []
+rpi1 = []
+rpi2 = []
+rpi3 = []

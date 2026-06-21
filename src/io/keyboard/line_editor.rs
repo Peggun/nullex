@@ -3,7 +3,10 @@
 //!
 //! Keypress printing handler for the kernel.
 
-use alloc::{collections::vec_deque::VecDeque, string::String};
+use alloc::{
+	collections::vec_deque::VecDeque,
+	string::{String, ToString}
+};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use futures::StreamExt;
@@ -82,7 +85,7 @@ fn handle_stdin_char(c: char) {
 }
 
 /// The async function that reads scancodes and processes keypresses.
-pub async fn print_keypresses() -> i32 {
+pub async fn print_keypresses_cmds() -> i32 {
 	let mut scancodes = ScancodeStream::new();
 
 	let mut keyboard = Keyboard::new(
@@ -170,6 +173,42 @@ pub async fn print_keypresses() -> i32 {
 					} else if c != '\n' {
 						line.push(c);
 					}
+				}
+			}
+		}
+	}
+	0
+}
+
+/// Handles keypresses
+pub async fn print_keypresses() -> i32 {
+	let mut scancodes = ScancodeStream::new();
+
+	let mut keyboard = Keyboard::new(
+		ScancodeSet1::new(),
+		layouts::us104::Us104Key,
+		HandleControl::Ignore
+	);
+
+	while let Some(scancode) = scancodes.next().await {
+		if PROGRAM_WAITING.load(Ordering::SeqCst) {
+			continue;
+		}
+
+		if let Ok(Some(key_event)) = keyboard.add_byte(scancode)
+			&& let Some(key) = keyboard.process_keyevent(key_event)
+		{
+			if let DecodedKey::Unicode(c) = key {
+				{
+					let mut stdin = STDIN_BUFFER.lock();
+					for byte in c.to_string().bytes() {
+						stdin.push_back(byte);
+					}
+				}
+
+				if c == '\n' {
+					LINE_READY.store(true, Ordering::SeqCst);
+					yield_now().await;
 				}
 			}
 		}

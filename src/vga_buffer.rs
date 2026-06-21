@@ -5,14 +5,16 @@
 //!
 //! I have revamped it from phil-opp's blog as there was a bug where you
 //! couldn't change the vga font colour.
-//!
 
+use alloc::vec::Vec;
 use core::{array::from_fn, fmt};
 
 use x86_64::instructions::port::Port;
 
 use crate::{
+	drivers::keyboard::layout::PhysicalKeyboard::Ansi,
 	lazy_static,
+	serial_println,
 	utils::{mutex::SpinMutex, volatile::Volatile}
 };
 
@@ -175,11 +177,67 @@ impl Writer {
 
 	/// Writes the given ASCII string to the buffer.
 	fn write_string(&mut self, s: &str) {
-		for byte in s.bytes() {
-			match byte {
-				// printable ASCII byte or newline
-				0x20..=0x7e | b'\n' => self.write_byte(byte),
-				_ => self.write_byte(0xfe)
+		let bytes = s.as_bytes();
+		let mut i = 0;
+
+		while i < bytes.len() {
+			match bytes[i] {
+				0x1b => {
+					// ANSI escape sequence
+					if i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+						i += 2;
+
+						let param_start = i;
+						while i < bytes.len() {
+							let b = bytes[i];
+							if (0x40..=0x7e).contains(&b) {
+								break;
+							}
+							i += 1;
+						}
+
+						if i >= bytes.len() {
+							break;
+						}
+
+						let params = core::str::from_utf8(&bytes[param_start..i]).unwrap_or("");
+						let final_byte = bytes[i];
+
+						match final_byte {
+							b'H' => {
+								self.current_row = 0;
+								self.column_position = 0;
+								self.update_cursor();
+							}
+							b'J' => {
+								if params == "2" || params.is_empty() {
+									self.clear_everything();
+								}
+							}
+							_ => {}
+						}
+
+						i += 1;
+						continue;
+					}
+
+					i += 1;
+				}
+
+				b'\n' => {
+					self.write_byte(b'\n');
+					i += 1;
+				}
+
+				0x20..=0x7e => {
+					self.write_byte(bytes[i]);
+					i += 1;
+				}
+
+				_ => {
+					self.write_byte(0xfe);
+					i += 1;
+				}
 			}
 		}
 	}
@@ -336,7 +394,7 @@ impl Writer {
 
 			// cursor end scanline
 			port_3d4.write(0x0B);
-        	port_3d5.write(cursor_end & 0x1F);
+			port_3d5.write(cursor_end & 0x1F);
 		}
 	}
 }

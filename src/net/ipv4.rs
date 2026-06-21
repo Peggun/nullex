@@ -68,17 +68,15 @@ pub fn process_ipv4(pkt: *const u8, len: usize) {
 				super::icmp::process_icmp(pkt, len, ihl, &src_ip);
 			}
 			IP_PROTO_TCP => {
-				if src_ip == [202,174,108,4] {
-					serial_println!(
-						"[TCP RX DEBUG] packet from 202.174.108.4",
-					);
+				if src_ip == [202, 174, 108, 4] {
+					serial_println!("[TCP RX DEBUG] packet from 202.174.108.4",);
 				}
 			}
 			IP_PROTO_UDP => {
 				super::udp::process_udp(pkt, len, ihl, &src_ip);
 			}
 			_ => {
-				serial_println!("[IPv4] Unknown protocol: {}", protocol);	
+				serial_println!("[IPv4] Unknown protocol: {}", protocol);
 			}
 		}
 	}

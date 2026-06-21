@@ -1,8 +1,7 @@
 //!
 //! utils/httparse/writer.rs
-//! 
-//! 
-//! 
+//!
+//!
 
 use alloc::{string::String, vec::Vec};
 

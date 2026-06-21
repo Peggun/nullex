@@ -13,6 +13,11 @@ use x86_64::{
 
 use crate::alloc::string::ToString;
 
+// ----- SYSCALL ERRORS ----- //
+/// No such file or directory
+pub const ERR_NO_ENT: i32 = -1;
+pub const ERR_BAD_FD: i32 = -2;
+
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 /// An enum representing all Nullex Errors
 pub enum NullexError {

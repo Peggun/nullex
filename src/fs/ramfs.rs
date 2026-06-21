@@ -12,7 +12,10 @@ use core::{fmt, str};
 
 use hashbrown::HashMap;
 
-use crate::fs::init_fs;
+use crate::{
+	fs::{SCDirectoryEntryInfo, SCEntryKind, SCFsErrorCode, SCPermission, init_fs},
+	serial_println
+};
 
 include!(concat!(env!("OUT_DIR"), "/userspace_registry.rs"));
 
@@ -43,6 +46,16 @@ impl Permission {
 			read: true,
 			write: false,
 			execute: false
+		}
+	}
+}
+
+impl From<SCPermission> for Permission {
+	fn from(value: SCPermission) -> Self {
+		Self {
+			read: value.read != 0,
+			write: value.write != 0,
+			execute: value.execute != 0
 		}
 	}
 }
@@ -168,7 +181,7 @@ impl ChunkedContent {
 #[derive(Debug)]
 /// Structure representing a directory (multiple files + directories)
 pub struct Directory {
-	entries: HashMap<String, Entry>,
+	pub entries: HashMap<String, Entry>,
 	/// Directory permissions
 	pub permission: Permission
 }
@@ -183,7 +196,7 @@ impl Directory {
 }
 
 #[derive(Debug)]
-enum Entry {
+pub enum Entry {
 	File(File),
 	Directory(Box<Directory>)
 }
@@ -191,6 +204,9 @@ enum Entry {
 #[derive(Debug)]
 /// Enum for all filesystem errors.
 pub enum FsError {
+	/// A generic error for unsupported types.
+	Generic,
+
 	/// Entry not found
 	EntryNotFound,
 	/// Target is not a directory.
@@ -210,6 +226,7 @@ pub enum FsError {
 impl fmt::Display for FsError {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 		match self {
+			Self::Generic => write!(f, "An error occurred"),
 			Self::EntryNotFound => write!(f, "Entry not found"),
 			Self::NotADirectory => write!(f, "Not a directory"),
 			Self::NotAFile => write!(f, "Not a file"),
@@ -217,6 +234,20 @@ impl fmt::Display for FsError {
 			Self::AlreadyExists => write!(f, "Entry already exists"),
 			Self::InvalidPath => write!(f, "Invalid path"),
 			Self::DirectoryNotEmpty => write!(f, "Directory not empty")
+		}
+	}
+}
+
+impl From<SCFsErrorCode> for FsError {
+	fn from(value: SCFsErrorCode) -> Self {
+		match value {
+			SCFsErrorCode::EntryNotFound => FsError::EntryNotFound,
+			SCFsErrorCode::NotADirectory => FsError::NotADirectory,
+			SCFsErrorCode::NotAFile => FsError::NotAFile,
+			SCFsErrorCode::PermissionDenied => FsError::PermissionDenied,
+			SCFsErrorCode::AlreadyExists => FsError::AlreadyExists,
+			SCFsErrorCode::DirectoryNotEmpty => FsError::DirectoryNotEmpty,
+			_ => FsError::Generic
 		}
 	}
 }
@@ -428,7 +459,7 @@ impl FileSystem {
 		Ok(components)
 	}
 
-	fn get_dir(&self, path: &str) -> Result<&Directory, FsError> {
+	pub fn get_dir(&self, path: &str) -> Result<&Directory, FsError> {
 		let components = self.resolve_path(path)?;
 		self.get_dir_from_components(&components.as_slice())
 	}
@@ -604,13 +635,20 @@ impl Default for FileSystem {
 }
 
 /// Setup system files.
+// this will be replaced with a one time call if the system files are not there
+// on ATA disk.
 pub fn setup_system_files(mut fs: FileSystem) {
 	fs.create_dir("/logs", Permission::all()).unwrap();
 	fs.create_dir("/proc", Permission::read()).unwrap();
 	fs.create_dir("/apps", Permission::all()).unwrap();
+	fs.create_dir("/init", Permission::read()).unwrap();
 
 	for elf in USERSPACE_ELFS {
-		let path = "/apps/".to_string() + elf.name + ".elf";
+		let path = if elf.name == "nush" {
+			"/init/".to_string() + elf.name + ".elf"
+		} else {
+			"/apps/".to_string() + elf.name + ".elf"
+		};
 
 		if !fs.exists(&path) {
 			fs.create_file(&path, Permission::all()).unwrap();
@@ -618,6 +656,17 @@ pub fn setup_system_files(mut fs: FileSystem) {
 
 		fs.write_file(&path, elf.bytes, true).unwrap();
 	}
+
+	fs.create_file("/init/startup.ini", Permission::all());
+	fs.write_file(
+		"/init/startup.ini",
+		b"
+[Startup]
+init_path=\"/init/nush.elf\"
+args=\"\"	
+",
+		false
+	);
 
 	init_fs(fs);
 }

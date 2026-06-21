@@ -1,8 +1,7 @@
 //!
 //! Utility module for parsing URLs
-//! 
-//! 
-//! 
+//!
+//!
 
 pub mod chunked;
 pub mod headers;

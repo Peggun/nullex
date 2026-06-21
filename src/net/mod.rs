@@ -12,6 +12,7 @@ pub mod icmp;
 pub mod ipv4;
 pub mod tcp;
 pub mod udp;
+pub mod usb;
 
 use crate::{drivers::virtio::net::VIRTIO_NET_INSTANCE, error::NullexError, serial_println};
 

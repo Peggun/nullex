@@ -3,12 +3,12 @@
 //! RTC (Real Time Clock) module for the kernel.
 
 use alloc::string::String;
-use smoltcp::time::Instant;
 use core::{
 	fmt,
 	sync::atomic::{AtomicU64, Ordering}
 };
 
+use smoltcp::time::Instant;
 use x86_64::instructions::interrupts;
 
 use crate::{
@@ -118,28 +118,24 @@ fn bcd_to_bin(b: u8) -> u8 {
 #[inline(always)]
 /// Read a value from a CMOS register.
 fn cmos_read(reg: u8) -> u8 {
-	x86_64::instructions::interrupts::without_interrupts(|| {
-        unsafe {
-            outb(CMOS_INDEX, reg);
-            io_wait();
-            let val = inb(CMOS_DATA);
-            io_wait();
-            val
-        }
-    })
+	x86_64::instructions::interrupts::without_interrupts(|| unsafe {
+		outb(CMOS_INDEX, reg);
+		io_wait();
+		let val = inb(CMOS_DATA);
+		io_wait();
+		val
+	})
 }
 
 #[inline(always)]
 /// Write a value into a CMOS register.
 fn cmos_write(reg: u8, value: u8) {
-	x86_64::instructions::interrupts::without_interrupts(|| {
-        unsafe {
-            outb(CMOS_INDEX, reg);
-            io_wait();
-            outb(CMOS_DATA, value);
-            io_wait();
-        }
-    })
+	x86_64::instructions::interrupts::without_interrupts(|| unsafe {
+		outb(CMOS_INDEX, reg);
+		io_wait();
+		outb(CMOS_DATA, value);
+		io_wait();
+	})
 }
 
 /// Unmask RTC GSI 8 on the IOAPIC.
@@ -150,7 +146,8 @@ pub fn unmask_rtc_gsi8() {
 	}
 }
 
-/// Returns the (millis, secs, mins, hours, days, months, years) in the RTC clock raw.
+/// Returns the (millis, secs, mins, hours, days, months, years) in the RTC
+/// clock raw.
 fn read_rtc_raw() -> (u8, u8, u8, u8, u8, u8, u8) {
 	loop {
 		// wait for any update in progress to finish
@@ -201,7 +198,7 @@ pub fn read_rtc_time() -> RtcTime {
 		let pm = (h_raw & 0x80) != 0;
 		let mut h12 = h_raw & 0x7F;
 		if h12 == 12 {
-			// 12AM => 0 || 12 PM => 12	
+			// 12AM => 0 || 12 PM => 12
 			if !pm {
 				h12 = 0;
 			}

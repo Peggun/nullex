@@ -11,7 +11,11 @@ use core::{
 use x86_64::instructions::interrupts;
 
 use crate::{
-	common::ports::{inb, outb}, error::NullexError, interrupts::APIC_TIMER_VECTOR, rtc::{CMOS_DATA, CMOS_INDEX, NMI_BIT, REG_C, read_rtc_time}, utils::mutex::SpinMutex
+	common::ports::{inb, outb},
+	error::NullexError,
+	interrupts::APIC_TIMER_VECTOR,
+	rtc::{CMOS_DATA, CMOS_INDEX, NMI_BIT, REG_C, read_rtc_time},
+	utils::mutex::SpinMutex
 };
 
 /// The base address of the APIC Timer

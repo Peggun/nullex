@@ -9,12 +9,14 @@
 5   closef     # close file
 6   readf      # read from file
 7   writef     # write to file
-8   run        # exec / replace process image
-9   stop       # kill / signal
-10  nap        # sleep
-11  sizef      # get the file size
-12  csocket    # create socket, returns fd
-13  connsock   # connect socket, return 0 on success
-14  send       # send bytes on socket
-15  recv       # receive bytes from socket
-16  closesock  # close socket
+8   opend      # open directory
+9   run        # exec / replace process image
+10  stop       # kill / signal
+11  nap        # sleep
+12  sizef      # get the file size
+13  csocket    # create socket, returns fd
+14  connsock   # connect socket, return 0 on success
+15  send       # send bytes on socket
+16  recv       # receive bytes from socket
+17  closesock  # close socket
+18  getdirents # get directory entries
