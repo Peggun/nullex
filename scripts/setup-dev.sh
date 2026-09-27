@@ -79,7 +79,7 @@ install_on_apt() {
   echo "-- Detected apt (Debian/Ubuntu). Installing build-essential, llvm, qemu, python..."
   run_as_root apt update
   run_as_root apt install -y build-essential curl git ca-certificates uuid-dev nasm acpica-tools ovmf dosfstools parted \
-      qemu-system-x86 qemu-utils clang python3 xorriso grub-pc-bin
+      qemu-system-x86 qemu-utils clang python3 xorriso grub-pc-bin python3-pyelftools
 
   tmp_llvm="$(mktemp)"
   curl -fsSL https://apt.llvm.org/llvm.sh -o "$tmp_llvm"
