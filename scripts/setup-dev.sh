@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # setup-dev.sh
-# Installs build-essential equivalents, rustup (nightly), llvm-tools-preview, cargo bootimage, qemu, llvm/clang.
-# Works with: apt (Debian/Ubuntu), pacman (Arch), dnf (Fedora/RHEL), brew (macOS/Homebrew).
+# Installs build-essential equivalents, rustup (nightly), llvm-tools-preview,
+# cargo bootimage, qemu, llvm/clang, and the x86_64-linux-gnu cross compiler.
+#
+# Works with:
+#   - apt (Debian/Ubuntu)
+#   - pacman (Arch)
+#   - dnf (Fedora/RHEL)
+#   - brew (macOS/Homebrew)
 #
 # for some reason i really liked this language, its different. but i hate powershell even
 # though its similar but higher level
@@ -16,7 +22,7 @@ usage() {
 Usage: setup-dev.sh [--yes|-y] [--non-interactive]
 
   --yes, -y, --non-interactive  Skip confirmation prompts.
-  --help, -h                    Show this help.
+  --help, -h                    Show help.
 EOF
 }
 
@@ -79,7 +85,8 @@ install_on_apt() {
   echo "-- Detected apt (Debian/Ubuntu). Installing build-essential, llvm, qemu, python..."
   run_as_root apt update
   run_as_root apt install -y build-essential curl git ca-certificates uuid-dev nasm acpica-tools ovmf dosfstools parted \
-      qemu-system-x86 qemu-utils clang python3 xorriso grub-pc-bin python3-pyelftools
+      qemu-system-x86 qemu-utils clang python3 xorriso grub-pc-bin python3-pyelftools \
+      gcc-x86-64-linux-gnu binutils-x86-64-linux-gnu
 
   tmp_llvm="$(mktemp)"
   curl -fsSL https://apt.llvm.org/llvm.sh -o "$tmp_llvm"
@@ -121,8 +128,41 @@ install_on_dnf() {
     run_as_root dnf -y install make automake gcc gcc-c++ kernel-devel
   fi
 
-  run_as_root dnf -y install qemu-kvm qemu-img qemu-system-x86 llvm clang curl git python3 libuuid-devel nasm acpica-tools edk2-ovmf dosfstools parted grub2-tools xorriso || \
-    run_as_root dnf -y install qemu qemu-img llvm clang curl git python3 libuuid-devel nasm acpica-tools edk2-ovmf dosfstools parted grub2-tools xorriso
+  run_as_root dnf -y install \
+    qemu-kvm \
+    qemu-img \
+    qemu-system-x86 \
+    llvm \
+    clang \
+    curl \
+    git \
+    python3 \
+    libuuid-devel \
+    nasm \
+    acpica-tools \
+    edk2-ovmf \
+    dosfstools \
+    parted \
+    grub2-tools \
+    xorriso \
+    gcc-x86_64-linux-gnu || \
+  run_as_root dnf -y install \
+    qemu \
+    qemu-img \
+    llvm \
+    clang \
+    curl \
+    git \
+    python3 \
+    libuuid-devel \
+    nasm \
+    acpica-tools \
+    edk2-ovmf \
+    dosfstools \
+    parted \
+    grub2-tools \
+    xorriso \
+    gcc-x86_64-linux-gnu
 
   echo "-- dnf installs finished"
 }
@@ -151,14 +191,66 @@ install_on_brew() {
 
     echo "Homebrew not found — attempting to install Homebrew (may require interaction)"
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
-    eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null || true)" || true
+
+    if [[ -x /opt/homebrew/bin/brew ]]; then
+      eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [[ -x /usr/local/bin/brew ]]; then
+      eval "$(/usr/local/bin/brew shellenv)"
+    fi
   fi
 
   if command -v brew >/dev/null 2>&1; then
     brew update || true
-    brew install qemu llvm curl git || true
+
+    echo "-- Installing macOS build dependencies..."
+    brew install \
+      qemu \
+      llvm \
+      gcc \
+      x86_64-linux-gnu-binutils \
+      curl \
+      git
+
+    # Homebrew's GCC provides a versioned Linux cross compiler such as:
+    #   x86_64-pc-linux-gnu-gcc-16
+    #
+    # we currently expect the unversioned:
+    #   x86_64-linux-gnu-gcc
+    #
+    # create that compatibility name inside Homebrew's bin directory.
+    brew_prefix="$(brew --prefix)"
+    gcc_prefix="$(brew --prefix gcc)"
+
+    cross_gcc=""
+    while IFS= read -r candidate; do
+      if [[ -z "$cross_gcc" || "$candidate" > "$cross_gcc" ]]; then
+        cross_gcc="$candidate"
+      fi
+    done < <(
+      find "$gcc_prefix/bin" \
+        -maxdepth 1 \
+        -type f \
+        -name 'x86_64-pc-linux-gnu-gcc-*' \
+        -print 2>/dev/null
+    )
+
+    if [[ -z "$cross_gcc" ]]; then
+      echo "ERROR: Homebrew GCC was installed, but the x86_64 Linux cross compiler was not found."
+      echo "Expected something like:"
+      echo "  $gcc_prefix/bin/x86_64-pc-linux-gnu-gcc-16"
+      exit 1
+    fi
+
+    echo "-- Found Linux cross compiler:"
+    echo "   $cross_gcc"
+
+    ln -sf "$cross_gcc" "$brew_prefix/bin/x86_64-linux-gnu-gcc"
+
+    echo "-- Created:"
+    echo "   $brew_prefix/bin/x86_64-linux-gnu-gcc -> $cross_gcc"
   else
-    echo "Homebrew still not available. Please install Homebrew manually: https://brew.sh/"
+    echo "Homebrew still not available."
+    echo "Please install Homebrew manually: https://brew.sh/"
     exit 1
   fi
 
@@ -186,11 +278,21 @@ fi
 
 echo
 echo "-- Installing rustup (non-interactive) and setting default toolchain to nightly..."
+
 if ! command -v curl >/dev/null 2>&1; then
   echo "curl not installed — attempting to install curl first..."
-  if command -v apt >/dev/null 2>&1; then run_as_root apt install -y curl; fi
-  if command -v pacman >/dev/null 2>&1; then run_as_root pacman -S --noconfirm --needed curl; fi
-  if command -v dnf >/dev/null 2>&1; then run_as_root dnf install -y curl; fi
+
+  if command -v apt >/dev/null 2>&1; then
+    run_as_root apt install -y curl
+  fi
+
+  if command -v pacman >/dev/null 2>&1; then
+    run_as_root pacman -S --noconfirm --needed curl
+  fi
+
+  if command -v dnf >/dev/null 2>&1; then
+    run_as_root dnf install -y curl
+  fi
 fi
 
 curl --proto '=https' -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly
@@ -208,9 +310,11 @@ else
 fi
 
 echo "-- Adding llvm-tools-preview (or fallback to llvm-tools) to nightly toolchain..."
+
 if command -v rustup >/dev/null 2>&1; then
   if ! rustup component add llvm-tools-preview rust-src --toolchain nightly >/dev/null 2>&1; then
     echo "llvm-tools-preview not available; trying llvm-tools..."
+
     if ! rustup component add llvm-tools rust-src --toolchain nightly >/dev/null 2>&1; then
       echo "Couldn't add an llvm-tools rustup component (it may not be available for this platform/toolchain)."
       echo "You can still use system llvm/clang or install llvm tools separately."
@@ -223,6 +327,7 @@ if command -v rustup >/dev/null 2>&1; then
 fi
 
 echo "-- Installing cargo subcommand: bootimage"
+
 if command -v cargo >/dev/null 2>&1; then
   cargo install bootimage || echo "cargo install bootimage failed; try 'cargo install bootimage' manually"
 else
@@ -231,36 +336,41 @@ fi
 
 echo
 echo "=== Setup summary ==="
+
 printf "Host: %s\n" "$(uname -a 2>/dev/null || true)"
 
 ver_if() {
   local cmd="$1"
   local label="$2"
+
   if command -v "$cmd" >/dev/null 2>&1; then
-    printf "%-22s: %s\n" "$label" "$($cmd --version 2>&1 | head -n1)"
+    printf "%-28s: %s\n" "$label" "$("$cmd" --version 2>&1 | head -n1)"
   else
-    printf "%-22s: %s\n" "$label" "not found"
+    printf "%-28s: %s\n" "$label" "not found"
   fi
 }
 
 ver_if gcc "gcc"
+ver_if x86_64-linux-gnu-gcc "cross gcc"
+ver_if x86_64-linux-gnu-ld "cross ld"
 ver_if clang "clang"
 ver_if rustc "rustc"
 ver_if cargo "cargo"
 
 if command -v qemu-system-x86_64 >/dev/null 2>&1; then
-  printf "%-22s: %s\n" "qemu" "$(qemu-system-x86_64 --version 2>&1 | head -n1)"
+  printf "%-28s: %s\n" "qemu" "$(qemu-system-x86_64 --version 2>&1 | head -n1)"
 elif command -v qemu-system-x86 >/dev/null 2>&1; then
-  printf "%-22s: %s\n" "qemu" "$(qemu-system-x86 --version 2>&1 | head -n1)"
+  printf "%-28s: %s\n" "qemu" "$(qemu-system-x86 --version 2>&1 | head -n1)"
 elif command -v qemu >/dev/null 2>&1; then
-  printf "%-22s: %s\n" "qemu" "$(qemu --version 2>&1 | head -n1)"
+  printf "%-28s: %s\n" "qemu" "$(qemu --version 2>&1 | head -n1)"
 else
-  printf "%-22s: %s\n" "qemu" "not found"
+  printf "%-28s: %s\n" "qemu" "not found"
 fi
 
 if command -v rustup >/dev/null 2>&1; then
   echo "rustup toolchains installed:"
   rustup toolchain list || true
+
   echo "Installed rustup components for nightly:"
   rustup component list --toolchain nightly --installed || true
 fi
