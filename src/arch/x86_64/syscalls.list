@@ -9,12 +9,18 @@
 5   closef     # close file
 6   readf      # read from file
 7   writef     # write to file
-8   run        # exec / replace process image
-9   stop       # kill / signal
-10  nap        # sleep
-11  sizef      # get the file size
-12  csocket    # create socket, returns fd
-13  connsock   # connect socket, return 0 on success
-14  send       # send bytes on socket
-15  recv       # receive bytes from socket
-16  closesock  # close socket
+8   opend      # open directory
+9   closed     # close directory
+10  run        # exec / replace process image
+11  stop       # kill / signal
+12  nap        # sleep
+13  sizef      # get the file size
+14  csocket    # create socket, returns fd
+15  connsock   # connect socket, return 0 on success
+16  send       # send bytes on socket
+17  recv       # receive bytes from socket
+18  closesock  # close socket
+19  getdirents # get directory entries
+20  spawnp     # spawn a new user process (to be split like in fork and exec)
+21  rmfile     # remove file
+22  rmdir      # remove directory

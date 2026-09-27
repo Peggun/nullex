@@ -20,7 +20,7 @@ const MAX_MEMORY_MAP_SIZE: usize = 64;
 /// A map of the physical memory regions of the underlying machine.
 #[repr(C)]
 pub struct MemoryMap {
-	entries: [MemoryRegion; MAX_MEMORY_MAP_SIZE],
+	pub entries: [MemoryRegion; MAX_MEMORY_MAP_SIZE],
 	// u64 instead of usize so that the structure layout is platform
 	// independent
 	next_entry_index: u64

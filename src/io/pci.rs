@@ -7,14 +7,14 @@ use alloc::vec::Vec;
 
 use crate::{
 	allocator::io_alloc::IO_ALLOC,
-	common::ports::{inl, outb, outl, outq, outw},
+	common::{
+		ports::{inl, outb, outl, outq, outw},
+		types::{DWORD, WORD}
+	},
 	error::NullexError,
 	lazy_static,
 	serial_println,
-	utils::{
-		mutex::SpinMutex,
-		types::{DWORD, WORD}
-	}
+	sync::mutex::SpinMutex
 };
 
 /// Virtio PCI Vendor ID

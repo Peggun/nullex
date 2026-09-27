@@ -40,17 +40,16 @@ use crate::{
 	ensure,
 	error::NullexError,
 	kassert,
-	lazy_static,
 	memory::BootInfoFrameAllocator,
 	println,
-	utils::{
+	sync::{
 		mutex::{SpinMutex, SpinMutexGuard},
 		spin::rwlock::RwLock
 	}
 };
 
 /// The starting address of the kernel's heap memory.
-pub const HEAP_START: usize = 0x_4444_4444_0000;
+pub const HEAP_START: usize = 0x_FFFF_9000_0000_0000;
 /// The size of the kernel's heap memory.
 pub const HEAP_SIZE: usize = 8 * 1024 * 1024;
 
@@ -71,16 +70,18 @@ where
 	size: PhantomData<S>
 }
 
-lazy_static! {
-	/// Static reference to the information about the current allocator that is running in this kernel.
-	pub static ref ALLOCATOR_INFO: AllocatorInfo<Size4KiB, OffsetPageTable<'static>, BootInfoFrameAllocator> =
-		AllocatorInfo {
-			strategy: RwLock::new(None),
-			frame_allocator: SpinMutex::new(None),
-			mapper: SpinMutex::new(None),
-			size: PhantomData
-		};
-}
+// using a lazy_static causes a chicken and egg deadlock
+pub static ALLOCATOR_INFO: AllocatorInfo<
+	Size4KiB,
+	OffsetPageTable<'static>,
+	BootInfoFrameAllocator
+> = AllocatorInfo {
+	strategy: RwLock::new(None),
+	frame_allocator: SpinMutex::new(None),
+	mapper: SpinMutex::new(None),
+	size: PhantomData
+};
+
 /// A generic starting off kernel allocator. This is just to allocate the global
 /// allocator.
 #[allow(deprecated)]
@@ -215,17 +216,131 @@ impl<A> Locked<A> {
 ///
 /// Requires that `align` is a power of two.
 fn align_up(addr: usize, align: usize) -> usize {
-	(addr + align - 1) & !(align - 1)
+	debug_assert!(align.is_power_of_two());
+	addr
+		.checked_add(align - 1)
+		.map(|value| value & !(align - 1))
+		// overflow must not wrap an allocation into unrelated memory
+		.unwrap_or(usize::MAX & !(align - 1))
 }
 
 #[cfg(feature = "test")]
 pub mod tests {
-	use crate::{allocator::align_up, utils::ktest::TestError};
+	use core::alloc::{GlobalAlloc, Layout};
+
+	use crate::{
+		allocator::{
+			GlobalAllocator,
+			HEAP_SIZE,
+			HEAP_START,
+			LOCAL_HEAP_ALLOCATOR,
+			Locked,
+			align_up
+		},
+		tassert,
+		tassert_eq,
+		tassert_ne,
+		testing::ktest::TestError
+	};
+
+	pub fn test_heap_start_is_page_aligned() -> Result<(), TestError> {
+		tassert_eq!(
+			HEAP_START % 4096,
+			0,
+			"HEAP_START must be page-aligned (4096 bytes)"
+		);
+		Ok(())
+	}
+	crate::create_test!(test_heap_start_is_page_aligned);
+
+	pub fn test_heap_size_is_positive() -> Result<(), TestError> {
+		tassert!(HEAP_SIZE > 0, "HEAP_SIZE must be greater than 0");
+		tassert_eq!(
+			HEAP_SIZE,
+			8 * 1024 * 1024,
+			"HEAP_SIZE should be exactly 8MB"
+		);
+		Ok(())
+	}
+	crate::create_test!(test_heap_size_is_positive);
+
+	pub fn test_heap_start_plus_size_does_not_overflow_usize() -> Result<(), TestError> {
+		let heap_start = HEAP_START as usize;
+		let heap_size = HEAP_SIZE;
+		tassert!(
+			heap_start.checked_add(heap_size).is_some(),
+			"HEAP_START + HEAP_SIZE should not overflow usize"
+		);
+		Ok(())
+	}
+	crate::create_test!(test_heap_start_plus_size_does_not_overflow_usize);
+
+	pub fn test_heap_bounds_overflow_check() -> Result<(), TestError> {
+		let heap_start_u64 = HEAP_START as u64;
+		let heap_size_u64 = HEAP_SIZE as u64;
+
+		let heap_end_u64 = heap_start_u64
+			.checked_add(heap_size_u64)
+			.and_then(|v| v.checked_sub(1));
+
+		tassert!(
+			heap_end_u64.is_some(),
+			"HEAP_START + HEAP_SIZE should not overflow u64"
+		);
+
+		let overflow_start = u64::MAX - 100;
+		let overflow_size = 200u64;
+		let overflow_end = overflow_start
+			.checked_add(overflow_size)
+			.and_then(|v| v.checked_sub(1));
+		tassert!(
+			overflow_end.is_none(),
+			"Overflowing bounds should correctly return None"
+		);
+
+		Ok(())
+	}
+	crate::create_test!(test_heap_bounds_overflow_check);
+
+	pub fn test_heap_page_calculation_logic() -> Result<(), TestError> {
+		let heap_start_u64 = HEAP_START as u64;
+		let heap_size_u64 = HEAP_SIZE as u64;
+		let heap_end_u64 = heap_start_u64
+			.checked_add(heap_size_u64)
+			.unwrap()
+			.checked_sub(1)
+			.unwrap();
+
+		let start_index = heap_start_u64 / 4096;
+		let end_index = heap_end_u64 / 4096;
+
+		tassert!(
+			start_index <= end_index,
+			"start_index should be <= end_index"
+		);
+
+		let num_pages = end_index - start_index + 1;
+
+		tassert_eq!(
+			num_pages,
+			2048,
+			"num_pages should be exactly 2048 for an 8MB heap"
+		);
+
+		let max_reasonable_pages: u64 = 10 * 1024 * 1024;
+		tassert!(
+			num_pages <= max_reasonable_pages,
+			"Default heap should be within reasonable page limits"
+		);
+
+		Ok(())
+	}
+	crate::create_test!(test_heap_page_calculation_logic);
 
 	pub fn test_align_up_already_aligned() -> Result<(), TestError> {
 		let a = 0x1000usize;
 		let aligned = align_up(a, 0x1000);
-		assert_eq!(aligned, 0x1000);
+		tassert_eq!(aligned, 0x1000);
 		Ok(())
 	}
 	crate::create_test!(test_align_up_already_aligned);
@@ -233,8 +348,63 @@ pub mod tests {
 	pub fn test_align_up_non_aligned() -> Result<(), TestError> {
 		let a = 0x1001usize;
 		let aligned = align_up(a, 0x1000);
-		assert_eq!(aligned, 0x2000);
+		tassert_eq!(aligned, 0x2000);
 		Ok(())
 	}
 	crate::create_test!(test_align_up_non_aligned);
+
+	pub fn test_align_up_does_not_wrap() -> Result<(), TestError> {
+		tassert_eq!(align_up(usize::MAX - 7, 8), usize::MAX - 7);
+		tassert_eq!(align_up(usize::MAX - 3, 8), usize::MAX - 7);
+		Ok(())
+	}
+	crate::create_test!(test_align_up_does_not_wrap);
+
+	pub fn test_align_up_zero_addr() -> Result<(), TestError> {
+		tassert_eq!(align_up(0, 4096), 0);
+		tassert_eq!(align_up(0, 1), 0);
+		Ok(())
+	}
+	crate::create_test!(test_align_up_zero_addr);
+
+	pub fn test_align_up_align_one() -> Result<(), TestError> {
+		tassert_eq!(align_up(0, 1), 0);
+		tassert_eq!(align_up(15, 1), 15);
+		tassert_eq!(align_up(usize::MAX, 1), usize::MAX);
+		Ok(())
+	}
+	crate::create_test!(test_align_up_align_one);
+
+	pub fn test_align_up_overflow_returns_saturated_aligned() -> Result<(), TestError> {
+		tassert_eq!(align_up(usize::MAX, 2), usize::MAX - 1);
+		tassert_eq!(align_up(usize::MAX - 1, 2), usize::MAX - 1);
+
+		let expected = usize::MAX & !4095;
+		tassert_eq!(align_up(usize::MAX, 4096), expected);
+		Ok(())
+	}
+	crate::create_test!(test_align_up_overflow_returns_saturated_aligned);
+
+	pub fn test_locked_wrapper() -> Result<(), TestError> {
+		#[allow(deprecated)]
+		let locked = Locked::new(42);
+		{
+			let mut guard = locked.lock();
+			tassert_eq!(*guard, 42);
+			*guard = 100;
+		}
+		{
+			let guard = locked.lock();
+			tassert_eq!(*guard, 100);
+		}
+		Ok(())
+	}
+	crate::create_test!(test_locked_wrapper);
+
+	pub fn test_local_heap_allocator_can_be_locked() -> Result<(), TestError> {
+		#[allow(deprecated)]
+		let _guard = LOCAL_HEAP_ALLOCATOR.lock();
+		Ok(())
+	}
+	crate::create_test!(test_local_heap_allocator_can_be_locked);
 }

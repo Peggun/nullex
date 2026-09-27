@@ -13,7 +13,7 @@ use core::{
 
 use x86_64::{PhysAddr, VirtAddr, align_up};
 
-use crate::{bitflags, common::ports::outw, ensure, error::NullexError};
+use crate::{bitflags, common::ports::outw, ensure, error::NullexError, serial_println};
 
 const VIRTIO_IO_DEVICE_FEATURES: usize = 0x00;
 const VIRTIO_IO_DRIVER_FEATURES: usize = 0x04;
@@ -265,6 +265,11 @@ impl VirtQueue {
 	}
 
 	fn pop_used(&mut self) -> Option<(u16, u32)> {
+		if self.used.is_null() || self.size == 0 {
+			serial_println!("[WARN] Attempted to pop an uninitialized VirtQueue!");
+			return None;
+		}
+
 		let used = unsafe { &*self.used };
 
 		let used_idx = unsafe { read_volatile(&used.idx) };

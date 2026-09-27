@@ -1,0 +1,93 @@
+name: Test setup-dev.sh
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ubuntu:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint setup script syntax
+        run: bash -n ./scripts/setup-dev.sh
+
+      - name: Run installer
+        env:
+          CI: true
+        run: bash ./scripts/setup-dev.sh --yes
+
+      - name: Verify tools
+        run: |
+          source "$HOME/.cargo/env"
+          rustc --version
+          cargo --version
+          clang --version
+          qemu-system-x86_64 --version
+
+      - name: Build kernel from Ubuntu container
+        run: |
+          source "$HOME/.cargo/env"
+          make all
+
+  arch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run installer and build inside Arch container
+        run: |
+          docker run --rm \
+            -e CI=true \
+            -v "${PWD}:/work" \
+            -w /work \
+            archlinux:latest \
+            bash -lc '
+              pacman -Sy --noconfirm &&
+              bash ./scripts/setup-dev.sh --yes &&
+              source /root/.cargo/env &&
+              make all
+            '
+
+  fedora:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run installer inside Fedora container
+        run: |
+          docker run --rm \
+            -e CI=true \
+            -v "${PWD}:/work" \
+            -w /work \
+            fedora:latest \
+            bash -lc '
+              dnf -y install curl git bash && bash ./scripts/setup-dev.sh --yes &&
+              source /root/.cargo/env && make all
+            '
+
+  macos:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint setup script syntax
+        run: bash -n ./scripts/setup-dev.sh
+
+      - name: Run installer
+        env:
+          CI: true
+        run: bash ./scripts/setup-dev.sh --yes
+
+      - name: Build kernel from macOS
+        run: |
+          source "$HOME/.cargo/env"
+          make all

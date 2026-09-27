@@ -20,7 +20,7 @@ use crate::{
 		KeyState
 	},
 	lazy_static,
-	utils::mutex::SpinMutex
+	sync::mutex::SpinMutex
 };
 
 lazy_static! {

@@ -13,7 +13,7 @@ use futures::{Stream, task::AtomicWaker};
 use crate::{
 	io::keyboard::line_editor::{PROGRAM_WAITING, process_scancode_for_stdin},
 	println,
-	utils::oncecell::spin::OnceCell
+	sync::oncecell::spin::OnceCell
 };
 
 static SCANCODE_QUEUE: OnceCell<ArrayQueue<u8>> = OnceCell::uninit();

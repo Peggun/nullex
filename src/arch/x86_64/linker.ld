@@ -1,4 +1,6 @@
 ENTRY(start)
+KERNEL_PHYS_BASE = 0x00100000;
+KERNEL_VIRT_BASE = 0xffffffff80000000;
 
 SECTIONS
 {
@@ -7,64 +9,91 @@ SECTIONS
         KEEP(*(.multiboot_header))
     }
 
-    PROVIDE(__link_phys_base = 0x00100000);
-    . = __link_phys_base;
+    . = KERNEL_PHYS_BASE;
+    __boot_start = .;
 
-    PROVIDE(__text_addr = .);
-
-    .rodata : ALIGN(0x1000) {
-        *(.rodata .rodata.*)
-        . = ALIGN(0x1000);
+    .boot.text ALIGN(0x1000) : {
+        KEEP(*(.boot.text))
+        KEEP(*(.boot.text.*))
     }
+    
+    .boot.rodata ALIGN(0x1000) : {
+        KEEP(*(.boot.rodata))
+        KEEP(*(.boot.rodata.*))
+    }
+    
+    .boot.bss (NOLOAD) : ALIGN(0x1000) {
+        KEEP(*(.boot.bss))
+        KEEP(*(.boot.bss.*))
+    }
+    __boot_end = .;
 
-    .text : ALIGN(0x1000) {
+    /*
+     * Real kernel is linked into the higher half
+     * VMA = high virtual address
+     * LMA = physical address
+     */
+    . = KERNEL_VIRT_BASE + __boot_end;
+    __kernel_virt_start = .;
+    __kernel_phys_start = . - KERNEL_VIRT_BASE;
+
+    /* compatability symbol */
+    __link_phys_base = __kernel_phys_start;
+
+    .text ALIGN(0x1000) : AT(ADDR(.text) - KERNEL_VIRT_BASE) {
+        __text_addr = .;
         *(.text .text.*)
-        . = ALIGN(0x1000);
+        __text_end = .;
     }
-
-    .got : ALIGN(0x1000) {
+    
+    .rodata ALIGN(0x1000) : AT(ADDR(.rodata) - KERNEL_VIRT_BASE) {
+        *(.rodata .rodata.*)
+    }
+    
+    .got ALIGN(0x1000) : AT(ADDR(.got) - KERNEL_VIRT_BASE) {
         *(.got)
-        . = ALIGN(0x1000);
     }
-
-    .got.plt : ALIGN(0x1000) {
+    
+    .got.plt ALIGN(0x1000) : AT(ADDR(.got.plt) - KERNEL_VIRT_BASE) {
         *(.got.plt)
-        . = ALIGN(0x1000);
     }
-
-    .data.rel.ro : ALIGN(0x1000) {
-        *(.data.rel.ro.local*) *(.data.rel.ro .data.rel.ro.*)
-        . = ALIGN(0x1000);
+    
+    .data.rel.ro ALIGN(0x1000) : AT(ADDR(.data.rel.ro) - KERNEL_VIRT_BASE) {
+        *(.data.rel.ro.local*)
+        *(.data.rel.ro .data.rel.ro.*)
     }
-
-    .gcc_except_table : ALIGN(0x1000) {
+    
+    .gcc_except_table ALIGN(0x1000) : AT(ADDR(.gcc_except_table) - KERNEL_VIRT_BASE) {
         *(.gcc_except_table)
-        . = ALIGN(0x1000);
     }
-
-    .data : ALIGN(0x1000) {
+    
+    .data ALIGN(0x1000) : AT(ADDR(.data) - KERNEL_VIRT_BASE) {
         *(.data .data.*)
-        . = ALIGN(0x1000);
     }
-
-    .kernel_tests : ALIGN(0x1000) {
+    
+    .kernel_tests ALIGN(0x1000) : AT(ADDR(.kernel_tests) - KERNEL_VIRT_BASE) {
         __start_kernel_tests = .;
         KEEP(*(.kernel_tests))
         KEEP(*(.kernel_tests.*))
         KEEP(*(.kernel_tests.*.*))
         KEEP(*(.kernel_tests.*.*.*))
         __stop_kernel_tests = .;
-        . = ALIGN(0x1000);
     }
-
-    .bss (NOLOAD) : ALIGN(0x1000) {
+    
+    .bss ALIGN(0x1000) (NOLOAD) : AT(ADDR(.bss) - KERNEL_VIRT_BASE) {
         _bss = .;
         *(.bss .bss.*)
         *(COMMON)
         _ebss = .;
-        . = ALIGN(0x1000);
     }
-
-    /* Final end symbol */
-    PROVIDE(_end = .);
+    
+    .ndm ALIGN(0x1000) : AT(ADDR(.ndm) - KERNEL_VIRT_BASE) {
+        __ndm_start = .;
+        KEEP(*(.ndm))
+        __ndm_end = .;
+    }
+    
+    _end = .;
+    __kernel_virt_end = .;
+    __kernel_phys_end = . - KERNEL_VIRT_BASE;
 }

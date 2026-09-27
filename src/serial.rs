@@ -12,13 +12,14 @@ use x86_64::instructions::interrupts;
 use crate::{
 	bitflags,
 	common::ports::{inb, outb},
+	debug::serial::run_serial_command,
 	lazy_static,
 	println,
 	serial_print,
 	serial_println,
 	serial_raw_print,
-	task::yield_now,
-	utils::{mutex::SpinMutex, oncecell::spin::OnceCell, serial_kfunc::run_serial_command}
+	sync::{mutex::SpinMutex, oncecell::spin::OnceCell},
+	task::yield_now
 };
 
 #[derive(Debug)]
@@ -371,12 +372,12 @@ pub mod prelude {
 
 #[cfg(feature = "test")]
 pub mod tests {
-	use crate::{serial::prelude::*, utils::ktest::TestError};
+	use crate::{serial::prelude::*, tassert, testing::ktest::TestError};
 
 	pub fn test_line_status_flag_combinations() -> Result<(), TestError> {
 		let flags = LineStatusFlags::INPUT_FULL | LineStatusFlags::OUTPUT_EMPTY;
-		assert!(flags.contains(LineStatusFlags::INPUT_FULL));
-		assert!(flags.contains(LineStatusFlags::OUTPUT_EMPTY));
+		tassert!(flags.contains(LineStatusFlags::INPUT_FULL));
+		tassert!(flags.contains(LineStatusFlags::OUTPUT_EMPTY));
 		Ok(())
 	}
 	crate::create_test!(test_line_status_flag_combinations);

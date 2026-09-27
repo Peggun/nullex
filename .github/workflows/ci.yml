@@ -1,0 +1,75 @@
+name: ci
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Makefile'
+      - 'src/**'
+      - 'programs/**'
+      - 'targets/**'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Makefile'
+      - 'src/**'
+      - 'programs/**'
+      - 'targets/**'
+      - '.github/workflows/**'
+
+jobs:
+  kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            gcc-x86-64-linux-gnu \
+            binutils-x86-64-linux-gnu \
+            nasm \
+            grub-pc-bin \
+            xorriso \
+            mtools
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: .
+
+      - name: Build kernel
+        run: make all
+
+  userspace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            gcc-x86-64-linux-gnu \
+            binutils-x86-64-linux-gnu \
+            nasm
+
+      - name: Build userspace
+        run: make userspace

@@ -3,6 +3,8 @@ Small, modular hobby kernel written in Rust — designed to be easy to extend an
 
 This project uses code segments from third party crates. All information can be found [here](https://github.com/Peggun/nullex/blob/master/THIRD_PARTY_LICENSES.md). Please let me know if there is an issue with this, so I can update accordingly.
 
+If you would like to see the packages available for nullex, there are located [here](https://peggun.github.io/nullex-packages).
+
 ## Getting Started
 
 ### Prerequisites

@@ -1,0 +1,61 @@
+name: Deploy Kernel Docs to GitHub Pages
+
+on:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install mdBook
+        run: cargo install mdbook
+
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen
+
+      - name: Prepare output directory
+        run: mkdir -p public
+
+      - name: Build mdBook Guide
+        run: mdbook build docs/book -d public/guide
+
+      - name: Build Rust API Reference
+        run: cargo doc --no-deps --output-dir ./public/api
+
+      - name: Build nlibc Docs
+        run: doxygen Doxyfile
+
+      - name: Move nlibc Docs into public
+        run: cp -r docs/nlibc public/nlibc
+
+      - name: Create Root Index
+        run: |
+          echo '<meta http-equiv="refresh" content="0; url=./guide/index.html">' > public/index.html
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

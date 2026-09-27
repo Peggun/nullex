@@ -1,7 +1,9 @@
 use std::{
+	collections::HashMap,
 	env,
+	fmt::format,
 	fs::{self, File},
-	io::Write,
+	io::{BufWriter, Write},
 	path::Path
 };
 
@@ -52,19 +54,6 @@ fn search_userspace_elfs(path: &Path) -> Vec<(String, String)> {
 				Some(s) => s.to_string(),
 				None => continue
 			};
-
-			let parent_name = match path
-				.parent()
-				.and_then(|p| p.file_name())
-				.and_then(|s| s.to_str())
-			{
-				Some(s) => s.to_string(),
-				None => continue
-			};
-
-			if stem != parent_name {
-				continue;
-			}
 
 			let rel = path
 				.strip_prefix(manifest_dir)

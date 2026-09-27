@@ -1,112 +1,152 @@
-arch ?= x86_64
-kernel := build/kernel-$(arch).bin
-iso := build/os-$(arch).iso
-target ?= $(arch)-unknown-none
-rust_os := target/$(target)/debug/libnullex.a
+# ---------------------------
+# Kernel Makefile
+# ---------------------------
 
-linker_script := src/arch/$(arch)/linker.ld
-grub_cfg := src/arch/$(arch)/grub.cfg
-assembly_source_files := $(wildcard src/arch/$(arch)/*.asm)
-assembly_object_files := $(patsubst src/arch/$(arch)/%.asm, \
-	build/arch/$(arch)/%.o, $(assembly_source_files))
+TARGET := x86_64-unknown-none
+CC := x86_64-linux-gnu-gcc
+AR := ar
+LD := ld
+QEMU_SYSTEM := qemu-system-x86_64
 
-CARGO_FLAGS ?=
-
-PROG_SRCS := $(shell find programs -type f -name '*.c' ! -name '_start.c' 2>/dev/null)
-PROGS := $(patsubst programs/%.c, build/userspace/%.elf, $(PROG_SRCS))
-
-CC ?= x86_64-linux-gnu-gcc
-CFLAGS ?= -m64 -march=x86-64 -O2 -pipe -ffreestanding -fno-builtin \
+CFLAGS := -m64 -march=x86-64 -O2 -pipe -ffreestanding -fno-builtin \
           -fno-stack-protector -fno-common -fno-pie -nostdlib -nostartfiles \
           -static -e _start -Wl,--entry=_start
 
-LDFLAGS ?= -static
+USR_CFLAGS := -m64 -march=x86-64 -O2 -pipe -fno-stack-protector \
+              -fno-common -fno-pie -ffreestanding -fno-builtin \
+              -Iprograms/include
+
+QEMU_RUN_ARGS = \
+    -cdrom $(iso) \
+    -serial stdio \
+    -monitor vc \
+    -machine q35 \
+    -netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
+	-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3,csum=off,guest_csum=off,guest_tso4=off,guest_tso6=off,guest_ecn=off,guest_ufo=off \
+    -rtc base=localtime \
+    -cpu max,+rdrand,smep=on,smap=on \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+
+QEMU_DEBUG_ARGS = \
+    -S -s \
+    -cdrom $(iso) \
+    -serial stdio \
+    -monitor vc \
+    -machine q35 \
+    -netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
+	-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3,csum=off,guest_csum=off,guest_tso4=off,guest_tso6=off,guest_ecn=off,guest_ufo=off \
+    -rtc base=localtime \
+    -cpu max,+rdrand,smep=on,smap=on \
+    -device isa-debug-exit,iobase=0xf4,iosize=0x04
+
+ASM_EXT := asm
+ASM_BUILD_CMD = nasm -felf64
+
+# ---------------------------
+# Cargo target selection
+# ---------------------------
+
+TARGET_JSON := targets/$(TARGET).json
+TARGET_IS_JSON := $(wildcard $(TARGET_JSON))
+TARGET_STEM := $(basename $(notdir $(if $(TARGET_IS_JSON),$(TARGET_JSON),$(TARGET))))
+
+ifeq ($(TARGET_IS_JSON),)
+  CARGO_CMD := cargo
+  CARGO_TARGET_FLAGS := --target $(TARGET) $(CARGO_FLAGS)
+else
+  CARGO_CMD := cargo +nightly	
+  CARGO_TARGET_FLAGS := --target $(abspath $(TARGET_JSON))
+endif
+
+CARGO_FEATURES ?=
+
+# ---------------------------
+# Paths and outputs
+# ---------------------------
+
+kernel := build/kernel-x86_64.bin
+iso := build/os-x86_64.iso
+rust_os := target/$(TARGET_STEM)/debug/libnullex.a
+
+ARCH_DIR := src/arch/x86_64
+linker_script := $(ARCH_DIR)/linker.ld
+grub_cfg := $(ARCH_DIR)/grub.cfg
+
+assembly_source_files := $(wildcard $(ARCH_DIR)/*.$(ASM_EXT))
+assembly_object_files := $(patsubst $(ARCH_DIR)/%.$(ASM_EXT),build/arch/x86_64/%.o,$(assembly_source_files))
+
+NDM_GENERATOR := tools/generate_ndm.py
+NDM := build/nullex.ndm
+STAGE1_KERNEL := build/kernel-x86_64.stage1.bin
+
+# ---------------------------
+# Userspace
+# ---------------------------
+
+LIBNULLEX_SRCS := $(wildcard programs/lib/*.c)
+LIBNULLEX_OBJS := $(patsubst programs/lib/%.c,build/userspace/lib/%.o,$(LIBNULLEX_SRCS))
+LIBNULLEX_OUT  := build/userspace/libnullex.a
+
+USR_LDFLAGS ?= -nostdlib -static -no-pie -Wl,-T,$(abspath $(USR_LINKER_SCRIPT))
+USR_LINKER_SCRIPT ?= programs/link.ld
+USR_LDLIBS ?= -lgcc
+USR_CRT0 := programs/_start.c
+
+PROG_SRCS := $(shell find programs -type f -name '*.c' ! -name '_start.c' 2>/dev/null)
+PROGRAM_MAKEFILES := $(shell find programs -mindepth 2 -maxdepth 2 -type f -name Makefile 2>/dev/null)
+PROGRAM_DIRS := $(sort $(patsubst %/Makefile,%,$(PROGRAM_MAKEFILES)))
+PROGS := $(patsubst programs/%,build/userspace/%.elf,$(PROGRAM_DIRS))
+
+# ---------------------------
+# Global
+# ---------------------------
 
 CI ?= false
 
-USR_LINKER_SCRIPT ?=
-USR_CRT0 := programs/_start.c
-
-.PHONY: all clean run iso kernel build test test-ci miri userspace
+.PHONY: all clean clean-all clean-progs run debug iso kernel build test test-ci miri userspace libnullex compdb
 
 all: $(kernel)
 
-clean:
-	@echo "Cleaning build directory..."
-	@rm -rf build
-	@cargo clean
-
-run: $(iso)
-	@echo "Starting QEMU with ISO image..."; \
-	if [ -n "$(CI)" ]; then \
-	  mkdir -p build; \
-	  sudo qemu-system-x86_64 \
-		-cdrom $(iso) \
-		-serial stdio \
-		-monitor vc \
-		-machine q35 \
-		-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
-		-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3,csum=off,guest_csum=off,guest_tso4=off,guest_tso6=off,guest_ecn=off,guest_ufo=off \
-		-rtc base=localtime \
-		-cpu max \
-		-D ./qemu.log -d int \
-		-device isa-debug-exit,iobase=0xf4,iosize=0x04; \
-	else \
-	  sudo qemu-system-x86_64 \
-		-cdrom $(iso) \
-		-serial stdio \
-		-monitor vc \
-		-machine q35 \
-		-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
-		-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3,csum=off,guest_csum=off,guest_tso4=off,guest_tso6=off,guest_ecn=off,guest_ufo=off \
-		-object filter-dump,id=f1,netdev=net0,file=dump.pcap \
-		-rtc base=localtime \
-		-cpu qemu64,+rdrand \
-		-device isa-debug-exit,iobase=0xf4,iosize=0x04; \
-	fi; \
-	EXIT=$$?; \
-	echo "QEMU host exit code: $$EXIT"; \
-	if [ -z "$$EXIT" ]; then \
-	  echo "Warning: QEMU exit code empty; using 1"; EXIT=1; \
-	fi; \
-	if [ "$$EXIT" -eq 0 ]; then \
-	  echo "QEMU exited normally (host=0)."; \
-	  if [ -n "$(CI)" ]; then echo "--- serial log (build/serial.log) ---"; cat build/serial.log || true; echo "-----------------------------------"; fi; \
-	  exit 0; \
-	fi; \
-	if [ "$$EXIT" -eq 1 ]; then \
-	  echo "QEMU host=1 (maps to guest=0 on many QEMU builds)"; \
-	  if [ -n "$(CI)" ]; then echo "--- serial log (build/serial.log) ---"; cat build/serial.log || true; echo "-----------------------------------"; fi; \
-	  exit 0; \
-	fi; \
-	if [ `expr $$EXIT % 2` -eq 1 ]; then \
-	  GUEST_EXIT=`expr \( $$EXIT - 1 \) / 2`; \
-	  echo "QEMU debug-exit: mapped host $$EXIT -> guest $$GUEST_EXIT"; \
-	  if [ -n "$(CI)" ]; then echo "--- serial log (build/serial.log) ---"; cat build/serial.log || true; echo "-----------------------------------"; fi; \
-	  exit $$GUEST_EXIT; \
-	else \
-	  echo "QEMU host exit $$EXIT is even; passing it through as guest code"; \
-	  if [ -n "$(CI)" ]; then echo "--- serial log (build/serial.log) ---"; cat build/serial.log || true; echo "-----------------------------------"; fi; \
-	  exit $$EXIT; \
-	fi
-
-debug: $(iso)
-	@echo "Starting QEMU in debug mode..."
-	sudo qemu-system-x86_64 -S -s -cdrom $(iso) -serial stdio -monitor vc -machine q35 \
-		-netdev tap,id=net0,ifname=tap0,script=no,downscript=no \
-		-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56,vectors=3 \
-		-rtc base=localtime -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
-		-cpu qemu64,+rdrand -D ./qemu.log -d int -accel tcg
+fmt:
+	@cargo fmt --all
+	@find . -name "*.c" -o -name "*.h" | xargs clang-format -i --style=Google
 
 build: $(iso)
 
-test:
-	@echo "Running tests..."
-	@$(MAKE) run CARGO_FLAGS="--features test"
+kernel: userspace
+	@echo "Building kernel with Cargo..."
+	@mkdir -p build
+	@touch $(NDM)
+	@$(CARGO_CMD) build $(CARGO_TARGET_FLAGS)
 
-test-ci:
-	@echo "Running CI tests..."
-	@$(MAKE) run CARGO_FLAGS="--features test" CI=1
+$(kernel): userspace $(assembly_object_files) $(linker_script) $(NDM_GENERATOR)
+	@echo "Building stage 1 kernel..."
+	@mkdir -p $(@D)
+
+	@touch $(NDM)
+
+	@$(CARGO_CMD) build $(CARGO_TARGET_FLAGS) $(CARGO_FEATURES)
+
+	@$(LD) -n --gc-sections -T $(linker_script) -o $(STAGE1_KERNEL) \
+		$(assembly_object_files) \
+		--whole-archive $(rust_os) --no-whole-archive
+
+	@echo "Generating Nullex debug map..."
+	@python3 $(NDM_GENERATOR) $(STAGE1_KERNEL) $(NDM)
+
+	@echo "Rebuilding kernel with NDM..."
+	@$(CARGO_CMD) build $(CARGO_TARGET_FLAGS) $(CARGO_FEATURES)
+
+	@echo "Linking final kernel..."
+	@$(LD) -n --gc-sections -T $(linker_script) -o $(kernel) \
+		$(assembly_object_files) \
+		--whole-archive $(rust_os) --no-whole-archive
+
+	@rm -f $(STAGE1_KERNEL)
+
+# ---------------------------
+# ISO image
+# ---------------------------
 
 iso: $(iso)
 
@@ -118,35 +158,99 @@ $(iso): $(kernel) $(grub_cfg)
 	@grub-mkrescue -o $(iso) build/isofiles 2> /dev/null
 	@rm -r build/isofiles
 
-$(kernel): userspace kernel $(rust_os) $(assembly_object_files) $(linker_script)
-	@echo "Linking kernel..."
-	@ld -n --gc-sections -T $(linker_script) -o $(kernel) \
-		$(assembly_object_files) \
-		--whole-archive $(rust_os) --no-whole-archive
+# ---------------------------
+# QEMU run/debug
+# ---------------------------
 
-kernel: userspace
-	@echo "Building kernel with Cargo..."
-	@cargo build --target $(target) $(CARGO_FLAGS)
+run: $(iso)
+	@echo "Starting QEMU..."
+	@sudo $(QEMU_SYSTEM) $(QEMU_RUN_ARGS)
 
-build/arch/$(arch)/%.o: src/arch/$(arch)/%.asm
+debug: $(iso)
+	@echo "Starting QEMU in debug mode..."
+	@sudo $(QEMU_SYSTEM) $(QEMU_DEBUG_ARGS)
+
+# ---------------------------
+# Assembly
+# ---------------------------
+
+build/arch/x86_64/%.o: $(ARCH_DIR)/%.$(ASM_EXT)
 	@echo "Compiling assembly file $<..."
-	@mkdir -p $(shell dirname $@)
+	@mkdir -p $(@D)
 	@nasm -felf64 $< -o $@
 
-userspace: $(PROGS)
+# ---------------------------
+# libnullex userspace library
+# ---------------------------
+
+libnullex: $(LIBNULLEX_OUT)
+
+build/userspace/lib/%.o: programs/lib/%.c $(wildcard programs/include/*.h)
+	@echo "Compiling libnullex: $<"
+	@mkdir -p $(@D)
+	@$(CC) $(USR_CFLAGS) -c $< -o $@
+
+$(LIBNULLEX_OUT): $(LIBNULLEX_OBJS)
+	@echo "Archiving libnullex -> $@"
+	@mkdir -p $(@D)
+	@$(AR) rcs $@ $^
+
+# ---------------------------
+# Userspace build
+# ---------------------------
+
+define program_sources
+$(shell find $(1) -type f \( -name '*.c' -o -name '*.h' \) 2>/dev/null) programs/_start.c $(wildcard programs/include/*.h) $(wildcard programs/lib/*.c) $(wildcard programs/lib/*.h)
+endef
+
+userspace: $(LIBNULLEX_OUT) $(PROGS)
 	@echo "Userspace programs built: $(words $(PROGS))"
 
-# Every .elf is compiled from its matching .c plus the shared _start.c
-build/userspace/%.elf: programs/%.c $(USR_CRT0)
-	@echo "Compiling userspace program: $< -> $@"
-	@mkdir -p $(dir $@)
-	@if [ -n "$(USR_LINKER_SCRIPT)" ]; then \
-		$(CC) $(CFLAGS) $(USR_CRT0) -o $@ $< $(LDFLAGS) -Wl,-T,$(USR_LINKER_SCRIPT); \
-	else \
-		$(CC) $(CFLAGS) $(USR_CRT0) -o $@ $< $(LDFLAGS); \
-	fi
+define build_userspace_rule
+build/userspace/$(notdir $(1)).elf: $(1)/Makefile $(LIBNULLEX_OUT) $$(call program_sources,$(1))
+	@echo "Building userspace program: $(notdir $(1))"
+	@mkdir -p $$(@D)
+	@$(MAKE) -C $(1) OUT="$$(abspath $$@)" CC="$(CC)" AR="$(AR)" CFLAGS="$(USR_CFLAGS)" LDFLAGS="$(USR_LDFLAGS)" LDLIBS="$(USR_LDLIBS)" ARCH="x86_64"
+endef
 
-ifeq ($(strip $(PROGS)),)
-userspace:
-	@echo "No programs found in programs/ (PROG_SRCS empty)."
-endif
+$(foreach d,$(PROGRAM_DIRS),$(eval $(call build_userspace_rule,$(d))))
+
+# ---------------------------
+# Compilation database
+# ---------------------------
+
+compdb:
+	@echo "Generating compile_commands.json..."
+	@rm -f compile_commands.json
+	@bear -- make -B userspace
+	@echo "compile_commands.json generated."
+
+# ---------------------------
+# Cleanup
+# ---------------------------
+
+clean:
+	@echo "Cleaning kernel build directory..."
+	@rm -rf build
+	@echo "Cleaning Rust/Cargo artifacts..."
+	@cargo clean
+	@echo "Cleaning all userspace program build directories..."
+	@find programs -type d -name "build" -exec rm -rf {} + 2>/dev/null || true
+	@find programs -type f \( -name "*.o" -o -name "*.d" -o -name "*.elf" \) -delete 2>/dev/null || true
+	@echo "Finished cleaning all build artifacts."
+
+clean-progs:
+	@echo "Cleaning userspace programs via sub-makefiles..."
+	@for dir in $(PROGRAM_DIRS); do \
+		$(MAKE) -C $$dir clean; \
+	done
+
+clean-all: clean
+	@echo "Finished comprehensive clean."
+
+test:
+	@echo "Building test kernel..."
+	@$(MAKE) -B build CARGO_FEATURES="--features test"
+	@echo "Running tests..."
+	@sudo $(QEMU_SYSTEM) $(QEMU_RUN_ARGS)
+	@echo "Tests completed."

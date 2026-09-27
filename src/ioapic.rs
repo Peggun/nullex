@@ -6,8 +6,9 @@
 // Copyright (c) 2019 Kevin Zhao
 // Modifications: Added serial_println! for debugging, modifed for kernel halts.
 // Expanded `RedirectionTableEntry` impl functions to support all of the
-// possible RTE flags. Made `high` & `low` RTE members public. Added tests
-// Added `lazy_static!` macro call for all modules to use.
+// possible RTE flags. Made `high` & `low` RTE members public. Added tests.
+// Added `lazy_static!` macro call for all modules to use. Modified to allow for
+// kernel memory access via MMIO_BASE.
 // See THIRD_PARTY_LICENSES.md for full license texts and upstream details.
 
 use core::{
@@ -17,13 +18,19 @@ use core::{
 	sync::atomic::{Ordering, compiler_fence}
 };
 
-use crate::{PHYS_MEM_OFFSET, bitflags, lazy_static, serial_println, utils::mutex::SpinMutex};
+use crate::{
+	bitflags,
+	lazy_static,
+	memory::{MMIO_BASE, PHYS_MEM_OFFSET},
+	serial_println,
+	sync::mutex::SpinMutex
+};
 
 lazy_static! {
 	/// Public IOAPIC static reference for all module to use.
 	// todo!() actually use this more, i keep creating new ones i think.
 	pub static ref IOAPIC: SpinMutex<IoApic> =
-		SpinMutex::new(unsafe { IoApic::new(PHYS_MEM_OFFSET.lock().as_u64() + 0xFEC0_0000) });
+		SpinMutex::new(unsafe { IoApic::new(MMIO_BASE + 0x1000) });
 }
 
 #[derive(Debug)]
@@ -469,13 +476,13 @@ pub mod prelude {
 
 #[cfg(feature = "test")]
 pub mod tests {
-	use crate::{ioapic::prelude::*, utils::ktest::TestError};
+	use crate::{ioapic::prelude::*, tassert, tassert_eq, tassert_ne, testing::ktest::TestError};
 
 	pub fn test_lo_hi_computation() -> Result<(), TestError> {
 		let l = lo(5);
 		let h = hi(5);
-		assert_eq!(h, l + 1);
-		assert_eq!(l, TABLE_BASE + (2 * 5u32));
+		tassert_eq!(h, l + 1);
+		tassert_eq!(l, TABLE_BASE + (2 * 5u32));
 		Ok(())
 	}
 	crate::create_test!(test_lo_hi_computation);
@@ -483,16 +490,16 @@ pub mod tests {
 	pub fn test_rte_vector_set_get() -> Result<(), TestError> {
 		let mut e = RedirectionTableEntry::default();
 		e.set_vector(0xAB);
-		assert_eq!(e.vector(), 0xAB);
+		tassert_eq!(e.vector(), 0xAB);
 		Ok(())
 	}
 	crate::create_test!(test_rte_vector_set_get);
 
 	pub fn test_rte_mode_roundtrip() -> Result<(), TestError> {
 		let mut e = RedirectionTableEntry::default();
-		assert_eq!(e.mode(), IrqMode::Fixed);
+		tassert_eq!(e.mode(), IrqMode::Fixed);
 		e.set_mode(IrqMode::NonMaskable);
-		assert_eq!(e.mode(), IrqMode::NonMaskable);
+		tassert_eq!(e.mode(), IrqMode::NonMaskable);
 		Ok(())
 	}
 	crate::create_test!(test_rte_mode_roundtrip);
@@ -501,10 +508,10 @@ pub mod tests {
 		let mut e = RedirectionTableEntry::default();
 		e.set_flags(IrqFlags::MASKED | IrqFlags::LEVEL_TRIGGERED);
 		let flags = e.flags();
-		assert!(flags.contains(IrqFlags::MASKED));
-		assert!(flags.contains(IrqFlags::LEVEL_TRIGGERED));
+		tassert!(flags.contains(IrqFlags::MASKED));
+		tassert!(flags.contains(IrqFlags::LEVEL_TRIGGERED));
 		e.set_dest(0xEE);
-		assert_eq!(e.dest(), 0xEE);
+		tassert_eq!(e.dest(), 0xEE);
 		Ok(())
 	}
 	crate::create_test!(test_flags_and_dest);
@@ -519,10 +526,10 @@ pub mod tests {
 		let (lo_raw, hi_raw) = a.into_raw();
 		let b = RedirectionTableEntry::from_raw(lo_raw, hi_raw);
 
-		assert_eq!(b.vector(), 0x12);
-		assert_eq!(b.mode(), IrqMode::External);
-		assert!(b.flags().contains(IrqFlags::MASKED));
-		assert_eq!(b.dest(), 0x42);
+		tassert_eq!(b.vector(), 0x12);
+		tassert_eq!(b.mode(), IrqMode::External);
+		tassert!(b.flags().contains(IrqFlags::MASKED));
+		tassert_eq!(b.dest(), 0x42);
 		Ok(())
 	}
 	crate::create_test!(test_into_from_raw_roundtrip);
@@ -531,7 +538,7 @@ pub mod tests {
 		let raw = (0b011_u32) << 8;
 		match IrqMode::try_from(raw) {
 			Ok(_) => panic!("expected Err for invalid mode 0b011"),
-			Err(e) => assert_eq!(e, 0b011)
+			Err(e) => tassert_eq!(e, 0b011)
 		}
 		Ok(())
 	}
@@ -540,7 +547,7 @@ pub mod tests {
 
 pub fn dump_gsi(gsi: u8) {
 	unsafe {
-		let ioapic_virt_base = (*PHYS_MEM_OFFSET.lock()).as_u64() + 0xFEC0_0000u64;
+		let ioapic_virt_base = MMIO_BASE + 0x1000;
 		let mut ioapic = IoApicRegisters::new(ioapic_virt_base);
 		let lov = ioapic.read(lo(gsi));
 		let hiv = ioapic.read(hi(gsi));

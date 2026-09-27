@@ -8,30 +8,18 @@ use alloc::{
 	string::{String, ToString},
 	vec::Vec
 };
-use core::net::Ipv4Addr;
-
-use smoltcp::{
-	iface::{Config, Interface, SocketSet},
-	wire::{EthernetAddress, IpAddress, IpCidr}
-};
 
 use crate::{
-	drivers::{keyboard::scancode::CWD, virtio::net::VIRTIO_NET_INSTANCE},
-	error::NullexError,
+	debug::logger::{levels::LogLevel, sinks::SYSLOG_SINK, traits::logger_sink::LoggerSink},
+	drivers::keyboard::scancode::CWD,
 	fs::{self, ramfs::Permission, resolve_path},
 	lazy_static,
-	net::{GATEWAY_IP, OUR_IP, dns::resolve, http::fetch},
 	print,
 	println,
 	rtc::read_rtc_time,
 	serial_println,
-	task::{ProcessId, executor::EXECUTOR},
-	utils::{
-		elf::pelf,
-		httparse::{response::HttpResult, url::ParsedUrl},
-		logger::{levels::LogLevel, sinks::SYSLOG_SINK, traits::logger_sink::LoggerSink},
-		mutex::SpinMutex
-	},
+	sync::mutex::SpinMutex,
+	task::{executor::EXECUTOR, process::ProcessId},
 	vga_buffer::WRITER
 };
 
@@ -215,18 +203,12 @@ pub fn init_commands() {
 		help: "Poll the RX queue",
 		cmd_type: CommandType::Generic
 	});
-	register_command(Command {
-		name: "pelf",
-		func: pelf,
-		help: "Parse an ELF file",
-		cmd_type: CommandType::Generic
-	});
-	register_command(Command {
-		name: "nget",
-		func: nget,
-		help: "HTTP requests to the WWW.",
-		cmd_type: CommandType::Generic
-	});
+	// register_command(Command {
+	// 	name: "pelf",
+	// 	func: pelf,
+	// 	help: "Parse an ELF file",
+	// 	cmd_type: CommandType::Generic
+	// });
 
 	SYSLOG_SINK.log("Done.\n", LogLevel::Info);
 }
@@ -459,124 +441,4 @@ fn netpoll(_args: &[&str]) {
 	println!("=== Manual Network Poll ===");
 	crate::drivers::virtio::net::rx_poll();
 	println!("=== Poll Complete ===");
-}
-
-fn nget(args: &[&str]) {
-	if args.is_empty() || args.len() < 2 {
-		println!("usage: nget <METHOD> <URL>");
-		return;
-	}
-
-	let binding = args[0].to_uppercase();
-	let method = binding.as_str();
-	let url = args[1];
-
-	match method {
-		"GET" => {
-			let hostname = match ParsedUrl::parse(url) {
-				Ok(parsed) => parsed.host,
-				Err(_) => {
-					println!("nget: Invalid URL: {}", url);
-					return;
-				}
-			};
-
-			if let Err(e) = resolve(&hostname) {
-				println!("nget: DNS Failed: {:?}", e);
-				return;
-			}
-
-			if crate::net::arp::get_cached(GATEWAY_IP).is_none() {
-				serial_println!("[NGET] Resolving gateway MAC before TCP connect...");
-				if let Err(e) = crate::net::send_arp_request(GATEWAY_IP)
-					.and_then(|_| crate::net::arp::wait_for_arp(GATEWAY_IP, 2000).map(|_| ()))
-				{
-					println!("nget: gateway ARP failed: {:?}", e);
-					return;
-				}
-			}
-
-			let mac = {
-				let instance = VIRTIO_NET_INSTANCE.lock();
-				let (device, _) = instance.as_ref().expect("nget: VirtioNet not initialized.");
-
-				device.config.mac
-			};
-
-			let result = {
-				let mut instance = VIRTIO_NET_INSTANCE.lock();
-				let (device, _) = instance.as_mut().expect("nget: VirtioNet not initialized.");
-
-				let config = Config::new(EthernetAddress(mac).into());
-				let mut iface = Interface::new(config, device, crate::rtc::rtc_instant());
-
-				iface.update_ip_addrs(|addrs| {
-					addrs
-						.push(IpCidr::new(
-							IpAddress::Ipv4(Ipv4Addr::from_octets(OUR_IP)),
-							24
-						))
-						.unwrap();
-				});
-				iface
-					.routes_mut()
-					.add_default_ipv4_route(Ipv4Addr::from_octets(GATEWAY_IP))
-					.unwrap();
-
-				serial_println!(
-					"[NGET] Interface ready: {}.{}.{}.{}",
-					OUR_IP[0],
-					OUR_IP[1],
-					OUR_IP[2],
-					OUR_IP[3]
-				);
-
-				let mut sockets = SocketSet::new(vec![]);
-
-				fetch(
-					&mut iface,
-					device,
-					&mut sockets,
-					url,
-					crate::rtc::rtc_instant()
-				)
-			};
-
-			match result {
-				Ok(HttpResult::Page {
-					status_code,
-					body
-				}) => {
-					println!("nget: Status: {}", status_code);
-					println!("nget: Body: {} bytes", body.len());
-					serial_println!("nget: Body:\n{}", body);
-				}
-				Ok(HttpResult::Download {
-					status_code,
-					filename,
-					bytes_written
-				}) => {
-					println!("nget: Status: {}", status_code);
-					println!("nget: Downloaded '{}' ({} bytes)", filename, bytes_written);
-				}
-				Err(NullexError::HttpErrorStatus(code)) => {
-					println!("nget: Server returned HTTP {}", code);
-					println!("nget: Check serial output for the error response body");
-				}
-				Err(NullexError::HttpsNotSupported) => {
-					println!("nget: HTTPS is not supported yet");
-					println!(
-						"nget: This server redirects to https:// — try finding a direct HTTP mirror"
-					);
-				}
-				Err(NullexError::TooManyRedirects) => {
-					println!("nget: Too many redirects");
-				}
-				Err(e) => {
-					println!("nget: Failed: {:?}", e);
-				}
-			}
-		}
-		_ => println!("nget: Method not supported: {}", method)
-	}
 }

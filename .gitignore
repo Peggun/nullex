@@ -9,3 +9,13 @@ Cargo.lock
 build
 tmp
 qemu.log
+.artifacts
+.agents 
+compile_commands.json
+.cache
+public/
+docs/guide
+docs/nlibc
+docs/book/book
+__pycache__/
+*.zip

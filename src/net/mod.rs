@@ -10,10 +10,37 @@ pub mod http;
 pub mod https;
 pub mod icmp;
 pub mod ipv4;
+pub mod socket;
 pub mod tcp;
 pub mod udp;
+pub mod util;
 
-use crate::{drivers::virtio::net::VIRTIO_NET_INSTANCE, error::NullexError, serial_println};
+use core::net::Ipv4Addr;
+
+use crate::{
+	drivers::virtio::net::{VIRTIO_NET_INSTANCE, VirtioNet},
+	error::NullexError,
+	lazy_static,
+	serial_println,
+	sync::mutex::SpinMutex
+};
+
+lazy_static! {
+	pub static ref NET_MANAGER: SpinMutex<Option<NetworkManager>> = SpinMutex::new(None);
+}
+
+pub struct NetworkManager {
+	pub iface: Interface,
+	pub device: VirtioNet, // todo create like a empty trait marker for network types.
+	pub sockets: SocketSet<'static>
+}
+
+impl NetworkManager {
+	pub fn poll(&mut self, timestamp: Instant) {
+		self.iface
+			.poll(timestamp, &mut self.device, &mut self.sockets);
+	}
+}
 
 /// Our IP
 /// currently manually set based on QEMU config.
@@ -74,10 +101,12 @@ fn send_packet(packet: &[u8]) -> Result<(), NullexError> {
 }
 
 fn get_our_mac() -> Option<[u8; 6]> {
-	VIRTIO_NET_INSTANCE
-		.lock()
-		.as_ref()
-		.map(|(net, _)| net.config.mac)
+	let mut guard = NET_MANAGER.lock();
+	let manager = guard
+		.as_mut()
+		.ok_or(NullexError::NetworkNotInitialized)
+		.expect("network is not initialized.");
+	Some(manager.device.config.mac)
 }
 
 fn is_local_ip(ip: [u8; 4]) -> bool {
@@ -114,11 +143,104 @@ fn format_ip(ip: [u8; 4]) -> alloc::string::String {
 	format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])
 }
 
-/// Initialise the Internet handlers. (DNS currently)
+/// Initialise the Internet handlers.
 pub fn init() {
+	let mut instance = VIRTIO_NET_INSTANCE.lock();
+	let (mut device, _) = instance.take().expect("nget: VirtioNet not initialized.");
+
+	let mac = device.config.mac;
+
+	let config = Config::new(EthernetAddress(mac).into());
+	let mut iface = Interface::new(config, &mut device, crate::rtc::rtc_instant());
+
+	iface.update_ip_addrs(|addrs| {
+		addrs
+			.push(IpCidr::new(
+				IpAddress::Ipv4(Ipv4Addr::from_octets(OUR_IP)),
+				24
+			))
+			.unwrap();
+	});
+	iface
+		.routes_mut()
+		.add_default_ipv4_route(Ipv4Addr::from_octets(GATEWAY_IP))
+		.unwrap();
+
+	let sockets = SocketSet::new(vec![]);
+
+	serial_println!(
+		"[NGET] Interface ready: {}.{}.{}.{}",
+		OUR_IP[0],
+		OUR_IP[1],
+		OUR_IP[2],
+		OUR_IP[3]
+	);
+
+	let mut guard = NET_MANAGER.lock();
+	if guard.is_none() {
+		*guard = Some(NetworkManager {
+			iface,
+			device,
+			sockets
+		});
+	} else {
+		let manager = guard.as_mut().unwrap();
+		manager.device = device;
+		manager.iface = iface;
+		manager.sockets = sockets;
+	}
+
 	dns::init();
 }
 
-// Re-exports
 pub use arp::{ARP_CACHE, send_arp_request};
 pub use icmp::send_ping;
+use smoltcp::{
+	iface::{Config, Interface, SocketSet},
+	time::Instant,
+	wire::{EthernetAddress, IpAddress, IpCidr}
+};
+
+// ---------- SYSCALLS ---------- //
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct IoVec {
+	pub iov_base: *mut u8,
+	pub iov_len: usize
+}
+
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum MsgType {
+	Raw = 0,
+	Vec = 1
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct RawPayload {
+	pub buf: *mut u8,
+	pub len: usize
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct VecPayload {
+	pub msg_iov: *const IoVec,
+	pub msg_iovcnt: usize
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union MsgPayload {
+	pub raw: RawPayload,
+	pub vec: VecPayload
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct MsgHdr {
+	pub msg_type: MsgType,
+	pub _padding: u32,
+	pub payload: MsgPayload
+}

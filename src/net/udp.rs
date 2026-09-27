@@ -8,8 +8,9 @@ use alloc::vec::Vec;
 use crate::{
 	error::NullexError,
 	lazy_static,
+	net::util::calculate_checksum,
 	serial_println,
-	utils::{mutex::SpinMutex, net::calculate_checksum}
+	sync::mutex::SpinMutex
 };
 
 lazy_static! {

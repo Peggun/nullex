@@ -19,14 +19,18 @@ getrandom = "0.4.2"
 rand_core = "0.6"
 embedded-io = "0.7.1"
 sha2 = { version = "0.10.9", default-features = false, features = ["force-soft-compact"] }
+regex = { version = "1.13.0", default-features = false, features = ["unicode"] }
+bytemuck = { version = "1.25.1", default-features = false, features = ["derive"] }
+raw-cpuid = "11.6.0"
 
 [profile.dev]
 panic = "abort"
-opt-level = 0
-debug = true
 
 [profile.release]
 panic = "abort"
 
 [features]
 test = []
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(getrandom_backend, values("custom"))'] }

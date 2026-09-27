@@ -5,7 +5,7 @@
 
 use alloc::vec::Vec;
 
-use crate::{error::NullexError, lazy_static, serial_println, utils::mutex::SpinMutex};
+use crate::{error::NullexError, lazy_static, serial_println, sync::mutex::SpinMutex};
 
 const ARP_OP_REQUEST: u16 = 1;
 const ARP_OP_REPLY: u16 = 2;

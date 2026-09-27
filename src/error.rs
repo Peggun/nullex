@@ -13,6 +13,28 @@ use x86_64::{
 
 use crate::alloc::string::ToString;
 
+// ----- SYSCALL ERRORS ----- //
+/// No such file or directory
+pub const ERR_NO_ENT: i32 = -1;
+/// Bad file descriptor
+pub const ERR_BAD_FD: i32 = -2;
+/// Not a directory
+pub const ERR_NOT_DIR: i32 = -3;
+/// Is a directory
+pub const ERR_IS_DIR: i32 = -4;
+/// Unable to queue process
+pub const ERR_NO_QUEUE: i32 = -5;
+pub const ERR_CRE_PROC: i32 = -6;
+pub const ERR_DNS_FAIL: i32 = -7;
+pub const ERR_BAD_URL: i32 = -8;
+pub const ERR_GATEWAY_UNREACH: i32 = -9;
+pub const ERR_TCP_CONN_FAIL: i32 = -10;
+pub const ERR_NOT_CONNECTED: i32 = -11;
+pub const ERR_FAILED_TO_SEND: i32 = -12;
+pub const ERR_TIMED_OUT: i32 = -13;
+pub const ERR_TLS_FAILED: i32 = -14;
+pub const ERR_INVALID: i32 = -15;
+
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 /// An enum representing all Nullex Errors
 pub enum NullexError {
@@ -31,6 +53,8 @@ pub enum NullexError {
 	/// A memory operation was attempted on an unsupported byte boundary.
 	#[error("unaligned memory access")]
 	MemoryUnaligned,
+	#[error("invalid pointer")]
+	InvalidPointer,
 	/// The physical memory manager failed to provide a free frame.
 	#[error("frame allocation failed")]
 	FrameAllocationFailed,
@@ -61,6 +85,8 @@ pub enum NullexError {
 	/// The kernel's mapper detects incorrect page table flags.
 	#[error("incorrect page table flags")]
 	IncorrectPageTableFlags,
+	#[error("non-panic page fault")]
+	PageFault,
 
 	// --- Interrupt Errors --- //
 	/// No free slots remain in the Interrupt Descriptor Table or vector list.
@@ -171,6 +197,8 @@ pub enum NullexError {
 	/// A required MAC address was missing for a network operation.
 	#[error("missing mac address")]
 	MissingMacAddress,
+	#[error("network not initialized")]
+	NetworkNotInitialized,
 
 	// -- Network Errors -- //
 	/// The TCP Connection failed to establish
@@ -264,6 +292,9 @@ pub enum NullexError {
 	/// The kernel entropy failed.
 	#[error("rng entropy failed")]
 	EntropyFailed,
+
+	#[error("utf-8 encoding is invalid")]
+	InvalidEncoding,
 
 	// non-panicking errors.
 	/// A non-panicking failure occurred during a component's initialization
@@ -445,10 +476,13 @@ macro_rules! kernel_panic {
 /// - Failure results in an immediate kernel panic.
 #[macro_export]
 macro_rules! kassert {
-    ($cond:expr, $($arg:tt)*) => {
-        if !$cond {
-            $crate::println!("[FATAL] KERNEL ASSERT!");
-            $crate::kernel_panic!("{}", &format!($($arg)*));
-        }
-    };
+	($cond:expr, $($arg:tt)*) => {
+		if !$cond {
+			$crate::println!("[FATAL] KERNEL ASSERT!");
+			unsafe {
+				core::arch::asm!("int 0x25");
+			}
+			unreachable!();
+		}
+	};
 }

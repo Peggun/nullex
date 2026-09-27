@@ -1,0 +1,62 @@
+name: build-kernel
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Makefile'
+      - 'src/**'
+      - 'programs/**'
+      - 'targets/**'
+      - '.github/workflows/build-kernel.yml'
+  pull_request:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'Makefile'
+      - 'src/**'
+      - 'programs/**'
+      - 'targets/**'
+      - '.github/workflows/build-kernel.yml'
+
+jobs:
+  kernel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            gcc-x86-64-linux-gnu \
+            binutils-x86-64-linux-gnu \
+            nasm \
+            grub-pc-bin \
+            xorriso \
+            mtools
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspace: .
+
+      - name: Build kernel
+        run: make all
+
+      - name: Upload kernel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-bin
+          path: build/kernel-x86_64.bin
+          if-no-files-found: 'error'

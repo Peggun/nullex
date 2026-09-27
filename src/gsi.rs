@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 
 use x86_64::structures::idt::InterruptStackFrame;
 
-use crate::{ioapic::IoApic, lazy_static, serial_println, utils::mutex::SpinMutex};
+use crate::{ioapic::IoApic, lazy_static, serial_println, sync::mutex::SpinMutex};
 
 #[derive(Debug, Default, Clone)]
 /// Global System Interrupt (GSI) information structure.

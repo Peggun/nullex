@@ -9,7 +9,6 @@ use core::ptr::{addr_of, read_unaligned};
 use x86_64::VirtAddr;
 
 use crate::{
-	PHYS_MEM_OFFSET,
 	apic::{PIC1_DATA, PIC2_DATA},
 	common::ports::outb,
 	error::NullexError,
@@ -17,8 +16,9 @@ use crate::{
 	interrupts::allocate_and_register_vector,
 	io::pci::{pci_find_index_from_gsi, try_bind_device},
 	lazy_static,
+	memory::MMIO_BASE,
 	serial_println,
-	utils::mutex::SpinMutex
+	sync::mutex::SpinMutex
 };
 
 // https://wiki.osdev.org/RSDT
@@ -230,7 +230,7 @@ pub unsafe fn link_isos() {
 			outb(PIC2_DATA, 0xFF);
 		}
 
-		let ioapic_virt_base = (*PHYS_MEM_OFFSET.lock()).as_u64() + 0xFEC0_0000u64;
+		let ioapic_virt_base = MMIO_BASE + 0x1000;
 		serial_println!("[ACPI] IOAPIC virtual base: {:#x}", ioapic_virt_base);
 
 		let local_apic_id = (crate::apic::read_register(crate::apic::APIC_ID) >> 24) as u8;
@@ -243,7 +243,6 @@ pub unsafe fn link_isos() {
 		let mut entry_ptr = start;
 		let mut iso_count = 0;
 
-		// First pass: Record all ISOs in the GSI table
 		serial_println!("[ACPI] First pass: Recording ISOs...");
 		while (entry_ptr as usize) < (end as usize) {
 			let entry_hdr = entry_ptr as *const MadtTableEntry;
@@ -293,7 +292,6 @@ pub unsafe fn link_isos() {
 
 		serial_println!("[ACPI] Found {} ISOs in first pass", iso_count);
 
-		// Second pass: For each ISO with a handler, allocate vector and program IOAPIC
 		serial_println!("[ACPI] Second pass: Programming IOAPICs...");
 		let mut programmed_count = 0;
 
@@ -309,7 +307,7 @@ pub unsafe fn link_isos() {
 
 			serial_println!("[ACPI] Processing GSI {}: has_handler={}", gsi, has_handler);
 
-			// If no handler yet, try to bind a device driver
+			// no handler try bind to device driver
 			if !has_handler {
 				serial_println!(
 					"[ACPI] No handler for GSI {}, attempting device binding...",
@@ -323,14 +321,13 @@ pub unsafe fn link_isos() {
 				}
 			}
 
-			// Re-check if we now have a handler
+			// do we now have a handler
 			let (maybe_handler, existing_vector) = {
 				let gt = GSI_TABLE.lock();
 				(gt[gsi].handler, gt[gsi].vector)
 			};
 
 			if let Some(handler_fn) = maybe_handler {
-				// CRITICAL FIX: Check if vector already exists (from driver probe)
 				let vector = if let Some(existing) = existing_vector {
 					serial_println!(
 						"[ACPI] GSI {} already has vector {}, reusing it",
@@ -339,7 +336,6 @@ pub unsafe fn link_isos() {
 					);
 					existing as usize
 				} else {
-					// Only allocate a new vector if one doesn't exist
 					serial_println!("[ACPI] Allocating new vector for GSI {}...", gsi);
 					match allocate_and_register_vector(handler_fn) {
 						Ok(v) => {

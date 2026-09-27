@@ -12,6 +12,7 @@
 #![feature(str_from_raw_parts)]
 #![feature(ptr_internals)]
 #![feature(new_range_api)]
+#![feature(pointer_is_aligned_to)]
 
 #[macro_use]
 extern crate alloc;
@@ -20,8 +21,11 @@ pub mod acpi;
 pub mod allocator;
 pub mod apic;
 pub mod arch;
+pub mod boot;
 pub mod common;
 pub mod config;
+pub mod crypto;
+pub mod debug;
 pub mod drivers;
 pub mod error;
 pub mod fs;
@@ -34,19 +38,21 @@ pub mod ioapic;
 pub mod memory;
 pub mod net;
 pub mod pit;
+pub mod process;
 pub mod rtc;
 #[allow(deprecated)]
 pub mod serial;
+pub mod sync;
 pub mod syscall;
 pub mod task;
-pub mod utils;
+pub mod testing;
+pub mod time;
 pub mod vga_buffer;
 
 const _: () = assert!(cfg!(getrandom_backend = "custom"));
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 use core::{
-	arch::x86_64::_rdrand64_step,
 	future::Future,
 	pin::Pin,
 	sync::atomic::Ordering,
@@ -62,7 +68,10 @@ use crate::{
 	acpi::link_isos,
 	allocator::ALLOCATOR_INFO,
 	apic::{APIC_BASE, APIC_TPS},
+	boot::{enable_sse, init_efer, multiboot2::parse_multiboot2},
 	common::ports::outb,
+	crypto::rng::kernel_entropy_fill,
+	debug::logger::init_logging,
 	drivers::virtio::net::virtio_net_driver_init,
 	fs::ramfs::{FileSystem, setup_system_files},
 	interrupts::APIC_TIMER_VECTOR,
@@ -70,29 +79,19 @@ use crate::{
 		keyboard::line_editor::print_keypresses,
 		pci::{self, discover_pci_devices}
 	},
-	ioapic::{IOAPIC, IrqMode, RedirectionTableEntry, dump_gsi},
-	memory::{BootInfoFrameAllocator, init_global_alloc},
+	ioapic::{IOAPIC, dump_gsi},
+	memory::{BootInfoFrameAllocator, MMIO_BASE, PHYS_MEM_OFFSET, init_global_alloc},
+	process::util::{spawn_process, spawn_user_process},
 	task::{
-		Process,
-		ProcessId,
 		executor::{self, CURRENT_PROCESS, EXECUTOR},
-		keyboard
-	},
-	utils::{
-		boot::init_efer,
-		elf::pelf,
-		logger::init_logging,
-		multiboot2::parse_multiboot2,
-		mutex::SpinMutex,
-		process::{spawn_process, spawn_user_process},
-		rng::kernel_entropy_fill
+		process::{Process, ProcessId}
 	}
 };
 
-lazy_static! {
-	/// Static reference to the physical memory offset for the kernel.
-	pub static ref PHYS_MEM_OFFSET: SpinMutex<VirtAddr> = SpinMutex::new(VirtAddr::new(0x0));
-}
+// lazy_static! {
+// 	/// Static reference to the physical memory offset for the kernel.
+// 	pub static ref PHYS_MEM_OFFSET: SpinMutex<VirtAddr> =
+// SpinMutex::new(VirtAddr::new(0x0)); }
 
 fn init() {
 	serial_println!("[Info] Initializing kernel...");
@@ -116,18 +115,21 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	println!("[Info] Starting Kernel Init...");
 
 	init_efer();
+	enable_sse();
 	init_logging();
 
 	// parse boot info and initialize memory
 	let boot_info = unsafe { parse_multiboot2(mbi_addr) };
-	let pmo_val = *PHYS_MEM_OFFSET.lock();
-	let mapper = unsafe { memory::init(pmo_val) };
+	let mapper = unsafe { memory::init(VirtAddr::new(PHYS_MEM_OFFSET)) };
 	let memory_map_static: &'static _ = unsafe { core::mem::transmute(&boot_info.memory_map) };
 	let frame_allocator = BootInfoFrameAllocator::init(memory_map_static);
 
 	if let Err(e) = init_global_alloc(mapper, frame_allocator) {
 		panic!("Global Allocator Initialization failed: {}", e);
 	}
+
+	// todo: actually use the physical memory offset. i will add that very very
+	// soon.
 
 	// init gdt and idt
 	crate::init();
@@ -143,9 +145,9 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 			.as_mut()
 			.expect("FATAL: Frame allocator not initialized during APIC setup");
 
-		*APIC_BASE.lock() = pmo_val.as_u64() as usize + 0xFEE0_0000usize;
-		memory::map_apic(*mapper, *frame_allocator, pmo_val);
-		memory::map_ioapic(*mapper, *frame_allocator, pmo_val);
+		*APIC_BASE.lock() = MMIO_BASE as usize;
+		memory::map_apic(*mapper, *frame_allocator);
+		memory::map_ioapic(*mapper, *frame_allocator);
 	}
 
 	unsafe {
@@ -180,6 +182,8 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 	setup_system_files(fs);
 
 	serial_println!("[PCI] Registering platform drivers before PCI discovery...");
+	// i will need to fix this, and make like a dynamically found way to load
+	// the virtio-net driver
 	virtio_net_driver_init();
 
 	discover_pci_devices();
@@ -257,100 +261,57 @@ pub unsafe extern "C" fn kernel_main(mbi_addr: usize) -> ! {
 
 	#[cfg(feature = "test")]
 	{
-		use crate::utils::ktest::run_all_tests;
+		use crate::testing::ktest::{run_all_tests, run_user_tests};
 
 		run_all_tests();
+		let ktest_pid = run_user_tests();
+		crate::task::executor::run_executor(Some(ktest_pid));
 	}
 
-	// Spawn processes
-
-	// TODO: replace this with like a ELF binary that runs on boot.
-	let _cmds_pid = match spawn_process(
-		|_state| {
-			Box::pin(async move {
-				crate::keyboard::commands::init_commands();
-				0
-			}) as Pin<Box<dyn Future<Output = i32>>>
-		},
-		false
-	) {
-		Ok(pid) => pid,
-		Err(e) => {
-			serial_println!("[ERROR] Failed to spawn commands process: {}", e);
-			ProcessId::new(0)
-		}
-	};
-
-	let _keyboard_pid = match spawn_process(
-		|_state| Box::pin(print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>,
-		false
-	) {
-		Ok(pid) => pid,
-		Err(e) => {
-			serial_println!("[ERROR] Failed to spawn keyboard process: {}", e);
-			ProcessId::new(0)
-		}
-	};
-
-	// Main executor loop
-	let process_queue = EXECUTOR.lock().process_queue.clone();
-	loop {
-		if let Some(pid) = process_queue.pop() {
-			if let Some(process_arc) = EXECUTOR.lock().processes.get(&pid) {
-				process_arc
-					.lock()
-					.state
-					.queued
-					.store(false, Ordering::Release);
+	#[cfg(not(feature = "test"))]
+	{
+		let _keyboard_pid = match spawn_process(
+			|_state| Box::pin(print_keypresses()) as Pin<Box<dyn Future<Output = i32>>>,
+			false
+		) {
+			Ok(pid) => pid,
+			Err(e) => {
+				serial_println!("[ERROR] Failed to spawn keyboard process: {}", e);
+				ProcessId::new(0)
 			}
+		};
 
-			let process_arc = {
-				let executor = EXECUTOR.lock();
-				executor.processes.get(&pid).cloned()
-			};
-			if let Some(process_arc) = process_arc {
-				*CURRENT_PROCESS.lock() = Some(process_arc.lock().state.clone());
-
-				let mut process = process_arc.lock();
-				let process_state = process.state.clone();
-				unsafe {
-					executor::CURRENT_PROCESS_GUARD = &mut *process as *mut Process;
+		let _nush_pid = fs::with_fs(|fs| match fs.read_file("/init/nush.elf") {
+			Ok(bytes) => match spawn_user_process(bytes, Vec::new(), Vec::new()) {
+				Ok(proc) => {
+					let pid = proc.state.id;
+					{
+						let mut executor = EXECUTOR.lock();
+						if let Err(e) = executor.spawn_process(proc) {
+							serial_println!("[ERROR] Failed to queue NUSH process: {}", e);
+							return ProcessId::new(0);
+						}
+					}
+					pid
 				}
-				let waker = {
-					let mut executor = EXECUTOR.lock();
-					executor
-						.waker_cache
-						.entry(pid)
-						.or_insert_with(|| {
-							executor::ProcessWaker::new_waker(
-								pid,
-								process_queue.clone(),
-								process_state
-							)
-						})
-						.clone()
-				};
-				let mut context = Context::from_waker(&waker);
-				let result = process.future.as_mut().poll(&mut context);
-				unsafe {
-					executor::CURRENT_PROCESS_GUARD = core::ptr::null_mut();
+				Err(e) => {
+					serial_println!("[ERROR] Failed to spawn NUSH process: {}", e);
+					ProcessId::new(0)
 				}
-				if let Poll::Ready(exit_code) = result {
-					let mut executor = EXECUTOR.lock();
-					executor.processes.remove(&pid);
-					executor.waker_cache.remove(&pid);
-					serial_println!("Process {} exited with code: {}", pid.get(), exit_code);
-				}
-				*CURRENT_PROCESS.lock() = None;
+			},
+			Err(_) => {
+				serial_println!("[ERROR] NUSH is missing!");
+				ProcessId::new(0)
 			}
-		} else {
-			EXECUTOR.lock().sleep_if_idle();
-		}
+		});
+
+		crate::task::executor::run_executor(None);
 	}
 }
 
+/// Exits QEMU with the given exit code.
 #[allow(unused)]
-fn qemu_exit(code: u32) -> ! {
+pub fn qemu_exit(code: u32) -> ! {
 	serial_println!("QEMU exit: guest code = {}", code);
 
 	let mut port = Port::<u32>::new(0xf4);
@@ -370,8 +331,10 @@ fn panic(info: &core::panic::PanicInfo) -> ! {
 	crate::hlt_loop();
 }
 
+/// This function is called by the guest to get random bytes used for
+/// cryptographic operations.
 #[unsafe(no_mangle)]
-unsafe extern "Rust" fn __getrandom_v03_custom(
+pub unsafe extern "Rust" fn __getrandom_v03_custom(
 	dest: *mut u8,
 	len: usize
 ) -> Result<(), getrandom::Error> {

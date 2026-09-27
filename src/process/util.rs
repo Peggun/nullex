@@ -1,0 +1,138 @@
+//!
+//! process.rs
+//!
+//! Utilities for process handling for the kernel.
+
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use core::{
+	future::Future,
+	pin::Pin,
+	sync::atomic::{AtomicBool, Ordering}
+};
+
+use crossbeam_queue::ArrayQueue;
+use futures::task::AtomicWaker;
+
+use crate::{
+	apic::{APIC_TICK_COUNT, APIC_TPS},
+	error::NullexError,
+	sync::oncecell::cell::OnceCell,
+	task::{
+		executor::EXECUTOR,
+		files::{FileBackend, OpenFile},
+		process::{Process, ProcessId, ProcessState},
+		yield_now
+	}
+};
+
+/// Spawns a process using the provided future function.
+///
+/// # Arguments
+///
+/// * `future_fn` - A closure that receives a process state and returns a boxed
+///   future.
+/// * `is_child` - A flag indicating if the process is a child.
+///
+/// # Returns
+///
+/// The ProcessId of the newly spawned process, or a NullexError if spawn fails.
+///
+/// # Example
+/// ```rs
+/// 
+/// // Create a process using spawn_process.
+/// let _process1_pid = spawn_process(
+///     |state| Box::pin(process_one(state)) as Pin<Box<dyn Future<Output = i32>>>,
+///     false
+/// );
+/// ```
+pub fn spawn_process<F>(future_fn: F, is_child: bool) -> Result<ProcessId, NullexError>
+where
+	F: Fn(Arc<ProcessState>) -> Pin<Box<dyn Future<Output = i32>>> + Send + Sync + 'static
+{
+	// lock the executor and create a new PID.
+	let mut executor = EXECUTOR.lock();
+	let pid = executor.create_pid();
+
+	// create the process state.
+	let state = Arc::new(ProcessState {
+		id: pid,
+		is_child,
+		future_fn: Arc::new(future_fn),
+		queued: AtomicBool::new(false),
+		scancode_queue: OnceCell::uninit(),
+		waker: AtomicWaker::new()
+	});
+
+	// construct the process.
+	let mut process = Process::new(state)?;
+	process.open_files.insert(0, OpenFile {
+		backend: FileBackend::Stdin
+	});
+	process.open_files.insert(1, OpenFile {
+		backend: FileBackend::Stdout
+	});
+	// stderr
+	process.next_fd = 3;
+	// spawn the process.
+	executor.spawn_process(process)?;
+	Ok(pid)
+}
+
+/// Spawns a new user process with restricted permissions.
+///
+/// # Arguments
+///
+/// * `bytes` - The ELF bytes of the process.
+/// * `args` - The arguments to pass to the process.
+/// * `envs` - The environment variables to set for the process.
+///
+/// # Returns
+///
+/// The ProcessId of the newly spawned process, or a NullexError if spawn fails.
+///
+/// # Example
+/// ```rs
+/// 
+/// // Create a process using spawn_user_process.
+/// let _process1_pid = spawn_user_process(
+///     b"BYTES HERE",
+///     vec![],
+///     vec![]
+/// );
+/// ```
+/// Look at lib.rs for a full example.
+pub fn spawn_user_process(
+	bytes: &[u8],
+	args: Vec<String>,
+	envs: Vec<String>
+) -> Result<Process, NullexError> {
+	let mut executor = EXECUTOR.lock();
+	let pid = executor.create_pid();
+
+	let state = Arc::new(ProcessState {
+		id: pid,
+		is_child: false,
+		future_fn: Arc::new(|_| Box::pin(async { 0 })),
+		queued: AtomicBool::new(false),
+		scancode_queue: OnceCell::new(ArrayQueue::new(1)),
+		waker: AtomicWaker::new()
+	});
+
+	Process::from_elf(state, bytes, args, envs)
+}
+
+#[allow(unused)]
+/// # Safety
+/// Should NEVER be used in kernel space. only like a API for syscalls and user
+/// space later.
+async unsafe fn sleep(ms: u64) {
+	let tps = APIC_TPS.load(Ordering::Relaxed);
+	let now = APIC_TICK_COUNT.load(Ordering::Relaxed);
+	let ticks = (ms * tps) / 1000;
+	let then = now + ticks;
+
+	while APIC_TICK_COUNT.load(Ordering::Relaxed) < then {
+		yield_now().await;
+	}
+}

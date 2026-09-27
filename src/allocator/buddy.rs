@@ -18,7 +18,7 @@ use x86_64::{
 use crate::{
 	memory::{phys_to_virt, virt_to_phys},
 	serial_println,
-	utils::{mutex::SpinMutex, spin::rwlock::RwLock}
+	sync::{mutex::SpinMutex, spin::rwlock::RwLock}
 };
 
 pub enum BuddyMemoryAreaRequest {

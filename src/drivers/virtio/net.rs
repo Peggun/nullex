@@ -11,7 +11,11 @@ use x86_64::{align_up, structures::idt::InterruptStackFrame};
 
 use crate::{
 	apic::send_eoi,
-	common::ports::{inb, inw, outl, outw},
+	common::{
+		endian::{Le16, Le32},
+		ports::{inb, inw, outl, outw},
+		types::{BYTE, QWORD}
+	},
 	drivers::virtio::{
 		VIRTIO_IO_DEVICE_CFG,
 		VIRTIO_IO_DEVICE_FEATURES,
@@ -40,15 +44,18 @@ use crate::{
 	memory::{DmaBuffer, dma_alloc},
 	net::receive_packet,
 	serial_println,
-	utils::{
-		endian::{Le16, Le32},
-		mutex::SpinMutex,
-		types::{BYTE, QWORD}
-	}
+	sync::mutex::SpinMutex
 };
 
 lazy_static! {
 	/// Static reference to the VirtioNet Device.
+	/// DO NOT USE THIS. if because this value gets taken to initialize the `NET_MANAGER`
+	/// lazy static, this is None. if you want to access configuration do so using that like so:
+	/// ```rust
+	/// let mut guard = NET_MANAGER.lock();
+	/// let manager = guard.as_mut().ok_or(NullexError::NetworkNotInitialized)?;
+	/// let mac = manager.device.config.mac;
+	/// ```
 	pub static ref VIRTIO_NET_DEVICE: SpinMutex<Option<VirtioNetDevice>> = SpinMutex::new(None);
 	/// Static reference to the RX Queue
 	pub static ref RX_QUEUE: SpinMutex<VirtQueue> = SpinMutex::new(VirtQueue::empty());
@@ -739,18 +746,18 @@ pub fn transmit_packet(packet: &[u8]) -> Result<(), NullexError> {
 	Ok(())
 }
 
-fn virtio_net_finalize() -> Result<(), NullexError> {
-	serial_println!("[VIRTIO-NET] Finalizing device (setting DRIVER_OK)");
+// fn virtio_net_finalize() -> Result<(), NullexError> {
+// 	serial_println!("[VIRTIO-NET] Finalizing device (setting DRIVER_OK)");
 
-	let mut instance = VIRTIO_NET_INSTANCE.lock();
-	if let Some((ref mut virtio_net, io_base)) = *instance {
-		virtio_net.set_driver_status(VirtIODeviceStatus::DRIVER_OK.bits());
-		serial_println!("[VIRTIO-NET] Device finalized at io_base={:#x}", io_base);
-		Ok(())
-	} else {
-		Err(NullexError::MissingVirtIOInstance)
-	}
-}
+// 	let mut instance = VIRTIO_NET_INSTANCE.lock();
+// 	if let Some((ref mut virtio_net, io_base)) = *instance {
+// 		virtio_net.set_driver_status(VirtIODeviceStatus::DRIVER_OK.bits());
+// 		serial_println!("[VIRTIO-NET] Device finalized at io_base={:#x}", io_base);
+// 		Ok(())
+// 	} else {
+// 		Err(NullexError::MissingVirtIOInstance)
+// 	}
+// }
 
 /// Initialize the Virtio Net driver.
 pub fn virtio_net_driver_init() {
@@ -891,7 +898,9 @@ pub fn virtio_net_probe(dev: &mut PciDevice) -> Result<usize, NullexError> {
 }
 
 /// VirtioNet Interrupt Handler.
+#[unsafe(no_mangle)]
 pub extern "x86-interrupt" fn virtio_net_interrupt_handler(_stack_frame: InterruptStackFrame) {
+	let _kg = unsafe { crate::task::address_space::Cr3Guard::enter_kernel() };
 	if VIRTIO_NET_TRACE_INTERRUPTS {
 		serial_println!("[VIRTIO-NET] Interrupt!");
 	}
@@ -901,6 +910,8 @@ pub extern "x86-interrupt" fn virtio_net_interrupt_handler(_stack_frame: Interru
 		match dev.as_ref() {
 			Some(d) => d.io_base as usize,
 			None => {
+				//serial_println!("no virtio here :)");
+
 				unsafe {
 					send_eoi();
 				}

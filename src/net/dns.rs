@@ -2,19 +2,18 @@
 //! dns.rs
 //!
 //! DNS Protocol handling for the kernel.
-//! 
 
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
-use crate::{error::NullexError, lazy_static, serial_println, utils::mutex::SpinMutex};
+use crate::{error::NullexError, lazy_static, rtc, serial_println, sync::mutex::SpinMutex};
 
 // DNS server (QEMU Default)
 // quick note here. 10.0.2.3 is the usermode DNS address
 // however we are not in usermode currently, so we send all requests to
 // to the gateway (10.0.2.2)
 // we are using google because that works rather than the QEMU one
-const DNS_SERVER: [u8; 4] = [8,8,8,8];
-const DNS_TIMEOUT_MS: u32 = 5000;
+const DNS_SERVER: [u8; 4] = [8, 8, 8, 8];
+const DNS_TIMEOUT_MS: u64 = 5000;
 
 lazy_static! {
 	/// Static reference to the DNS cache, so lookups are quicker.
@@ -90,10 +89,9 @@ pub fn resolve(hostname: &str) -> Result<[u8; 4], NullexError> {
 }
 
 fn wait_for_dns_response(query_id: u16, hostname: &str) -> Result<[u8; 4], NullexError> {
-	let poll_interval = 10; // ms
-	let max_iterations = DNS_TIMEOUT_MS / poll_interval;
+	let start_ms = rtc::rtc_instant().millis() as u64;
 
-	for iteration in 0..max_iterations {
+	loop {
 		{
 			let mut responses = DNS_RESPONSES.lock();
 			if let Some(Some(ip)) = responses.remove(&query_id) {
@@ -110,25 +108,43 @@ fn wait_for_dns_response(query_id: u16, hostname: &str) -> Result<[u8; 4], Nulle
 		}
 
 		crate::drivers::virtio::net::rx_poll();
+		let current_ms = rtc::rtc_instant().millis() as u64;
+		let elapsed_ms = current_ms.wrapping_sub(start_ms);
 
-		for _ in 0..100000 {
-			core::hint::spin_loop();
+		if elapsed_ms >= DNS_TIMEOUT_MS {
+			break;
 		}
 
-		if iteration % 50 == 0 && iteration > 0 {
-			serial_println!(
-				"[DNS] Still waiting for response ({}/{}ms)",
-				iteration * poll_interval,
-				DNS_TIMEOUT_MS
-			);
+		serial_println!(
+			"interrupts={} | ticks={} | millis={} | elapsed={}ms",
+			x86_64::instructions::interrupts::are_enabled(),
+			rtc::rtc_ticks(),
+			current_ms,
+			elapsed_ms
+		);
+
+		serial_println!(
+			"[DNS] Still waiting for response ({}/{}ms)",
+			elapsed_ms,
+			DNS_TIMEOUT_MS
+		);
+
+		if x86_64::instructions::interrupts::are_enabled() {
+			x86_64::instructions::hlt();
+		} else {
+			// fallback if interrupts are somehow disabled
+			core::hint::spin_loop();
 		}
 	}
 
 	serial_println!("[DNS] Timeout resolving {}", hostname);
+
+	// Cleanup stale entries
 	let mut responses = DNS_RESPONSES.lock();
 	responses.remove(&query_id);
 	let mut pending = PENDING_QUERIES.lock();
 	pending.remove(&query_id);
+
 	Err(NullexError::DnsTimeout)
 }
 

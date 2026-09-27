@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use crate::{lazy_static, utils::mutex::SpinMutex};
+use crate::{lazy_static, sync::mutex::SpinMutex};
 
 lazy_static! {
 	pub static ref IO_ALLOC: SpinMutex<IoAllocator> = SpinMutex::new(IoAllocator::new(0x0000, 0x10000)); // 64KiB

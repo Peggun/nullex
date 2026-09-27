@@ -1,62 +1,52 @@
 //!
 //! https.rs
-//! 
+//!
 //! HTTPS network request handling.
-//! 
 
 use alloc::{string::String, vec::Vec};
 use core::hint::spin_loop;
 
 use embedded_io::Write as _;
 use embedded_tls::*;
-use smoltcp::{
-	iface::{Interface, SocketSet},
-	socket::tcp::Socket,
-	time::Instant
-};
+use smoltcp::{socket::tcp::Socket, time::Instant};
 
 use crate::{
-	drivers::virtio::net::VirtioNet,
+	crypto::rng::KernelRng,
 	error::NullexError,
 	net::{
+		NET_MANAGER,
 		http::{
 			CONNECT_LOG_INTERVAL_MS,
 			CONNECT_TIMEOUT_MS,
 			FetchStep,
 			HTTP_RECV_CHUNK_SIZE,
 			RESPONSE_STALL_TIMEOUT_MS,
+			httparse::{
+				chunked::decode_chunked,
+				headers::ResponseHeaders,
+				response::{HttpResult, ResponseKind, classify, resolve_filename},
+				url::{ParsedUrl, Scheme},
+				writer::{DownloadedFileWriter, FileSystemDownloadedFileWriter}
+			},
 			next_src_port
 		},
 		tcp::{TcpConnection, TcpIo}
 	},
 	serial_println,
-	utils::{
-		httparse::{
-			chunked::decode_chunked,
-			headers::ResponseHeaders,
-			response::{HttpResult, ResponseKind, classify, resolve_filename},
-			url::ParsedUrl,
-			writer::{DownloadedFileWriter, FileSystemDownloadedFileWriter}
-		},
-		rng::KernelRng,
-		time::elapsed_ms
-	}
+	time::elapsed_ms
 };
 
 const TLS_RECORD_BUFFER_SIZE: usize = 16_640;
 
-/// 
+///
 pub fn do_https_fetch_once(
-	iface: &mut Interface,
-	device: &mut VirtioNet,
-	sockets: &mut SocketSet<'_>,
 	current: &ParsedUrl,
 	dst_ip: [u8; 4],
 	now: Instant
 ) -> Result<FetchStep, NullexError> {
 	let src_port = next_src_port();
-	let conn = TcpConnection::new(sockets);
-	conn.connect(iface, sockets, dst_ip, current.port, src_port)?;
+	let conn = TcpConnection::new(Scheme::Https);
+	conn.connect(dst_ip, current.port, src_port)?;
 	serial_println!(
 		"[HTTPS] Connecting to {}:{} (src_port={})",
 		current.host,
@@ -69,9 +59,12 @@ pub fn do_https_fetch_once(
 	let mut last_log_ms = now.total_millis();
 
 	loop {
-		TcpConnection::poll(iface, device, sockets, timestamp);
+		TcpConnection::poll(timestamp);
 
-		let state = sockets.get::<Socket>(conn.handle).state();
+		let mut guard = NET_MANAGER.lock();
+		let manager = guard.as_mut().ok_or(NullexError::NetworkNotInitialized)?;
+		let state = manager.sockets.get::<Socket>(conn.handle).state();
+		core::mem::drop(guard);
 		match state {
 			smoltcp::socket::tcp::State::Established => break,
 			smoltcp::socket::tcp::State::Closed | smoltcp::socket::tcp::State::TimeWait => {
@@ -90,7 +83,7 @@ pub fn do_https_fetch_once(
 
 		if elapsed >= CONNECT_TIMEOUT_MS {
 			serial_println!("[HTTPS] Connect timed out");
-			conn.close(sockets);
+			conn.close();
 			return Err(NullexError::TcpConnectionFailed);
 		}
 
@@ -98,9 +91,7 @@ pub fn do_https_fetch_once(
 		spin_loop();
 	}
 
-	serial_println!("rng");
 	let rng = KernelRng::try_new().expect("entropy init failed");
-	serial_println!("rng");
 
 	let config = TlsConfig::new()
 		.with_server_name(&current.host)
@@ -114,7 +105,7 @@ pub fn do_https_fetch_once(
 	let mut record_write_buffer = vec![0u8; TLS_RECORD_BUFFER_SIZE];
 
 	{
-		let transport = TcpIo::new(&conn, iface, device, sockets, crate::rtc::rtc_instant);
+		let transport = TcpIo::new(&conn, crate::rtc::rtc_instant);
 
 		let mut tls = blocking::TlsConnection::new(
 			transport,
@@ -222,7 +213,7 @@ pub fn do_https_fetch_once(
 					}
 				};
 
-				conn.close(sockets);
+				conn.close();
 				return Ok(FetchStep::Complete(result));
 			}
 		}

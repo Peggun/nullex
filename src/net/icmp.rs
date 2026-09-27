@@ -3,7 +3,7 @@
 //!
 //! ICMP packet handling logic for the kernel.
 
-use crate::{error::NullexError, serial_println, utils::net::calculate_checksum};
+use crate::{error::NullexError, net::util::calculate_checksum, serial_println};
 
 const ICMP_ECHO_REPLY: u8 = 0;
 const ICMP_ECHO_REQUEST: u8 = 8;
