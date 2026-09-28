@@ -3,7 +3,7 @@ name: ci
 on:
   workflow_dispatch:
   push:
-    branches: [ main, master ]
+    branches: [ test-ci, master ]
     paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
