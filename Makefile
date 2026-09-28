@@ -4,8 +4,8 @@
 
 TARGET := x86_64-unknown-none
 CC := x86_64-linux-gnu-gcc
-AR := ar
-LD := ld
+AR := x86_64-linux-gnu-ar
+LD := x86_64-linux-gnu-ld
 QEMU_SYSTEM := qemu-system-x86_64
 
 CFLAGS := -m64 -march=x86-64 -O2 -pipe -ffreestanding -fno-builtin \
