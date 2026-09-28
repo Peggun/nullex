@@ -37,7 +37,10 @@ jobs:
         run: mdbook build docs/book -d public/guide
 
       - name: Build Rust API Reference
-        run: cargo doc --no-deps --output-dir ./public/api
+        run: |
+          cargo doc --no-deps
+          mkdir -p ./public/api
+          cp -r target/doc/. ./public/api/
 
       - name: Build nlibc Docs
         run: doxygen Doxyfile
