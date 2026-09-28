@@ -30,7 +30,8 @@ jobs:
             grub-pc-bin \
             xorriso \
             mtools \
-            python3-pyelftools
+            python3-pyelftools \
+            qemu-system-x86
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@nightly
