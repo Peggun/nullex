@@ -212,6 +212,7 @@ install_on_brew() {
 
   echo "-- Installing x86_64 Linux cross compiler..."
   brew tap messense/macos-cross-toolchains
+  brew trust messense/macos-cross-toolchains
   brew install x86_64-unknown-linux-gnu
 
   local brew_prefix

@@ -1,6 +1,6 @@
 #ifndef NUSH_CAT_H
 #define NUSH_CAT_H
 
-int cat(int argc, char* argv[]);
+void cat(int argc, char* argv[]);
 
 #endif
