@@ -50,7 +50,7 @@ jobs:
               EXIT_CODE=$?
               set -e
 
-              if [ "$EXIT_CODE" -eq 1 ]; then
+              if [ "$EXIT_CODE" -eq 2 ]; then
                 echo "Kernel tests passed"
                 exit 0
               else
