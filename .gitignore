@@ -19,3 +19,5 @@ docs/nlibc
 docs/book/book
 __pycache__/
 *.zip
+package.json
+package-lock.json

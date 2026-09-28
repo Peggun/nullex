@@ -30,8 +30,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y doxygen
 
-      - name: Prepare output directory
-        run: mkdir -p public
+      - name: Prepare output directory and dummy files
+        run: |
+          mkdir -p public
+          mkdir -p build
+          # cargo doc needs this as we are including it for stack trace debugging
+          # when the actual kernel crashes. 
+          touch build/nullex.ndm
 
       - name: Build mdBook Guide
         run: mdbook build docs/book -d public/guide
