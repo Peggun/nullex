@@ -117,6 +117,10 @@ install_on_pacman() {
     xorriso \
     python-pyelftools
 
+  run_as_root ln -sf /usr/bin/ar /usr/bin/x86_64-linux-gnu-ar
+  run_as_root ln -sf /usr/bin/ld /usr/bin/x86_64-linux-gnu-ld
+  run_as_root ln -sf /usr/bin/gcc /usr/bin/x86_64-linux-gnu-gcc
+
   echo "-- pacman installs finished"
 }
 
@@ -166,10 +170,6 @@ install_on_dnf() {
     xorriso \
     gcc-x86_64-linux-gnu \
     python3-pyelftools
-
-  run_as_root ln -sf /usr/bin/ar /usr/bin/x86_64-linux-gnu-ar
-  run_as_root ln -sf /usr/bin/ld /usr/bin/x86_64-linux-gnu-ld
-  run_as_root ln -sf /usr/bin/gcc /usr/bin/x86_64-linux-gnu-gcc
 
   echo "-- dnf installs finished"
 }
