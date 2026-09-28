@@ -114,7 +114,8 @@ install_on_pacman() {
     dosfstools \
     parted \
     grub \
-    xorriso
+    xorriso \
+    python-pyelftools
 
   echo "-- pacman installs finished"
 }
@@ -145,7 +146,8 @@ install_on_dnf() {
     parted \
     grub2-tools \
     xorriso \
-    gcc-x86_64-linux-gnu || \
+    gcc-x86_64-linux-gnu \
+    python3-pyelftools || \
   run_as_root dnf -y install \
     qemu \
     qemu-img \
@@ -162,7 +164,8 @@ install_on_dnf() {
     parted \
     grub2-tools \
     xorriso \
-    gcc-x86_64-linux-gnu
+    gcc-x86_64-linux-gnu \
+    python3-pyelftools
 
   echo "-- dnf installs finished"
 }
@@ -208,7 +211,24 @@ install_on_brew() {
   brew update || true
 
   echo "-- Installing macOS build dependencies..."
-  brew install qemu llvm curl git
+  brew install \
+    curl \
+    git \
+    ca-certificates \
+    ossp-uuid \
+    nasm \
+    acpica \
+    ovmf \
+    dosfstools \
+    parted \
+    qemu \
+    llvm \
+    python \
+    xorriso \
+    x86_64-elf-grub
+
+  echo "-- Installing Python build dependencies..."
+  python3 -m pip install --user --break-system-packages pyelftools || true
 
   echo "-- Installing x86_64 Linux cross compiler..."
   brew tap messense/macos-cross-toolchains
@@ -218,9 +238,11 @@ install_on_brew() {
   local brew_prefix
   brew_prefix="$(brew --prefix)"
   export PATH="$brew_prefix/bin:$PATH"
+  export PATH="$HOME/Library/Python/3.*/bin:$PATH"
 
   if [[ -n "${GITHUB_PATH:-}" ]]; then
     echo "$brew_prefix/bin" >> "$GITHUB_PATH"
+    echo "$HOME/Library/Python/3.*/bin" >> "$GITHUB_PATH" || true
   fi
 
   if ! command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
