@@ -176,21 +176,21 @@ install_on_brew() {
       exit 1
     fi
 
-    echo "Installing Xcode Command Line Tools (this may pop up a GUI prompt)..."
+    echo "Installing Xcode Command Line Tools..."
     xcode-select --install || true
-    echo "If a GUI prompt appeared, complete that install and re-run this script if needed."
+    echo "Complete the installation and rerun this script."
   else
     echo "Xcode Command Line Tools already present"
   fi
 
   if ! command -v brew >/dev/null 2>&1; then
     if [[ "$CI_MODE" == "true" ]]; then
-      echo "Homebrew is not available. Install Homebrew before running this script on macOS."
+      echo "Homebrew is not available."
       exit 1
     fi
 
-    echo "Homebrew not found — attempting to install Homebrew (may require interaction)"
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" || true
+    echo "Homebrew not found — attempting to install..."
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
     if [[ -x /opt/homebrew/bin/brew ]]; then
       eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -199,60 +199,40 @@ install_on_brew() {
     fi
   fi
 
-  if command -v brew >/dev/null 2>&1; then
-    brew update || true
-
-    echo "-- Installing macOS build dependencies..."
-    brew install \
-      qemu \
-      llvm \
-      gcc \
-      x86_64-linux-gnu-binutils \
-      curl \
-      git
-
-    # Homebrew's GCC provides a versioned Linux cross compiler such as:
-    #   x86_64-pc-linux-gnu-gcc-16
-    #
-    # we currently expect the unversioned:
-    #   x86_64-linux-gnu-gcc
-    #
-    # create that compatibility name inside Homebrew's bin directory.
-    brew_prefix="$(brew --prefix)"
-    gcc_prefix="$(brew --prefix gcc)"
-
-    cross_gcc=""
-    while IFS= read -r candidate; do
-      if [[ -z "$cross_gcc" || "$candidate" > "$cross_gcc" ]]; then
-        cross_gcc="$candidate"
-      fi
-    done < <(
-      find "$gcc_prefix/bin" \
-        -maxdepth 1 \
-        -type f \
-        -name 'x86_64-pc-linux-gnu-gcc-*' \
-        -print 2>/dev/null
-    )
-
-    if [[ -z "$cross_gcc" ]]; then
-      echo "ERROR: Homebrew GCC was installed, but the x86_64 Linux cross compiler was not found."
-      echo "Expected something like:"
-      echo "  $gcc_prefix/bin/x86_64-pc-linux-gnu-gcc-16"
-      exit 1
-    fi
-
-    echo "-- Found Linux cross compiler:"
-    echo "   $cross_gcc"
-
-    ln -sf "$cross_gcc" "$brew_prefix/bin/x86_64-linux-gnu-gcc"
-
-    echo "-- Created:"
-    echo "   $brew_prefix/bin/x86_64-linux-gnu-gcc -> $cross_gcc"
-  else
-    echo "Homebrew still not available."
-    echo "Please install Homebrew manually: https://brew.sh/"
+  if ! command -v brew >/dev/null 2>&1; then
+    echo "ERROR: Homebrew is unavailable."
     exit 1
   fi
+
+  echo "-- Updating Homebrew..."
+  brew update || true
+
+  echo "-- Installing macOS build dependencies..."
+  brew install qemu llvm curl git
+
+  echo "-- Installing x86_64 Linux cross compiler..."
+  brew tap messense/macos-cross-toolchains
+  brew install x86_64-unknown-linux-gnu
+
+  local brew_prefix
+  brew_prefix="$(brew --prefix)"
+  export PATH="$brew_prefix/bin:$PATH"
+
+  if [[ -n "${GITHUB_PATH:-}" ]]; then
+    echo "$brew_prefix/bin" >> "$GITHUB_PATH"
+  fi
+
+  if ! command -v x86_64-linux-gnu-gcc >/dev/null 2>&1; then
+    echo "ERROR: x86_64-linux-gnu-gcc was not found after installation."
+    echo "Expected it in: $brew_prefix/bin"
+    exit 1
+  fi
+
+  echo "-- Cross compiler:"
+  x86_64-linux-gnu-gcc --version | head -n 1
+
+  echo "-- Compiler target:"
+  x86_64-linux-gnu-gcc -dumpmachine
 
   echo "-- brew installs finished"
 }

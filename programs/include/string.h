@@ -265,16 +265,4 @@ bool endswith(char *string, char *end);
  */
 bool startswith(char *string, char *start);
 
-void *__nullex_memcpy(void *dest, const void *src, size_t n);
-void *__nullex_memset(void *dest, int c, size_t n);
-char *__nullex_strrchr(const char *s, int c);
-char *__nullex_strncpy(char *dest, const char *src, size_t n);
-size_t __nullex_strspn(const char *str, const char *accept);
-
-#define memcpy __nullex_memcpy
-#define memset __nullex_memset
-#define strrchr __nullex_strrchr
-#define strncpy __nullex_strncpy
-#define strspn __nullex_strspn
-
 #endif
