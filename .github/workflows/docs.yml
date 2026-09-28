@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - master
-      - test-ci
+      - ci-test
 
 permissions:
   contents: read

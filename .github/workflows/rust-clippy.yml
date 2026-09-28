@@ -11,10 +11,9 @@ name: rust-clippy analyze
 
 on:
   push:
-    branches: [ "master", "test-ci" ]
+    branches: [ "master", "ci-test" ]
   pull_request:
-    # The branches below must be a subset of the branches above
-    branches: [ "master", "test-ci" ]
+    branches: [ "master", "ci-test" ]
 
 jobs:
   rust-clippy-analyze:
