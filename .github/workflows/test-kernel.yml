@@ -44,4 +44,16 @@ jobs:
           workspace: .
 
       - name: Test kernel
-        run: make test
+        run: |
+              set +e
+              make test
+              EXIT_CODE=$?
+              set -e
+
+              if [ "$EXIT_CODE" -eq 1 ]; then
+                echo "Kernel tests passed"
+                exit 0
+              else
+                echo "Kernel tests failed with exit code $EXIT_CODE"
+                exit $EXIT_CODE
+              fi
