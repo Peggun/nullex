@@ -218,9 +218,7 @@ install_on_brew() {
     ossp-uuid \
     nasm \
     acpica \
-    ovmf \
     dosfstools \
-    parted \
     qemu \
     llvm \
     python \
