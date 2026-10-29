@@ -9,6 +9,7 @@ from bisect import bisect_right
 from elftools.elf.elffile import ELFFile
 from elftools.dwarf.descriptions import describe_form_class
 
+__VERSION__ = 0.1.0
 
 FILE_NAME_SIZE = 64
 FUNCTION_NAME_SIZE = 64

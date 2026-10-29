@@ -71,7 +71,7 @@ void print_welcome_msg() {
   printf("| $$ \\  $$|  $$$$$$/| $$| $$|  $$$$$$$ /$$/\\  $$\n");
   printf("|__/  \\__/ \\______/ |__/|__/ \\_______/|__/  \\__/\n\n");
 
-  printf("Welcome to Nullex! v0.1.0 (built: %s)\n", __DATE__);
+  printf("Welcome to Nullex! v0.1.0-beta.1 (built: %s)\n", __DATE__);
   printf("============================================================\n");
 }
 

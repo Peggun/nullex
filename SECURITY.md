@@ -3,11 +3,10 @@
 ## Supported Versions
 
 Here are the versions that are currently being supported with security updates.
-(All Versions)
 
 | Version | Supported          |
 | ------- | ------------------ |
-| All Versions   | :white_check_mark: |
+| 0.1.0-beta.1  | :white_check_mark: |
 
 ## Reporting a Vulnerability
 

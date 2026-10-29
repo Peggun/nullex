@@ -2,6 +2,8 @@
 # Kernel Makefile
 # ---------------------------
 
+KERNEL_VERSION := 0.1.0-beta.1 
+
 TARGET := x86_64-unknown-none
 CC := x86_64-linux-gnu-gcc
 AR := x86_64-linux-gnu-ar

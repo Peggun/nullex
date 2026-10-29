@@ -1,1 +1,2 @@
-# Chapter 1
+# Introduction
+Welcome to the `nullex` kernel! 

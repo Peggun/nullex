@@ -15,6 +15,7 @@
 #include "version.h"
 
 #define NGET_REPOSITORY "https://peggun.github.io/nullex-packages"
+#define NGET_VERSION "0.1.0-beta.1"
 
 /*
  * -------------------------------------------------------------------

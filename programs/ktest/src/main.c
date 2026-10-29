@@ -2,6 +2,8 @@
 
 #include "ktest.h"
 
+#define KTEST_VERSION "0.1.0-beta.1"
+
 extern const test_desc_t __start_user_tests[];
 extern const test_desc_t __stop_user_tests[];
 
